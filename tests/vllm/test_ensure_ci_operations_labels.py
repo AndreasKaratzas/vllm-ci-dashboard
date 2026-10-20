@@ -27,6 +27,7 @@ def test_label_set_has_exact_project_workstreams():
         "automated",
         "amd-ci-regression",
         "ci-main-failure",
+        "ci-flakiness",
         "workstream:infra",
         "workstream:dashboard-ci",
         "workstream:dev",

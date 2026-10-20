@@ -417,6 +417,7 @@ OPERATIONS_FINDING_SURFACES: dict[str, frozenset[str]] = {
     "operations-current-parity-projection": _OPS_CORE,
     "operations-bundle-retired-sections": _OPS_GLOBAL,
     "operations-retired-view": _OPS_GLOBAL,
+    "operations-main-ci-cohort": _OPS_ANALYTICS,
     "operations-reliability-cohort": _OPS_ANALYTICS,
     "operations-reliability-cohort-build-numbers": _OPS_ANALYTICS,
     "operations-reliability-cohort-composition": _OPS_ANALYTICS,

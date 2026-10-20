@@ -59,6 +59,12 @@ LEGACY_OBSERVATION_DERIVED_FIELDS = (
     "step_url",
 )
 
+# Final per-build group outcomes: p=passed, f=hard failure, s=soft failure,
+# r=passed only after a hard-failed attempt in the same build was retried.
+FINAL_OUTCOME_CODES = {"passed": "p", "hard": "f", "soft": "s"}
+RECOVERED_OUTCOME_CODE = "r"
+NOT_RUN_JOB_STATES = frozenset({"blocked", "skipped", "not_run"})
+
 _HW_PREFIX_RE = re.compile(r"^(mi\d+[a-z]?_\d+|gpu_\d+|amd_\w+):\s*", re.IGNORECASE)
 _UPSTREAM_HW_RE = re.compile(
     r"(?<![a-z0-9])(h100|h200|b100|b200|a100|l4|t4|cpu|npu|tpu)(?![a-z0-9])",
@@ -876,6 +882,7 @@ def build_all_main_reliability(
             catalog_build["message_original_chars"] = original_message_chars
         build_catalog.append(catalog_build)
         seen_jobs: set[str] = set()
+        build_jobs: list[dict] = []
         for job in build.get("jobs") or []:
             if not _is_test_job(job) or not _is_terminal_job(job):
                 continue
@@ -889,11 +896,13 @@ def build_all_main_reliability(
             if dedupe_key in seen_jobs:
                 continue
             seen_jobs.add(dedupe_key)
+            build_jobs.append(job)
             identity = _identity(job, pipeline_slug)
             group_id = _group_id(identity)
             group = grouped.setdefault(group_id, {
                 "group_id": group_id,
                 "identity": identity,
+                "final_outcomes": {},
                 "observations": [],
                 "result_counts": Counter(),
                 "excluded_counts": Counter(),
@@ -922,7 +931,39 @@ def build_all_main_reliability(
             for key in ("wall_completion_mins", "test_duration_mins", "queue_wait_mins", "end_to_end_mins"):
                 if isinstance(observation.get(key), (int, float)):
                     group["durations"][key].append(float(observation[key]))
+        job_counts = Counter()
+        failed_groups = {
+            _group_id(_identity(job, pipeline_slug))
+            for job in build_jobs
+            if _result(job)[0] == "failed"
+        }
+        for group_id, selected in collapse_nightly_attempts(build_jobs, pipeline_slug).items():
+            outcome = selected["outcome"]
+            if outcome in FINAL_OUTCOME_CODES:
+                job_counts[outcome] += 1
+                code = FINAL_OUTCOME_CODES[outcome]
+                if outcome == "passed" and group_id in failed_groups:
+                    code = RECOVERED_OUTCOME_CODE
+                grouped[group_id]["final_outcomes"][catalog_build["number"]] = code
+            elif str(selected["job"].get("state") or "").lower() in NOT_RUN_JOB_STATES:
+                job_counts["not_run"] += 1
+            else:
+                job_counts["unknown"] += 1
+        catalog_build["amd_jobs"] = {
+            "passed": job_counts["passed"],
+            "soft": job_counts["soft"],
+            "hard": job_counts["hard"],
+            "unknown": job_counts["unknown"],
+            "not_run": job_counts["not_run"],
+            "retried": sum(
+                bool(job.get("retried") or job.get("retried_in_job_id"))
+                for job in build_jobs
+            ),
+        }
 
+    # Oldest-first creation order, so consecutive history entries are adjacent
+    # source revisions for flip counting.
+    catalog_order = [build["number"] for build in reversed(build_catalog)]
     groups = []
     for group in grouped.values():
         observations = sorted(
@@ -979,6 +1020,14 @@ def build_all_main_reliability(
             ),
             "observations_truncated": len(observations) > len(retained),
             "observations": retained,
+            "outcome_history": {
+                "builds": [number for number in catalog_order if number in group["final_outcomes"]],
+                "results": "".join(
+                    group["final_outcomes"][number]
+                    for number in catalog_order
+                    if number in group["final_outcomes"]
+                ),
+            },
         })
     groups.sort(key=lambda row: (
         str(row["name"]).lower(), str(row["raw_name"]).lower(), row["step_key"], row["hardware"], row["queue"], row["group_id"],

@@ -5643,9 +5643,9 @@ def test_operations_bundle_accepts_current_latency_above_retired_comparison_limi
     )
 
     _output, manifest = _large_current_latency_bundle(tmp_path)
-    assert manifest["bundle_version"] == 3
+    assert manifest["bundle_version"] == 4
     assert 1_500_000 < manifest["sections"]["comparison"]["bytes"] <= OPERATIONS_CANARY_SECTION_MAX_BYTES["comparison"]
-    assert OPERATIONS_CANARY_SECTION_MAX_BYTES["comparison"] == 7 * 1024 * 1024
+    assert OPERATIONS_CANARY_SECTION_MAX_BYTES["comparison"] == 6 * 1024 * 1024
     assert OPERATIONS_CANARY_BUNDLE_MAX_BYTES == 32 * 1024 * 1024
     audit = DashboardAudit(tmp_path)
     audit.audit_operations_bundle()

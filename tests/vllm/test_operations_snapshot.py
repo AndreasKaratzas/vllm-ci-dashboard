@@ -3357,6 +3357,7 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
         "queue",
         "omni",
         "diagnostics",
+        "main_ci",
     }
     assert "reliability" not in manifest["shell"]
     assert "amd_agent_health" not in manifest["shell"]

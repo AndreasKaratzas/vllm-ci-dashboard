@@ -22,7 +22,7 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
 
     assert budget.allocated_bytes + budget.required_headroom_bytes <= budget.max_tree_bytes
     assert budget.required_headroom_bytes >= 16 * 1024 * 1024
-    assert budget.allocated_bytes == 227 * 1024 * 1024
+    assert budget.allocated_bytes == 227 * 1024 * 1024 + 256 * 1024
 
     groups = budget.groups
     writers = budget.writer_limits
@@ -87,6 +87,7 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
         "omni_surge_watcher_state",
         "queue_issue_watcher_state",
         "queue_zombie_watcher_state",
+        "ci_flakiness_watcher_state",
     )
     assert sum(
         writers[name].max_bytes for name in watcher_state_writers

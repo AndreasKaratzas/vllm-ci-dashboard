@@ -24,12 +24,12 @@ def _section_sizes(*, total: int) -> dict[str, int]:
 
 
 def test_probe_policy_covers_every_declared_section_and_streams_reliability():
-    assert contract.OPERATIONS_BUNDLE_VERSION == 3
+    assert contract.OPERATIONS_BUNDLE_VERSION == 4
     assert (
         contract.OPERATIONS_PRODUCER_BUNDLE_VERSION
         in contract.OPERATIONS_SUPPORTED_BUNDLE_VERSIONS
     )
-    assert contract.OPERATIONS_SUPPORTED_BUNDLE_VERSIONS == {1, 2, 3}
+    assert contract.OPERATIONS_SUPPORTED_BUNDLE_VERSIONS == {1, 2, 3, 4}
     assert contract.OPERATIONS_STREAMED_LARGE_SECTIONS == ("reliability",)
     assert (
         set(contract.OPERATIONS_SECTION_NAMES)
@@ -128,7 +128,7 @@ def test_legacy_bundle_keeps_bounded_rollout_compatibility():
     ) > 0
 
 
-@pytest.mark.parametrize("bundle_version", [True, 0, 4, "2"])
+@pytest.mark.parametrize("bundle_version", [True, 0, 5, "2"])
 def test_bundle_version_dispatch_rejects_unknown_versions(bundle_version):
     with pytest.raises(
         contract.OperationsBundleContractError,
@@ -143,35 +143,70 @@ def test_bundle_version_dispatch_rejects_unknown_versions(bundle_version):
         )
 
 
-def test_v3_producer_and_readers_require_smaller_inventory():
+def test_v3_readers_require_smaller_inventory():
     sections = {name: 1 for name in contract.OPERATIONS_V3_SECTION_NAMES}
-    assert contract.OPERATIONS_PRODUCER_BUNDLE_VERSION == 3
     assert contract.validate_operations_canary_budget_for_bundle_version(
         bundle_version=3, manifest_bytes=1, section_bytes=sections
     ) == len(sections)
-    for version in (1, 2):
+    for version in (1, 2, 4):
         with pytest.raises(contract.OperationsBundleContractError, match="inventory"):
             contract.validate_operations_canary_budget_for_bundle_version(
                 bundle_version=version, manifest_bytes=1, section_bytes=sections
             )
 
 
-@pytest.mark.parametrize("retired_section", ["gating", "trajectory", "comparison_retry_evidence"])
-def test_v3_reader_rejects_retired_sections(retired_section):
-    sections = {name: 1 for name in contract.OPERATIONS_V3_SECTION_NAMES}
-    sections[retired_section] = 1
+def test_v4_producer_adds_main_ci_and_keeps_v3_readable():
+    sections = {name: 1 for name in contract.OPERATIONS_V4_SECTION_NAMES}
+    assert contract.OPERATIONS_PRODUCER_BUNDLE_VERSION == 4
+    assert set(contract.OPERATIONS_V4_SECTION_NAMES) - set(
+        contract.OPERATIONS_V3_SECTION_NAMES
+    ) == {"main_ci"}
+    assert contract.validate_operations_canary_budget_for_bundle_version(
+        bundle_version=4, manifest_bytes=1, section_bytes=sections
+    ) == len(sections)
     with pytest.raises(contract.OperationsBundleContractError, match="inventory"):
         contract.validate_operations_canary_budget_for_bundle_version(
             bundle_version=3, manifest_bytes=1, section_bytes=sections
         )
 
 
-def test_v3_reader_retains_additive_per_section_limits():
+def test_v3_reader_keeps_its_published_comparison_allocation():
     sections = {name: 1 for name in contract.OPERATIONS_V3_SECTION_NAMES}
-    sections["comparison"] = contract.OPERATIONS_CANARY_SECTION_MAX_BYTES["comparison"] + 1
-    with pytest.raises(contract.OperationsBundleContractError, match="section 'comparison'"):
+    sections["comparison"] = contract.OPERATIONS_V3_CANARY_SECTION_MAX_BYTES["comparison"]
+    assert sections["comparison"] > contract.OPERATIONS_CANARY_SECTION_MAX_BYTES["comparison"]
+    assert contract.validate_operations_canary_budget_for_bundle_version(
+        bundle_version=3, manifest_bytes=1, section_bytes=sections
+    ) > 0
+
+
+@pytest.mark.parametrize("retired_section", ["gating", "trajectory", "comparison_retry_evidence"])
+def test_v3_reader_rejects_retired_sections(retired_section):
+    for version, names in (
+        (3, contract.OPERATIONS_V3_SECTION_NAMES),
+        (4, contract.OPERATIONS_V4_SECTION_NAMES),
+    ):
+        sections = {name: 1 for name in names}
+        sections[retired_section] = 1
+        with pytest.raises(contract.OperationsBundleContractError, match="inventory"):
+            contract.validate_operations_canary_budget_for_bundle_version(
+                bundle_version=version, manifest_bytes=1, section_bytes=sections
+            )
+
+
+_V3 = (3, contract.OPERATIONS_V3_SECTION_NAMES, contract.OPERATIONS_V3_CANARY_SECTION_MAX_BYTES)
+_V4 = (4, contract.OPERATIONS_V4_SECTION_NAMES, contract.OPERATIONS_CANARY_SECTION_MAX_BYTES)
+
+
+@pytest.mark.parametrize(
+    ("version", "names", "limits", "section"),
+    [(*_V3, "comparison"), (*_V4, "comparison"), (*_V4, "main_ci")],
+)
+def test_readers_retain_additive_per_section_limits(version, names, limits, section):
+    sections = {name: 1 for name in names}
+    sections[section] = limits[section] + 1
+    with pytest.raises(contract.OperationsBundleContractError, match=f"section '{section}'"):
         contract.validate_operations_canary_budget_for_bundle_version(
-            bundle_version=3, manifest_bytes=1, section_bytes=sections
+            bundle_version=version, manifest_bytes=1, section_bytes=sections
         )
 
 

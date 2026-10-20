@@ -5241,20 +5241,28 @@ class TestAlertAutomationWorkflow:
         )
         duration_watch = names.index("Watch AMD main duration regressions (open/close issue)")
         agent_watch = names.index("Watch AMD CI agent health (open/close issue)")
+        flaky_watch = names.index(
+            "Watch AMD MI main CI flakiness and retries (open/close issue)"
+        )
 
         assert restore < min(amd_collect, agent_collect)
         assert ci_watch > amd_collect
+        assert flaky_watch > ci_watch
+        assert steps[flaky_watch]["run"] == "python scripts/vllm/ci_flakiness_watcher.py"
+        assert steps[flaky_watch]["if"] == steps[ci_watch]["if"]
+        assert "',ci_analytics,'" in steps[ci_watch]["if"]
         assert duration_watch > amd_collect
         assert agent_watch > agent_collect
         assert steps[ci_watch]["run"] == "python scripts/vllm/ci_main_failure_watcher.py"
         assert steps[duration_watch]["run"] == "python scripts/vllm/amd_duration_regression_watcher.py"
         assert steps[agent_watch]["run"] == "python scripts/vllm/agent_health_issue_watcher.py"
-        for index in (ci_watch, duration_watch, agent_watch):
+        for index in (ci_watch, duration_watch, agent_watch, flaky_watch):
             env = steps[index].get("env") or {}
             assert {"GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"} <= set(env)
 
         persist = names.index("Stage managed alert issue state")
-        assert persist > max(ci_watch, duration_watch, agent_watch)
+        assert persist > max(ci_watch, duration_watch, agent_watch, flaky_watch)
+        assert persist < names.index("Rebuild v2 operations snapshot with selected issue state")
         assert steps[persist].get("if") == (
             "inputs.dns_generation == '' && "
             "inputs.queue_generation == '' && "
@@ -5268,6 +5276,7 @@ class TestAlertAutomationWorkflow:
             "open_ci_main_failure_issues.json",
             "open_amd_duration_regression_issues.json",
             "open_agent_health_issues.json",
+            "open_ci_flakiness_issues.json",
         ):
             assert state_file in persist_run
             assert surface_for_path(f"data/vllm/ci/{state_file}") is None

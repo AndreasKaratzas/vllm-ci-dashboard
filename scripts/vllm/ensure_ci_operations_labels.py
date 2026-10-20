@@ -20,6 +20,7 @@ LABEL_SPECS = [
     ("automated", "6f42c1", "Managed by dashboard automation"),
     ("amd-ci-regression", "d73a49", "Confirmed AMD CI target incident"),
     ("ci-main-failure", "d73a49", "Unresolved upstream CI test-group failure on origin/main"),
+    ("ci-flakiness", "d4a72c", "AMD MI test groups flipping or rescued by retries on origin/main"),
     ("workstream:infra", "0e8a16", "AMD CI infrastructure and capacity"),
     (
         "workstream:dashboard-ci",

@@ -410,7 +410,11 @@ def load_core_targets(path: Path = FRESHNESS_TARGETS) -> CoreTargets:
         if not loaded:
             raise TypeError
         core = payload["core"]
-        sources = tuple(key for key in core["sources"] if "path" not in payload["sources"][key])
+        sources = tuple(
+            key
+            for key in (*core["sources"], *core.get("main_derived_sources", ()))
+            if "path" not in payload["sources"][key]
+        )
         target_minutes = _positive_finite(float(core["target_minutes"]), label="core target")
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("data freshness targets are invalid") from exc

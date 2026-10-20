@@ -93,11 +93,11 @@ def _managed_issue(number: int) -> dict:
     }
 
 
-def test_suballocations_compose_exactly_to_the_shared_three_mib_budget() -> None:
-    assert len(WATCHER_STATE_WRITERS) == 7
+def test_suballocations_compose_exactly_to_the_shared_watcher_budget() -> None:
+    assert len(WATCHER_STATE_WRITERS) == 8
     assert "open_amd_main_failure_issues.json" not in WATCHER_STATE_WRITERS
     assert watcher_state_max_bytes("open_amd_main_failure_issues.json") > 0
-    assert watcher_state_allocated_bytes() == 3 * 1024 * 1024
+    assert watcher_state_allocated_bytes() == 3 * 1024 * 1024 + 256 * 1024
     assert watcher_state_allocated_bytes() == group_max_bytes("watcher_state")
 
 
@@ -108,6 +108,7 @@ def test_suballocations_compose_exactly_to_the_shared_three_mib_budget() -> None
         "scripts/vllm/amd_duration_regression_watcher.py",
         "scripts/vllm/amd_main_failure_watcher.py",
         "scripts/vllm/ci_area_regression_watcher.py",
+        "scripts/vllm/ci_flakiness_watcher.py",
         "scripts/vllm/ci_main_failure_watcher.py",
         "scripts/vllm/omni_surge_watcher.py",
         "scripts/vllm/queue_issue_watcher.py",
@@ -454,7 +455,12 @@ def test_atomic_replace_failure_preserves_lkg_and_cleans_temporary_file(
 
 
 def test_current_bundle_is_within_the_aggregate_budget() -> None:
-    paths = [ROOT / "data" / "vllm" / "ci" / name for name in WATCHER_STATE_WRITERS]
+    # A newly registered ledger appears after its watcher's first evaluation.
+    paths = [
+        path
+        for path in (ROOT / "data" / "vllm" / "ci" / name for name in WATCHER_STATE_WRITERS)
+        if path.exists()
+    ]
     assert sum(path.stat().st_size for path in paths) <= group_max_bytes("watcher_state")
     for path in paths:
         payload = json.loads(path.read_text())

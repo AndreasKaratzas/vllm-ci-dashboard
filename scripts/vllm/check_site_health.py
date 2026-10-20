@@ -37,7 +37,11 @@ from vllm.operations_bundle_contract import (  # noqa: E402
     operations_section_names_for_bundle_version,
     validate_operations_canary_budget_for_bundle_version,
 )
-from vllm.data_freshness_targets import load_freshness_targets, source_stale_minutes  # noqa: E402
+from vllm.data_freshness_targets import (  # noqa: E402
+    core_clock_sources,
+    load_freshness_targets,
+    source_stale_minutes,
+)
 from vllm.publication_limits import (  # noqa: E402
     PUBLICATION_MAX_BLOB_BYTES,
     PUBLICATION_MAX_FILES,
@@ -1140,7 +1144,7 @@ def _check_core_age(
         sources = {}
     stamps: dict[str, datetime] = {}
     problems: list[str] = []
-    for name in load_freshness_targets()["core"]["sources"]:
+    for name in core_clock_sources():
         # A core source newer than the manifest's producer is absent rather than
         # undated; judging only what was published keeps rollbacks readable.
         if sources and name not in sources:

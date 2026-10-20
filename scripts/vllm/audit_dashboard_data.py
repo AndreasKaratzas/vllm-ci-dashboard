@@ -3341,6 +3341,17 @@ class DashboardAudit:
                 ),
                 relpath,
             )
+        main_ci = _mapping(payload.get("main_ci"))
+        if main_ci.get("available") is True and (
+            _safe_int(_mapping(main_ci.get("summary")).get("builds"))
+            != len(_rows(main_ci.get("builds")))
+            or _safe_int(_mapping(main_ci.get("cohort")).get("build_count")) != cohort_builds
+        ):
+            self.error(
+                "operations-main-ci-cohort",
+                "main_ci must summarize every build of the same all-main cohort as reliability",
+                relpath,
+            )
 
         nightly = _mapping(payload.get("nightly"))
         canonical = _mapping(nightly.get("canonical_history")) or next(
