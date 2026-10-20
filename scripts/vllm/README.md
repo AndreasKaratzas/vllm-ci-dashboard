@@ -12,9 +12,10 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `collect_amd_test_matrix.py` | Derives inline and native AMD GPU main CI routes at the exact observed nightly commit | Every reserved full collection via `hourly-master.yml`; cooldown runs retain the validated matrix |
 | `collect_ownership_parity.py` | Builds the ownership routing map from the exact vLLM commit referenced by the latest AMD matrix | Hourly after matrix collection |
 | `merge_perf_eval_events.py` | Strictly merges a validated durable baseline with candidate perf-eval JSONL through the bounded atomic writer | Every canonical perf-eval seed sync |
-| `build_operations_snapshot.py` | Builds the private operations input and bundle-v3 manifest with eleven retained lazy sections, current runtime GPU cohorts, source parity, and exact five-nightly latency | Every canonical collection and Pages assembly |
+| `build_operations_snapshot.py` | Builds the private operations input and bundle-v4 manifest with twelve retained lazy sections (including the compact all-main-builds `main_ci` section), current runtime GPU cohorts, source parity, and exact five-nightly latency | Every canonical collection and Pages assembly |
 | `build_queue_section.py` | Builds only the compact public Queue shard from queue-owned inputs | Every independent queue-monitor run |
 | `ci_main_failure_watcher.py` | Reconciles one upstream `ci`/`main` failure issue and retains bisect candidate bounds per strict group | Hourly after analytics collection |
+| `ci_flakiness_watcher.py` | Reconciles one issue listing AMD MI groups whose final outcome flips, or whose hard failures are rescued by retries, at or above `config/ci_flakiness_thresholds.json` on `ci`/`main` | Every reserved full collection after analytics |
 | `ci_area_regression_watcher.py` | Maps every exact AMD matrix definition to its owned test-area rotation and reconciles one state-owned dashboard issue per area with confirmed incidents | Hourly after matrix collection |
 | `ensure_ci_operations_labels.py` | Ensures managed and workstream labels exist before issue watchers run | Every canonical collection |
 | `sync_ci_operations_project.py` | Adds open managed dashboard issues to the linked AMD CI Operations Project, split by workstream labels | Hourly after issue reconciliation |
@@ -226,8 +227,9 @@ build_queue_section.py    --> data/vllm/ci/operations_v2/queue.json
                           --> queue-data branch (live browser feed)
 collect_capacity_monitor.py --> data/vllm/ci/capacity_monitor.json
 collect_analytics.py      --> data/vllm/ci/analytics.json (private full input)
-                           --> ci_main_failure_watcher.py
-                           --> open_ci_main_failure_issues.json (private state)
+                           --> ci_main_failure_watcher.py, ci_flakiness_watcher.py
+                           --> open_ci_main_failure_issues.json,
+                               open_ci_flakiness_issues.json (private state)
 private analytics.json    --> ci/public_analytics.py during build_site.py
                            --> bounded _site/data/vllm/ci/analytics.json
 collect_amd_test_matrix.py --> data/vllm/ci/amd_test_matrix.json
@@ -298,7 +300,7 @@ The immutable dashboard-state tree has a checked 256 MiB ceiling. Its shared
 allocation policy now assigns 223 MiB, leaving 33 MiB of global headroom, and
 includes a separate 18 MiB envelope for unclassified code/config assets.
 Generated operational data has disjoint aggregate groups: Operations control
-files (5 MiB), watcher state (3 MiB), GitHub Home (768 KiB), and small fixed
+files (5 MiB), watcher state (3.25 MiB), GitHub Home (768 KiB), and small fixed
 operational files (256 KiB). Retired gating, hotness, and group-change data have
 no active allocation. The final staged-index guard checks
 every group before commit; bounded evidence writers compact whole units and
@@ -449,8 +451,9 @@ contributes at most one sample per nightly: maximum wall time of the complete
 parallel shard group, followed by the median across available nightly samples.
 Missing groups are unavailable; older nightlies never fill missing samples.
 
-The private `operations_v2.json.gz` build input produces bundle v3 with eleven
-allowlisted lazy sections. Canonical publication replaces the Pages tree,
+The private `operations_v2.json.gz` build input produces bundle v4 with twelve
+allowlisted lazy sections. Readers still accept the v3 inventory, so a deployed
+v3 generation stays valid until the next publication replaces it. Canonical publication replaces the Pages tree,
 validates historical restore proofs, and purges retired artifacts. The removal
 inventory is tracked in [Dashboard Cleanup](dashboards/dashboard-cleanup.md).
 
@@ -466,3 +469,77 @@ Buildkite collection runs only through the guarded **Data Collection**,
 GitHub Actions workflows. Local tests and rendering use fixtures without a
 Buildkite token. Request allowances and successful collection cadence remain
 bounded by the durable ledgers.
+
+## Main branch monitoring and detection latency
+
+`main` is the source of truth. `collect_analytics.py` keeps every completed
+`ci` branch=main build for 30 days; each catalog build records its final AMD MI
+job outcomes (`amd_jobs`) and each strict group records its per-build final
+outcome (`outcome_history`, with `r` marking a pass reached only by retrying a
+hard failure). From that one cohort:
+
+- `ci_main_failure_watcher.py` confirms incidents (hard immediately, soft after
+  two builds), keeps `good_commit`/`bad_commit` bisect bounds, and now records
+  opened/resolved transitions in `timeline` inside its state file.
+- `ci_flakiness_watcher.py` lists groups at or above the flip or
+  retry-recovery thresholds in `config/ci_flakiness_thresholds.json` and closes
+  its issue when none remain.
+- `operations_v2/main_ci.json` (bounded to 1.5 MiB) publishes per-build
+  summaries, the watcher's incidents and timeline, flaky groups, retry hotspots
+  and daily/hourly pass-rate series. `shell.sources.main_ci` carries the cohort's
+  own collection time, because `analytics.json` advances even when an incomplete
+  Buildkite scan preserves the previous cohort. `core.main_derived_sources` in
+  `config/data_freshness_targets.json` lists that clock, so Site Health reports
+  the case as stale core data and the watchdog labels its recovery
+  `core-data-stale`.
+
+Both watchers run in the same Data Collection run that refreshed analytics,
+before the Operations snapshot is rebuilt, so a new hard failure opens or
+updates its issue and reaches `main_ci` in one generation. They skip, without
+touching issues, whenever the `ci_analytics` surface is degraded or the cohort
+is older than three hours. For example, from 2026-10-17 16:31 to 2026-10-19
+00:34 UTC every analytics collection failed (`RuntimeSourceError`
+schema-drift), so no main alert could fire; the degraded publication was
+reported through the hourly validation incident (#568) instead.
+
+### What bounds detection latency
+
+Worst case is roughly the 120-minute success interval in
+`config/data_collection_attempt_budget.json` plus one 15-35 minute collection.
+The publication watchdog checks every 15 minutes and dispatches Data
+Collection as soon as that ledger is due. A Buildkite webhook cannot start
+collection earlier: `cadence-preflight` observes the same ledger and drops
+early dispatches. Lowering latency means lowering `success_interval_minutes`
+(and raising `max_request_bearing_attempts`, currently 16 per 25 hours with 800
+request starts each), which is a Buildkite API budget decision.
+
+### Making the `buildkite_build_finished` webhook work
+
+Only one such dispatch has ever reached `hourly-master.yml` (2026-03-26) and
+`queue-monitor.yml` has received none, so no relay is deployed today. What it
+needs:
+
+1. A relay. Buildkite webhooks post Buildkite JSON with Buildkite headers, while
+   `POST /repos/AndreasKaratzas/vllm-ci-dashboard/dispatches` needs a GitHub
+   bearer token and an `event_type` body, so Buildkite cannot call GitHub
+   directly. `scripts/vllm/ci/webhook.py` is that relay: an HTTP server on
+   `WEBHOOK_PORT` (default 8080) that must run on an always-on host reachable
+   over HTTPS (for example behind a reverse proxy).
+2. Relay secrets: `GITHUB_TOKEN`, a fine-grained token scoped to this
+   repository with **Contents: write** (required for repository dispatch), and
+   `BUILDKITE_WEBHOOK_SECRET`, the token of the Buildkite webhook. The relay
+   accepts Buildkite's `X-Buildkite-Signature: timestamp=...,signature=...`
+   HMAC (body signed as `<timestamp>.<body>`, 5-minute skew) or the plain
+   `X-Buildkite-Token` mode.
+3. A Buildkite webhook notification service on the `vllm` organization
+   (**Organization Settings > Notification Services > Webhook**) pointing at the
+   relay, with events `build.finished` (plus `job.*`/`agent.*` for the queue
+   monitor), pipeline `ci` (and `perf-eval`), branch filter `main`. This needs a
+   Buildkite organization administrator of `vllm`; a pipeline-level `notify`
+   would instead need an upstream change to the `ci` pipeline definition. The
+   dashboard owner can deploy the relay and token but cannot do this step
+   without that access.
+4. The relay dispatches `buildkite_build_finished` only for canonical nightly
+   builds today. Because of the attempt ledger above, dispatching every main
+   build would not shorten latency until the success interval is lowered.
+

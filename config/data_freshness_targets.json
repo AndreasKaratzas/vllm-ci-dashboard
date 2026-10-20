@@ -2,6 +2,7 @@
   "schema_version": 1,
   "core": {
     "sources": ["analytics", "ci_health", "amd_test_matrix", "test_group_parity", "workload_mapping", "perf_eval"],
+    "main_derived_sources": ["main_ci"],
     "target_minutes": 135,
     "warn_minutes": 150,
     "stale_minutes": 180
@@ -14,6 +15,7 @@
   "default_collector_limit_minutes": 360,
   "sources": {
     "analytics": {"label": "CI analytics", "area": "analytics", "kind": "collector"},
+    "main_ci": {"label": "Main CI builds", "area": "analytics", "kind": "collector"},
     "ci_health": {"label": "CI health", "area": "health", "kind": "collector"},
     "config_parity": {"label": "Configuration parity", "area": "health", "kind": "collector"},
     "test_group_parity": {"label": "Upstream test-group parity", "area": "health", "kind": "collector"},

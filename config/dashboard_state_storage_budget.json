@@ -92,7 +92,7 @@
       ]
     },
     "watcher_state": {
-      "max_bytes": 3145728,
+      "max_bytes": 3407872,
       "patterns": [
         "data/vllm/ci/open_ci_main_failure_issues.json",
         "data/vllm/ci/open_amd_main_failure_issues.json",
@@ -101,7 +101,8 @@
         "data/vllm/ci/open_agent_health_issues.json",
         "data/vllm/ci/open_omni_surge_issues.json",
         "data/vllm/ci/open_queue_issues.json",
-        "data/vllm/ci/open_queue_zombie_issues.json"
+        "data/vllm/ci/open_queue_zombie_issues.json",
+        "data/vllm/ci/open_ci_flakiness_issues.json"
       ]
     },
     "github_home": {
@@ -255,6 +256,10 @@
       "max_bytes": 262144
     },
     "queue_zombie_watcher_state": {
+      "group": "watcher_state",
+      "max_bytes": 262144
+    },
+    "ci_flakiness_watcher_state": {
       "group": "watcher_state",
       "max_bytes": 262144
     },

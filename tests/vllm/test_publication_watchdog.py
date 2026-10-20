@@ -508,9 +508,12 @@ def test_repository_core_targets_are_the_manifest_clocked_core_sources() -> None
     targets = watchdog.load_core_targets()
 
     assert targets.sources == tuple(
-        key for key in config["core"]["sources"] if "path" not in config["sources"][key]
+        key
+        for key in (*config["core"]["sources"], *config["core"]["main_derived_sources"])
+        if "path" not in config["sources"][key]
     )
     assert "perf_eval" in config["core"]["sources"] and "perf_eval" not in targets.sources
+    assert "main_ci" in targets.sources
     assert targets.target_minutes == config["core"]["target_minutes"]
 
 
@@ -981,3 +984,24 @@ def test_actual_health_recovery_step_dispatches_the_validated_lane(tmp_path, fai
         assert status_path.exists() is (failure == "stale")
         if failure == "stale":
             assert json.loads(status_path.read_text()) == _status(age_minutes=190)
+
+
+def test_preserved_main_cohort_makes_core_stale_while_analytics_is_fresh(tmp_path) -> None:
+    targets = watchdog.load_core_targets()
+    ages = dict.fromkeys(targets.sources, 30)
+    ages["main_ci"] = targets.target_minutes + 1
+    age = watchdog.core_data_age(_manifest(tmp_path, ages), targets, now=NOW)
+
+    assert age == watchdog.CoreDataAge(
+        "main_ci", NOW - timedelta(minutes=targets.target_minutes + 1), True
+    )
+
+
+def test_manifest_predating_main_ci_is_judged_by_its_core_clocks_only(tmp_path) -> None:
+    targets = watchdog.load_core_targets()
+    ages = {key: 30 for key in targets.sources if key not in targets.main_derived}
+    age = watchdog.core_data_age(_manifest(tmp_path, ages), targets, now=NOW)
+    assert age.stale is False and age.source != "main_ci"
+
+    undated = watchdog.core_data_age(_manifest(tmp_path, {**ages, "main_ci": None}), targets, now=NOW)
+    assert undated == watchdog.CoreDataAge("main_ci", None, True)

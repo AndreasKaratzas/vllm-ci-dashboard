@@ -103,6 +103,7 @@ def _operation_generated_files() -> list[str]:
             "comparison",
             "definition_parity",
             "diagnostics",
+            "main_ci",
             "nightly",
             "omni",
             "ownership",

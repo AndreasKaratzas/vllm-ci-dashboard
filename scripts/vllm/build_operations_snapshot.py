@@ -23,12 +23,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from vllm.bounded_json import atomic_write_bytes  # noqa: E402
 from vllm.constants import amd_gpu_hardware, is_excluded_queue  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
-from vllm.data_freshness_targets import load_freshness_targets  # noqa: E402
+from vllm.data_freshness_targets import core_clock_sources, load_freshness_targets  # noqa: E402
+from vllm.main_ci_section import (  # noqa: E402
+    bounded_main_ci,
+    build_main_ci,
+    main_ci_shell,
+    unavailable as main_ci_unavailable,
+)
 from vllm.operations_bundle_contract import (  # noqa: E402
     OPERATIONS_CANARY_SECTION_MAX_BYTES,
     OPERATIONS_PRODUCER_BUNDLE_VERSION,
     OperationsBundleContractError,
-    validate_operations_canary_budget,
+    operations_section_names_for_bundle_version,
+    validate_operations_canary_budget_for_bundle_version,
 )
 from vllm.ci.incident_transitions import (  # noqa: E402
     INCIDENT_TRANSITION_POLICY_ID,
@@ -93,6 +100,7 @@ ORG_SUMMARY_NAME = "org_summary.json"
 ORG_SUMMARY_MAX_BYTES = writer_max_bytes("org_summary")
 ORG_SUMMARY_SCHEMA_VERSION = 7
 QUEUE_LIFECYCLE_NAME = "queue_lifecycle.json"
+MAIN_FAILURE_STATE_NAME = "open_ci_main_failure_issues.json"
 NIGHTLY_BUILD_LIMIT = 30
 RANKING_LIMIT = 20
 GROUP_HISTORY_LIMIT = 60
@@ -4039,6 +4047,11 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         "pipelines": pipeline_blocks,
     }
     reliability = _reliability(analytics.get("ci") or {}, pipeline_slug="ci")
+    main_ci = build_main_ci(
+        ci_analytics,
+        _load_json(data_dir / MAIN_FAILURE_STATE_NAME),
+        generated_at or _utc_now(),
+    )
     test_group_parity = loaded.get("test_group_parity") or {}
     if test_group_parity:
         test_group_parity = {
@@ -4121,6 +4134,16 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         "collection_timestamp_source": "ci_health.generated_at",
         "published": True,
     }
+    # analytics.json advances even when an incomplete Buildkite scan preserves
+    # the previous all-main cohort, so main-derived data carries its own clock.
+    sources["main_ci"] = {
+        "path": SOURCE_FILES["analytics"],
+        "timestamp": main_ci.get("source_generated_at") or None,
+        "timestamp_source": "ci.all_main_reliability.generated_at",
+        "published": True,
+    }
+    if main_ci.get("unavailable_reason"):
+        sources["main_ci"]["unavailable_reason"] = main_ci["unavailable_reason"]
 
     return {
         "schema_version": 2,
@@ -4130,6 +4153,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         "home": home,
         "attention": attention,
         "nightly": nightly,
+        "main_ci": main_ci,
         "amd_test_health": amd_test_health,
         "amd_agent_health": amd_agent_health,
         "reliability": reliability,
@@ -4408,7 +4432,7 @@ def _core_generated_at(sources: dict) -> str | None:
     """Return the oldest core collection time, or None while any core source is undated."""
     stamps = [
         _parse_dt((sources.get(name) or {}).get("timestamp"))
-        for name in load_freshness_targets()["core"]["sources"]
+        for name in core_clock_sources()
     ]
     return None if None in stamps else _utc_iso(min(stamps))
 
@@ -4429,6 +4453,7 @@ def _operations_shell(payload: dict) -> dict:
     } | {
         "core_generated_at": _core_generated_at(payload.get("sources") or {}),
         "nightly": nightly,
+        "main_ci": main_ci_shell(payload.get("main_ci") or {}),
         "amd_test_health": {"summary": amd_health.get("summary") or {}},
         "definition_parity": {
             "summary": definition_parity.get("summary") or {},
@@ -5644,7 +5669,7 @@ def _operation_sections(payload: dict) -> dict[str, dict]:
         row_transform=_compact_operations_ownership_row,
     )
     queue = compact_queue_section(_compact_queue(payload.get("queue") or {}))
-    return {
+    sections = {
         "nightly": {"nightly": _compact_nightly(payload.get("nightly") or {})},
         "amd_test_health": {
             "amd_test_health": _bounded_operations_amd_test_health(
@@ -5667,7 +5692,16 @@ def _operation_sections(payload: dict) -> dict[str, dict]:
         "queue": queue,
         "omni": {"omni": payload.get("omni") or {}},
         "diagnostics": _diagnostic_section(payload),
+        "main_ci": {"main_ci": bounded_main_ci(
+            payload.get("main_ci")
+            or main_ci_unavailable("main_ci_absent_from_snapshot", str(payload.get("generated_at") or "")),
+            OPERATIONS_CANARY_SECTION_MAX_BYTES["main_ci"],
+        )},
     }
+    producer_sections = set(
+        operations_section_names_for_bundle_version(OPERATIONS_PRODUCER_BUNDLE_VERSION)
+    )
+    return {name: value for name, value in sections.items() if name in producer_sections}
 
 
 def _reject_nonfinite_json_constant(value: str) -> None:
@@ -6575,7 +6609,8 @@ def write_snapshot_bundle(
     manifest_path = output.parent / OPERATIONS_MANIFEST_NAME
     manifest_encoded = _encoded_json(manifest)
     try:
-        validate_operations_canary_budget(
+        validate_operations_canary_budget_for_bundle_version(
+            bundle_version=OPERATIONS_PRODUCER_BUNDLE_VERSION,
             manifest_bytes=len(manifest_encoded.encode("utf-8")),
             section_bytes={
                 name: descriptor["bytes"]

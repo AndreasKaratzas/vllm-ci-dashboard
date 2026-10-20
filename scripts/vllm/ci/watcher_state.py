@@ -1,7 +1,7 @@
 """Bounded, atomic persistence for the dashboard's issue-watcher ledgers.
 
 The active ledgers are independently updated by different workflows. Giving
-each one a fixed envelope is what makes their aggregate three-MiB allocation a
+each one a fixed envelope is what makes their aggregate 3.25-MiB allocation a
 real invariant rather than a best-effort final publication check.  Compaction
 never removes an open issue mapping or a confirmed/pending incident identity.
 """
@@ -30,6 +30,7 @@ WATCHER_STATE_WRITERS = {
     "open_omni_surge_issues.json": "omni_surge_watcher_state",
     "open_queue_issues.json": "queue_issue_watcher_state",
     "open_queue_zombie_issues.json": "queue_zombie_watcher_state",
+    "open_ci_flakiness_issues.json": "ci_flakiness_watcher_state",
 }
 LEGACY_WATCHER_STATE_WRITERS = {
     "open_amd_main_failure_issues.json": "amd_main_failure_watcher_state",
@@ -232,6 +233,9 @@ def _compact_main_state(
             "group_watermarks": watermarks,
         }
     )
+    if isinstance(source.get("timeline"), list):
+        # The watcher already bounds the timeline by age and count.
+        compact["timeline"] = copy.deepcopy(source["timeline"])
     source_detail_fields = sum(
         _field_count(row)
         for collection in (source.get("active") or {}, source.get("pending_soft") or {})
@@ -573,6 +577,8 @@ def _protected_mapping_count(name: str, source: dict) -> int:
         return int(bool(source.get("open")))
     if name == "open_agent_health_issues.json":
         return int(bool(source.get("issue")))
+    if name == "open_ci_flakiness_issues.json":
+        return len(source.get("groups") or {}) + int(bool(source.get("issue")))
     return 0
 
 
@@ -599,6 +605,8 @@ def _full_counts(name: str, source: dict) -> dict[str, tuple[int, int]]:
         names = ("open", "suppressed")
     elif name == "open_queue_zombie_issues.json":
         names = ("open",)
+    elif name == "open_ci_flakiness_issues.json":
+        names = ("groups",)
     else:
         names = ()
     return {

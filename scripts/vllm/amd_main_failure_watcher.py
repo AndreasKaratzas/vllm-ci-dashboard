@@ -56,6 +56,8 @@ MAX_ISSUE_ROWS = 50
 MAX_BISECT_COMMANDS = 12
 ISSUE_BODY_SCHEMA_VERSION = 2
 UPSTREAM_REPO_URL = "https://github.com/vllm-project/vllm"
+TIMELINE_MAX_EVENTS = 300
+TIMELINE_MAX_AGE = timedelta(days=30)
 COMMIT_RE = re.compile(r"[0-9a-f]{40}", re.IGNORECASE)
 
 
@@ -477,14 +479,48 @@ def _advance_entry(previous: dict | None, row: dict, number: int) -> tuple[str, 
     return str(decision["state"]["status"]), evidence
 
 
+def _timeline_event(
+    kind: str,
+    group_id: str,
+    incident: dict,
+    build: dict,
+) -> dict:
+    """One confirmed-incident transition, keyed to the source build."""
+    event = {
+        "event": kind,
+        "group_id": group_id,
+        "name": str(incident.get("name") or ""),
+        "hardware": str(incident.get("hardware") or ""),
+        "queue": str(incident.get("queue") or ""),
+        "build_number": int(build.get("number") or 0),
+        "build_url": str(build.get("url") or incident.get("build_url") or ""),
+        "at": str(build.get("created_at") or build.get("finished_at") or ""),
+        "severity": _peak_severity(incident),
+    }
+    if kind == "opened":
+        event.update(
+            {
+                key: incident.get(key)
+                for key in ("job_url", "good_commit", "bad_commit", "compare_url")
+                if incident.get(key)
+            }
+        )
+    return event
+
+
 def advance_incidents(
     reliability: dict,
     state: dict,
     *,
     track_commit_range: bool = False,
     initialize_from_history: bool = False,
+    events: list[dict] | None = None,
 ) -> dict:
-    """Apply newly completed builds to unresolved strict-group incidents."""
+    """Apply newly completed builds to unresolved strict-group incidents.
+
+    ``events`` optionally receives one opened/resolved row for every confirmed
+    incident transition applied by this call.
+    """
     updated = _readable_state_copy(state)
     catalog = [
         build
@@ -617,8 +653,15 @@ def advance_incidents(
             watermarks[group_id] = incoming_watermark
 
             previous = active.get(group_id) or pending_soft.get(group_id)
+            was_confirmed = group_id in active
             status, incident = _advance_entry(previous, row, number)
             if status == "clear":
+                if was_confirmed and events is not None:
+                    events.append(
+                        _timeline_event(
+                            "resolved", group_id, active[group_id], catalog_by_number[number]
+                        )
+                    )
                 active.pop(group_id, None)
                 pending_soft.pop(group_id, None)
                 continue
@@ -636,6 +679,12 @@ def advance_incidents(
                     )
                 )
             if status == "confirmed":
+                if not was_confirmed and events is not None:
+                    events.append(
+                        _timeline_event(
+                            "opened", group_id, incident, catalog_by_number[number]
+                        )
+                    )
                 active[group_id] = incident
                 pending_soft.pop(group_id, None)
             else:
@@ -887,6 +936,50 @@ def _issue_body_for(
     return "\n".join(lines) + "\n"
 
 
+def bounded_timeline(events: list[dict], now: datetime) -> list[dict]:
+    """Newest-first, de-duplicated transitions retained for the dashboard."""
+    cutoff = now - TIMELINE_MAX_AGE
+    unique: dict[tuple, dict] = {}
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        at = _parse_ts(event.get("at"))
+        if at is None or at < cutoff:
+            continue
+        key = (event.get("event"), event.get("group_id"), event.get("build_number"))
+        unique[key] = event
+    ordered = sorted(
+        unique.values(),
+        key=lambda row: (str(row.get("at") or ""), int(row.get("build_number") or 0)),
+        reverse=True,
+    )
+    return ordered[:TIMELINE_MAX_EVENTS]
+
+
+def _timeline_for_run(
+    restored_state: dict,
+    reliability: dict,
+    events: list[dict],
+    config: WatcherConfig,
+    now: datetime,
+) -> list[dict]:
+    """Append this run's transitions; seed once from a replay of the window."""
+    if isinstance(restored_state.get("timeline"), list):
+        prior = [
+            row for row in restored_state["timeline"] if isinstance(row, dict)
+        ]
+        return bounded_timeline(prior + [{**row, "source": "watcher"} for row in events], now)
+    replayed: list[dict] = []
+    advance_incidents(
+        reliability,
+        _default_state(),
+        track_commit_range=config.track_commit_range,
+        initialize_from_history=True,
+        events=replayed,
+    )
+    return bounded_timeline([{**row, "source": "replay"} for row in replayed], now)
+
+
 def mi_scoped_reliability(reliability: dict) -> dict:
     """Select exact MI route identities before replaying incident history."""
     from vllm.pipelines import is_amd_ci_job
@@ -959,12 +1052,15 @@ def run_watcher(config: WatcherConfig) -> int:
     restored_state = _read_state(config.state)
     if config.job_scope == "amd_gpu":
         restored_state = mi_scoped_state(restored_state, reliability)
+    events: list[dict] = []
     state = advance_incidents(
         reliability,
         restored_state,
         track_commit_range=config.track_commit_range,
         initialize_from_history=config.initialize_from_history,
+        events=events,
     )
+    state["timeline"] = _timeline_for_run(restored_state, reliability, events, config, now)
     active = state.get("active") or {}
     pending_soft = state.get("pending_soft") or {}
     observed_at = str(reliability.get("generated_at") or now.strftime("%Y-%m-%dT%H:%M:%SZ"))
