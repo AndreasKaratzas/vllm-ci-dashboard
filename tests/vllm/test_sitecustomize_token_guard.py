@@ -28,6 +28,7 @@ DIRECT_TOKEN_ENTRYPOINTS = (
     ("scripts/vllm/collect_queue_lifecycle.py", "BUILDKITE_API_TOKEN"),
     ("scripts/vllm/collect_queue_snapshot.py", "BUILDKITE_TOKEN"),
     ("scripts/vllm/collect_workload_mapping.py", "BUILDKITE_TOKEN"),
+    ("scripts/vllm/main_pulse.py", "BUILDKITE_TOKEN"),
 )
 
 

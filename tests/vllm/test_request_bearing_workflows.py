@@ -79,6 +79,7 @@ def test_every_buildkite_token_step_has_one_initialized_local_transport_guard() 
                     "request_bearing_attempt_budget.py",
                     "dns_request_budget.py",
                     "queue_request_budget.py",
+                    "main_pulse.py reserve",
                 )
             )
             assert "buildkite_request_guard.py initialize" in before_token

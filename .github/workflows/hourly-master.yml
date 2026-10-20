@@ -2171,6 +2171,18 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
         run: python scripts/vllm/omni_surge_watcher.py --issues-only
 
+      # The main pulse (queue-monitor.yml) records failures from builds that
+      # finished after this cohort. Without the overlay the watcher only sees
+      # its own cohort, so a missing branch or read failure is not fatal.
+      - name: Read main pulse observations
+        if: >-
+          inputs.dns_generation == '' && inputs.queue_generation == '' &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
+          steps.publication-selector.outcome == 'success' &&
+          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_analytics,')
+        continue-on-error: true
+        run: python scripts/vllm/main_pulse.py export-overlay --output "$RUNNER_TEMP/main-pulse-state.json"
+
       - name: Watch AMD MI main CI test-group failures (open/close issue)
         if: >-
           inputs.dns_generation == '' && inputs.queue_generation == '' &&
@@ -2181,6 +2193,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
+          MAIN_PULSE_STATE_FILE: ${{ runner.temp }}/main-pulse-state.json
         run: python scripts/vllm/ci_main_failure_watcher.py
 
       - name: Watch AMD MI main CI flakiness and retries (open/close issue)

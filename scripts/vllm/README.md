@@ -16,6 +16,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `build_queue_section.py` | Builds only the compact public Queue shard from queue-owned inputs | Every independent queue-monitor run |
 | `ci_main_failure_watcher.py` | Reconciles one upstream `ci`/`main` failure issue and retains bisect candidate bounds per strict group | Hourly after analytics collection |
 | `ci_flakiness_watcher.py` | Reconciles one issue listing AMD MI groups whose final outcome flips, or whose hard failures are rescued by retries, at or above `config/ci_flakiness_thresholds.json` on `ci`/`main` | Every reserved full collection after analytics |
+| `main_pulse.py` | Lists `ci` branch=main builds finished since its durable cursor, applies their AMD MI jobs through the main-failure watcher's transitions on top of the published watcher state, and opens or updates (never closes) the managed issue; `export-overlay` hands its newer observations to the collection watcher | Every `queue-monitor.yml` trigger, admitted at most every ten minutes by its own ledger |
 | `ci_area_regression_watcher.py` | Maps every exact AMD matrix definition to its owned test-area rotation and reconciles one state-owned dashboard issue per area with confirmed incidents | Hourly after matrix collection |
 | `ensure_ci_operations_labels.py` | Ensures managed and workstream labels exist before issue watchers run | Every canonical collection |
 | `sync_ci_operations_project.py` | Adds open managed dashboard issues to the linked AMD CI Operations Project, split by workstream labels | Hourly after issue reconciliation |
@@ -504,14 +505,45 @@ reported through the hourly validation incident (#568) instead.
 
 ### What bounds detection latency
 
-Worst case is roughly the 120-minute success interval in
-`config/data_collection_attempt_budget.json` plus one 15-35 minute collection.
+Without the main pulse below, worst case is roughly the 120-minute success
+interval in `config/data_collection_attempt_budget.json` plus one 15-35 minute
+collection.
 The publication watchdog checks every 15 minutes and dispatches Data
 Collection as soon as that ledger is due. A Buildkite webhook cannot start
 collection earlier: `cadence-preflight` observes the same ledger and drops
 early dispatches. Lowering latency means lowering `success_interval_minutes`
 (and raising `max_request_bearing_attempts`, currently 16 per 25 hours with 800
 request starts each), which is a Buildkite API budget decision.
+
+### Main pulse: detection between collections
+
+`main_pulse.py` runs as the `main-pulse` job of `queue-monitor.yml`, so every
+cron tick, watchdog completion and owner-hosted hourly tick wakes it. Its
+parentless `main-pulse-request-budget` ledger (`config/main_pulse.json`)
+admits one reservation of five Buildkite request starts (one 100-build
+`finished_from` page plus its four retries) per ten minutes and at most 750
+per 25 hours; other wake-ups expose no token and make zero requests. Normal
+spend is one request per admitted run, about 144 a day.
+
+An admitted run reads the published `open_ci_main_failure_issues.json` from
+`dashboard-state` and its own overlay from `main-pulse-data` (cursor, the
+strict groups whose watermark is newer than that state, the issue fields it
+changed, and its timeline events), lists builds finished since the cursor
+(clamped to three hours), and opens or updates the issue in the same run. It
+never closes the issue. Data Collection merges the overlay before
+`ci_main_failure_watcher.py` runs: a group is taken only while the overlay's
+watermark is newer, and the issue fields only while the collection state has
+not reconciled the issue since the pulse read it, so the collection stays the
+authority.
+
+Expected latency from a build finishing to its hard failure reaching the issue
+is the wait for the next admitted run plus about two minutes of job time:
+typically 5-20 minutes while the ten-minute cron fires, up to about 25 minutes
+on the 15-minute watchdog chain alone, and about 65 minutes at worst on the
+owner-hosted hourly tick alone.
+Soft failures still need a second build. Rehearse without tokens with
+`main_pulse.py run --dry-run --authority-state <state> --state-file <overlay>
+--recorded-builds <builds.json>`.
 
 ### Making the `buildkite_build_finished` webhook work
 
