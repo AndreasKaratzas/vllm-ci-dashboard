@@ -114,6 +114,23 @@ export interface NightlyPresentation {
 }
 
 const IN_PROGRESS_STATES = ['running', 'scheduled', 'creating', 'assigned', 'starting']
+const BUILDKITE_RUNNING_STATES = ['running', 'failing', 'canceling']
+
+/**
+ * Why a nightly has final AMD results while Buildkite still runs it, e.g.
+ * "AMD jobs complete · build still running (2 non-AMD jobs)"; null otherwise.
+ */
+export function amdCompleteLabel(build: Rec | null | undefined): string | null {
+  const record = build || {}
+  if (record.amd_complete !== true || !BUILDKITE_RUNNING_STATES.includes(String(record.source_state || '').toLowerCase())) {
+    return null
+  }
+  const active = Number(record.non_amd_jobs_active || 0)
+  return (
+    'AMD jobs complete · build still running' +
+    (active > 0 ? ' (' + integer(active) + ' non-AMD ' + (active === 1 ? 'job' : 'jobs') + ')' : '')
+  )
+}
 
 export function amdNightlyPresentation(
   build: Rec | null | undefined,
@@ -266,7 +283,9 @@ export function amdNightlyPresentation(
       integer(hard) +
       ' hard; ' +
       movementLabel +
-      (inProgress ? '; provisional while Buildkite is running' : '; Buildkite ' + value(record.state, 'unknown')),
+      (inProgress
+        ? '; provisional while Buildkite is running'
+        : '; ' + (amdCompleteLabel(record) || 'Buildkite ' + value(record.state, 'unknown'))),
     hasSignal: true,
     movementLabel,
     movementMeta,
