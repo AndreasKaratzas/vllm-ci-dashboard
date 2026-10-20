@@ -238,3 +238,30 @@ def test_queue_event_identity_is_stable_for_equivalent_payload_order():
     assert webhook.queue_event_identity("job.scheduled", left, context) == (
         webhook.queue_event_identity("job.scheduled", right, context)
     )
+
+
+def _buildkite_signature(secret: str, timestamp: int, body: bytes) -> str:
+    import hashlib
+    import hmac
+
+    digest = hmac.new(secret.encode(), f"{timestamp}.".encode() + body, hashlib.sha256).hexdigest()
+    return f"timestamp={timestamp},signature={digest}"
+
+
+def test_signature_matches_buildkite_timestamped_hmac(monkeypatch):
+    monkeypatch.setattr(webhook, "WEBHOOK_SECRET", "webhook-secret")
+    body = b'{"event":"build.finished"}'
+    header = _buildkite_signature("webhook-secret", 1_700_000_000, body)
+
+    assert webhook.verify_signature(body, header, now=1_700_000_060)
+    assert not webhook.verify_signature(body + b" ", header, now=1_700_000_060)
+    assert not webhook.verify_signature(body, header, now=1_700_000_000 + 301)
+    assert not webhook.verify_signature(body, _buildkite_signature("other", 1_700_000_000, body), now=1_700_000_000)
+    assert not webhook.verify_signature(body, "sha256=" + "0" * 64, now=1_700_000_000)
+
+
+def test_plain_token_mode_requires_the_configured_secret(monkeypatch):
+    monkeypatch.setattr(webhook, "WEBHOOK_SECRET", "webhook-secret")
+    assert webhook.verify_token("webhook-secret")
+    assert not webhook.verify_token("wrong")
+    assert not webhook.verify_token("")

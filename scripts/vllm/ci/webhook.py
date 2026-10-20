@@ -1,17 +1,11 @@
 """Buildkite webhook handler for triggering CI and queue data collection.
 
-This script can be used as a lightweight webhook endpoint that receives
-Buildkite events and triggers GitHub Actions via ``repository_dispatch``.
-
-Two deployment options:
-
-Option A: GitHub Actions repository_dispatch (recommended)
-  - Configure Buildkite notification services to call the GitHub API directly
-  - No separate server needed
-
-Option B: Standalone webhook receiver (for advanced setups)
-  - Run this script as a small HTTP server
-  - It validates Buildkite webhook signatures and triggers GitHub Actions
+This script is the relay between Buildkite webhooks and GitHub
+``repository_dispatch``. Buildkite cannot call the GitHub dispatch API itself
+(it sends Buildkite-shaped JSON without a GitHub bearer token), so this small
+HTTP server must run on an always-on host. It verifies the Buildkite webhook
+signature or token and triggers GitHub Actions. Deployment requirements are in
+``scripts/vllm/README.md`` ("Making the buildkite_build_finished webhook work").
 
 Queue-changing events (``job.*`` / ``agent.*``) dispatch the lightweight queue
 monitor workflow. Nightly ``build.finished`` events still dispatch the heavier
@@ -312,14 +306,39 @@ def trigger_github_dispatch(event_type: str, payload: dict | None = None) -> boo
         return False
 
 
-def verify_signature(payload: bytes, signature: str) -> bool:
-    """Verify the Buildkite webhook HMAC signature."""
+SIGNATURE_MAX_SKEW_SECONDS = 300
+
+
+def verify_signature(payload: bytes, signature: str, *, now: float | None = None) -> bool:
+    """Verify Buildkite's ``timestamp=<unix>,signature=<hex>`` webhook header.
+
+    Buildkite signs ``"<timestamp>.<raw body>"`` with HMAC-SHA256 keyed by the
+    notification service's webhook token.
+    """
     if not WEBHOOK_SECRET:
         log.warning("No BUILDKITE_WEBHOOK_SECRET set, skipping signature verification")
         return True
+    fields = dict(
+        part.strip().split("=", 1) for part in str(signature or "").split(",") if "=" in part
+    )
+    timestamp, digest = fields.get("timestamp", ""), fields.get("signature", "")
+    if not timestamp.isdigit() or not digest:
+        return False
+    current = time.time() if now is None else now
+    if abs(current - int(timestamp)) > SIGNATURE_MAX_SKEW_SECONDS:
+        return False
+    expected = hmac.new(
+        WEBHOOK_SECRET.encode(), timestamp.encode() + b"." + payload, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, digest)
 
-    expected = hmac.new(WEBHOOK_SECRET.encode(), payload, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(f"sha256={expected}", signature)
+
+def verify_token(token: str) -> bool:
+    """Verify Buildkite's plain ``X-Buildkite-Token`` authentication mode."""
+    if not WEBHOOK_SECRET:
+        log.warning("No BUILDKITE_WEBHOOK_SECRET set, skipping token verification")
+        return True
+    return bool(token) and hmac.compare_digest(token, WEBHOOK_SECRET)
 
 
 class WebhookHandler(BaseHTTPRequestHandler):
@@ -330,7 +349,8 @@ class WebhookHandler(BaseHTTPRequestHandler):
         body = self.rfile.read(content_length)
 
         signature = self.headers.get("X-Buildkite-Signature", "")
-        if not verify_signature(body, signature):
+        token = self.headers.get("X-Buildkite-Token", "")
+        if not (verify_token(token) if token and not signature else verify_signature(body, signature)):
             self.send_response(401)
             self.end_headers()
             self.wfile.write(b"Invalid signature")
