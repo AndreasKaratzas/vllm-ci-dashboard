@@ -76,6 +76,19 @@ class DashboardStateError(RuntimeError):
     """A state snapshot failed a fail-closed contract."""
 
 
+class WorkflowSupersededError(DashboardStateError):
+    """Main changed .github/workflows after this candidate's code was pinned.
+
+    GitHub refuses a GITHUB_TOKEN push that newly introduces a commit whose
+    workflow content differs from the default branch, so it can never publish.
+    Neither ref moved; a collection on the new main code replaces it.
+    """
+
+
+WORKFLOWS_PATH = ".github/workflows"
+EXIT_WORKFLOW_SUPERSEDED = 3
+
+
 @dataclass(frozen=True)
 class StatePolicy:
     branch: str
@@ -1508,6 +1521,54 @@ def _expected_slot(value: str, *, label: str) -> str | None:
     return _full_sha(value, label=label)
 
 
+def _workflows_tree(root: Path, commit_sha: str) -> str:
+    """The workflow tree line; empty only when the path is absent."""
+    return _git(root, "ls-tree", "-d", commit_sha, "--", WORKFLOWS_PATH).decode().strip()
+
+
+def check_workflow_drift(
+    root: Path, state_sha: str, *, remote: str, default_branch: str
+) -> None:
+    """Raise when the candidate's workflow tree differs from the default tip.
+
+    An unreachable default branch skips the preflight; the push-time rejection
+    classifier still catches drift, so a transient fetch error cannot fail an
+    otherwise publishable state.
+    """
+    branch = _safe_branch(default_branch, label="default branch")
+    shallow = _git(root, "rev-parse", "--is-shallow-repository").decode().strip() == "true"
+    depth = ("--depth=1",) if shallow else ()
+    try:
+        _git(root, "fetch", "--no-tags", *depth, remote, f"refs/heads/{branch}")
+    except DashboardStateError as exc:
+        print(f"::warning::Skipped the workflow drift preflight: {exc}", file=sys.stderr)
+        return
+    default_sha = _resolve_commit(root, "FETCH_HEAD", label="default branch tip")
+    candidate_tree = _workflows_tree(root, state_sha)
+    default_tree = _workflows_tree(root, default_sha)
+    if candidate_tree != default_tree:
+        raise WorkflowSupersededError(
+            f"{WORKFLOWS_PATH} in candidate {state_sha} ({candidate_tree}) differs from "
+            f"{branch} {default_sha} ({default_tree})"
+        )
+
+
+_WORKFLOW_PERMISSION_REJECTION = re.compile(
+    r"^[ \t]*! \[remote rejected\] [0-9a-f]{40} -> (?P<branch>\S+) \(refusing to allow a "
+    r"GitHub App to create or update workflow `\.github/workflows/[^`\s]+` without "
+    r"`workflows` permission\)$",
+    re.MULTILINE,
+)
+
+
+def is_workflow_permission_rejection(detail: str, *, branch: str) -> bool:
+    """Whether GitHub refused the state branch update for workflow content."""
+    return any(
+        match["branch"] == branch
+        for match in _WORKFLOW_PERMISSION_REJECTION.finditer(detail)
+    )
+
+
 def rotate_state_refs(
     root: Path,
     policy: StatePolicy,
@@ -1516,6 +1577,7 @@ def rotate_state_refs(
     expected_current_sha: str | None,
     expected_previous_sha: str | None,
     remote: str = "origin",
+    default_branch: str | None = None,
 ) -> dict[str, str]:
     """Atomically rotate current/previous refs using exact force-with-lease.
 
@@ -1564,6 +1626,10 @@ def rotate_state_refs(
             f"remote previous state changed: expected {expected_previous_sha}, "
             f"observed {actual_previous}"
         )
+    if default_branch is not None:
+        check_workflow_drift(
+            root, new_state_sha, remote=remote, default_branch=default_branch
+        )
 
     current_ref = f"refs/heads/{policy.branch}"
     previous_ref = f"refs/heads/{policy.previous_branch}"
@@ -1587,7 +1653,16 @@ def rotate_state_refs(
             f"{new_previous_sha}:{previous_ref}",
         ]
     )
-    _git(root, *args)
+    try:
+        _git(root, *args)
+    except DashboardStateError as exc:
+        if default_branch is not None and is_workflow_permission_rejection(
+            str(exc), branch=policy.branch
+        ):
+            raise WorkflowSupersededError(
+                f"push refused for workflow content changed on {default_branch}: {exc}"
+            ) from exc
+        raise
 
     verified_current = _remote_ref_sha(root, remote, policy.branch)
     verified_previous = _remote_ref_sha(root, remote, policy.previous_branch)
@@ -1993,6 +2068,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     rotate.add_argument("--current-sha", required=True, help="Full SHA or 'absent'")
     rotate.add_argument("--previous-sha", required=True, help="Full SHA or 'absent'")
     rotate.add_argument("--remote", default="origin")
+    rotate.add_argument(
+        "--default-branch",
+        help=(
+            "Exit 3 without moving refs when the candidate's workflow tree "
+            "differs from this branch's tip"
+        ),
+    )
     _add_output_argument(rotate)
 
     repair = subparsers.add_parser("repair-slots")
@@ -2102,6 +2184,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 expected_current_sha=_expected_slot(args.current_sha, label="current SHA"),
                 expected_previous_sha=_expected_slot(args.previous_sha, label="previous SHA"),
                 remote=args.remote,
+                default_branch=args.default_branch,
             )
             _append_outputs(args.github_output, outputs)
         elif args.command == "repair-slots":
@@ -2161,6 +2244,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             _append_outputs(args.github_output, marker)
         else:  # pragma: no cover - argparse guarantees the command set.
             raise DashboardStateError(f"unknown command {args.command!r}")
+    except WorkflowSupersededError as exc:
+        print(f"::warning::Superseded by workflow change on main: {exc}", file=sys.stderr)
+        return EXIT_WORKFLOW_SUPERSEDED
     except DashboardStateError as exc:
         print(f"::error::{exc}", file=sys.stderr)
         return 1

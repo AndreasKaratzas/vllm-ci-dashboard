@@ -1726,3 +1726,160 @@ def test_rotation_honors_post_cutover_bootstrap_gate(
             expected_previous_sha=None,
             remote="missing-remote",
         )
+
+
+# Stderr GitHub returned to Data Collection run 39353562828 (SHAs replaced).
+WORKFLOW_PERMISSION_REJECTION = (
+    "To https://github.com/AndreasKaratzas/vllm-ci-dashboard\n"
+    f" ! [remote rejected] {'9a' * 20} -> dashboard-state "
+    "(refusing to allow a GitHub App to create or update workflow "
+    "`.github/workflows/hourly-master.yml` without `workflows` permission)\n"
+    f" ! [remote rejected] {'74' * 20} -> "
+    "dashboard-state-previous (atomic transaction failed)\n"
+    "error: failed to push some refs to 'https://github.com/AndreasKaratzas/vllm-ci-dashboard'"
+)
+
+
+def _repo_with_workflow_on_main(tmp_path: Path) -> tuple[Path, Path, str]:
+    repo = tmp_path / "repo"
+    remote = tmp_path / "remote.git"
+    repo.mkdir()
+    (repo / ".github/workflows").mkdir(parents=True)
+    (repo / ".github/workflows/hourly-master.yml").write_text("name: old\n")
+    code_sha = init_repo(repo)
+    subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+    git(repo, "remote", "add", "origin", str(remote))
+    git(repo, "push", "origin", f"{code_sha}:refs/heads/main")
+    return repo, remote, code_sha
+
+
+def _advance_main(tmp_path: Path, remote: Path, path: str, content: str) -> None:
+    other = tmp_path / f"other-{len(list(tmp_path.iterdir()))}"
+    subprocess.run(["git", "clone", "-q", "-b", "main", str(remote), str(other)], check=True)
+    for key, value in (("user.name", "Dev"), ("user.email", "dev@example.com"),
+                       ("commit.gpgsign", "false")):
+        git(other, "config", key, value)
+    (other / path).write_text(content)
+    git(other, "commit", "-qam", f"change {path}")
+    git(other, "push", "-q", "origin", "HEAD:main")
+
+
+def test_rotation_refuses_workflow_drift_from_main_without_moving_refs(
+    tmp_path: Path,
+    policy: state.StatePolicy,
+) -> None:
+    repo, remote, code_sha = _repo_with_workflow_on_main(tmp_path)
+    first = make_state(repo, policy, code_sha, generation="run-110.1", value=2)
+    state.rotate_state_refs(
+        repo, policy, new_state_sha=first.state_sha, expected_current_sha=None,
+        expected_previous_sha=None, default_branch="main",
+    )
+    assert remote_sha(repo, policy.branch) == first.state_sha
+
+    # Main moved without touching workflows: still publishable.
+    _advance_main(tmp_path, remote, "scripts/app.py", "print('newer')\n")
+    second = make_state(repo, policy, code_sha, generation="run-110.2", value=3)
+    state.rotate_state_refs(
+        repo, policy, new_state_sha=second.state_sha, expected_current_sha=first.state_sha,
+        expected_previous_sha=first.state_sha, default_branch="main",
+    )
+    assert remote_sha(repo, policy.branch) == second.state_sha
+
+    _advance_main(tmp_path, remote, ".github/workflows/hourly-master.yml", "name: new\n")
+    third = make_state(repo, policy, code_sha, generation="run-110.3", value=4)
+    with pytest.raises(state.WorkflowSupersededError, match=r"\.github/workflows .* differs"):
+        state.rotate_state_refs(
+            repo, policy, new_state_sha=third.state_sha, expected_current_sha=second.state_sha,
+            expected_previous_sha=first.state_sha, default_branch="main",
+        )
+    assert remote_sha(repo, policy.branch) == second.state_sha
+    assert remote_sha(repo, policy.previous_branch) == first.state_sha
+    # An unreadable tree is a hard failure, never a supersession that re-dispatches.
+    with pytest.raises(state.DashboardStateError) as unreadable:
+        state.check_workflow_drift(repo, "f" * 40, remote="origin", default_branch="main")
+    assert not isinstance(unreadable.value, state.WorkflowSupersededError)
+
+
+def test_workflow_drift_preflight_keeps_full_clone_and_skips_unreachable_main(
+    tmp_path: Path,
+    policy: state.StatePolicy,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo, remote, code_sha = _repo_with_workflow_on_main(tmp_path)
+    _advance_main(tmp_path, remote, "scripts/app.py", "print('newer')\n")
+    snapshot = make_state(repo, policy, code_sha, generation="run-112.1", value=2)
+    state.check_workflow_drift(repo, snapshot.state_sha, remote="origin", default_branch="main")
+    assert git(repo, "rev-parse", "--is-shallow-repository") == "false"
+
+    # A transient fetch error falls through to the push-time classifier.
+    git(repo, "remote", "set-url", "origin", str(tmp_path / "missing.git"))
+    state.check_workflow_drift(repo, snapshot.state_sha, remote="origin", default_branch="main")
+    assert "::warning::Skipped the workflow drift preflight" in capsys.readouterr().err
+
+
+def test_workflow_permission_rejection_classifier_is_narrow() -> None:
+    assert state.is_workflow_permission_rejection(
+        WORKFLOW_PERMISSION_REJECTION, branch="dashboard-state"
+    )
+    assert not state.is_workflow_permission_rejection(
+        WORKFLOW_PERMISSION_REJECTION, branch="dashboard-state-previous"
+    )
+    for other in (
+        WORKFLOW_PERMISSION_REJECTION.replace("`workflows` permission", "`contents` permission"),
+        " ! [remote rejected] " + "a" * 40 + " -> dashboard-state (pre-receive hook declined)",
+        " ! [rejected]        dashboard-state -> dashboard-state (stale info)",
+        "remote: refusing to allow a GitHub App to create or update workflow "
+        "`.github/workflows/x.yml` without `workflows` permission",
+    ):
+        assert not state.is_workflow_permission_rejection(other, branch="dashboard-state")
+
+
+@pytest.mark.parametrize("default_branch", [None, "main"])
+def test_rotation_classifies_only_workflow_permission_push_rejection(
+    tmp_path: Path,
+    policy: state.StatePolicy,
+    monkeypatch: pytest.MonkeyPatch,
+    default_branch: str | None,
+) -> None:
+    repo, _remote, code_sha = _repo_with_workflow_on_main(tmp_path)
+    snapshot = make_state(repo, policy, code_sha, generation="run-111.1", value=2)
+    real_git = state._git
+
+    def rejecting_push(root: Path, *args: str, **kwargs: object) -> bytes:
+        if args[0] == "push":
+            raise state.DashboardStateError(
+                f"git push --atomic failed: {WORKFLOW_PERMISSION_REJECTION}"
+            )
+        return real_git(root, *args, **kwargs)
+
+    # Main changes workflows between the preflight and the push.
+    monkeypatch.setattr(state, "_git", rejecting_push)
+    monkeypatch.setattr(state, "check_workflow_drift", lambda *a, **k: {})
+    kwargs = dict(new_state_sha=snapshot.state_sha, expected_current_sha=None,
+                  expected_previous_sha=None, default_branch=default_branch)
+    with pytest.raises(state.DashboardStateError) as raised:
+        state.rotate_state_refs(repo, policy, **kwargs)
+    assert isinstance(raised.value, state.WorkflowSupersededError) == (default_branch == "main")
+
+
+def test_rotate_cli_exits_three_only_for_workflow_supersession(
+    monkeypatch: pytest.MonkeyPatch,
+    policy: state.StatePolicy,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: list[object] = []
+
+    def fake_rotate(*_args: object, **kwargs: object) -> dict[str, str]:
+        calls.append(kwargs["default_branch"])
+        raise error
+
+    monkeypatch.setattr(state, "load_policy", lambda _path: policy)
+    monkeypatch.setattr(state, "rotate_state_refs", fake_rotate)
+    argv = ["rotate", "--new-state", "a" * 40, "--current-sha", "b" * 40,
+            "--previous-sha", "c" * 40, "--default-branch", "main"]
+    error: state.DashboardStateError = state.WorkflowSupersededError("drift")
+    assert state.main(argv) == 3
+    assert "::warning::Superseded by workflow change on main" in capsys.readouterr().err
+    error = state.DashboardStateError("remote current state changed")
+    assert state.main(argv) == 1
+    assert calls == ["main", "main"]

@@ -2862,11 +2862,19 @@ jobs:
           steps.request-attempt.outputs.request_mode == 'reserved'
         run: |
           set -euo pipefail
+          # Exit 3: main changed .github/workflows after this run pinned its
+          # code, so GitHub would refuse this state push. Neither ref moved.
+          status=0
           python scripts/vllm/dashboard_state.py rotate \
             --new-state "$DASHBOARD_CANDIDATE_STATE_SHA" \
             --current-sha "$DASHBOARD_CURRENT_STATE_SHA" \
             --previous-sha "$DASHBOARD_PREVIOUS_STATE_SHA" \
-            --remote origin
+            --remote origin --default-branch main || status=$?
+          if [ "$status" -eq 3 ]; then
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [ "$status" -eq 0 ] || exit "$status"
           {
             echo "DASHBOARD_PUBLISHED_STATE_SHA=$DASHBOARD_CANDIDATE_STATE_SHA"
             echo "DASHBOARD_PUBLISHED_STATE_TREE=$DASHBOARD_CANDIDATE_STATE_TREE"
@@ -2904,12 +2912,79 @@ jobs:
           echo "::error::Dashboard state rotated, but its durable attempt success could not be recorded."
           exit 1
 
+      - name: Re-dispatch collection superseded by workflow change on main
+        if: >-
+          steps.publication-commit.outputs.superseded == 'true' &&
+          (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUEST_MODE: ${{ steps.request-attempt.outputs.request_mode }}
+          ACTUAL_REQUEST_STARTS: ${{ steps.request-guard-report.outputs.actual_request_starts }}
+          RAW_RECOVERY_KEY: ${{ inputs.recovery_key }}
+        run: |
+          set -euo pipefail
+          if [ "$REQUEST_MODE" = reserved ]; then
+            # The mark removes this attempt from retry backoff but keeps its
+            # slot in the 25-hour cap. The attempt ID is unique to this run, so
+            # an existing mark after a failed try here is this run's own.
+            MARK_OUTPUT="$RUNNER_TEMP/data-collection-superseded.outputs"
+            for MARK_ATTEMPT in 1 2 3; do
+              : > "$MARK_OUTPUT"
+              if python scripts/vllm/request_bearing_attempt_budget.py \
+                --config config/data_collection_attempt_budget.json mark-superseded \
+                --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
+                --actual-request-starts "$ACTUAL_REQUEST_STARTS" \
+                --github-output "$MARK_OUTPUT"; then
+                break
+              fi
+              if [ "$MARK_ATTEMPT" -eq 3 ]; then
+                echo "::error::Could not record the superseded attempt; the normal retry gate applies."
+                exit 1
+              fi
+              sleep $((MARK_ATTEMPT * 2))
+            done
+            if [ "$MARK_ATTEMPT" -eq 1 ] && ! grep -qx 'newly_superseded=true' "$MARK_OUTPUT"; then
+              echo "::warning::This attempt was already superseded; not dispatching again."
+              exit 0
+            fi
+          fi
+          PAYLOAD="$(jq -n \
+            --arg ci_days "$HOURLY_CI_DAYS" \
+            --arg skip_tests "$HOURLY_SKIP_TESTS" \
+            --arg reset_perf_eval "$HOURLY_RESET_PERF_EVAL" \
+            --arg dns_generation "$HOURLY_DNS_GENERATION_INPUT" \
+            --arg queue_generation "$HOURLY_QUEUE_GENERATION_INPUT" \
+            --arg watchdog_generation "$HOURLY_WATCHDOG_GENERATION_INPUT" \
+            --arg recovery_key "$RAW_RECOVERY_KEY" \
+            '{ref: "main", inputs: {ci_days: $ci_days, skip_tests: $skip_tests,
+              reset_perf_eval: $reset_perf_eval, dns_generation: $dns_generation,
+              queue_generation: $queue_generation,
+              watchdog_generation: $watchdog_generation, recovery_key: $recovery_key}}')"
+          # A duplicate dispatch coalesces in the full-collection concurrency group.
+          for DISPATCH_ATTEMPT in 1 2 3; do
+            if printf '%s' "$PAYLOAD" | gh api --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
+              --input -; then
+              break
+            fi
+            if [ "$DISPATCH_ATTEMPT" -eq 3 ]; then
+              echo "::error::Superseded run could not re-dispatch Data Collection; the watchdog recovers it."
+              exit 1
+            fi
+            sleep $((DISPATCH_ATTEMPT * 5))
+          done
+          echo "::warning::Superseded by workflow change on main; nothing was published and Data Collection was re-dispatched on main."
+
       - name: Preserve only bounded PR previews
         id: preview-preservation
         if: >-
-          inputs.dns_generation != '' ||
-          inputs.queue_generation != '' ||
-          steps.request-attempt.outputs.request_mode == 'reserved'
+          steps.publication-commit.outputs.superseded != 'true' &&
+          (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -2999,9 +3074,10 @@ jobs:
       - name: Post-deploy validation (check gh-pages for corruption)
         id: post-deploy-validation
         if: >-
-          inputs.dns_generation != '' ||
-          inputs.queue_generation != '' ||
-          steps.request-attempt.outputs.request_mode == 'reserved'
+          steps.publication-commit.outputs.superseded != 'true' &&
+          (inputs.dns_generation != '' ||
+           inputs.queue_generation != '' ||
+           steps.request-attempt.outputs.request_mode == 'reserved')
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -3128,6 +3204,7 @@ jobs:
         id: final-deploy-validation
         if: >-
           always() &&
+          steps.publication-commit.outputs.superseded != 'true' &&
           (inputs.dns_generation != '' ||
            inputs.queue_generation != '' ||
            steps.request-attempt.outputs.request_mode == 'reserved')
@@ -3453,7 +3530,7 @@ jobs:
         if: >-
           inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
-          always() && (
+          always() && (failure() || steps.publication-commit.outputs.superseded != 'true') && (
             failure() ||
             (steps.run-tests.outputs.exit_code != '0' && steps.run-tests.outputs.exit_code != '') ||
             (

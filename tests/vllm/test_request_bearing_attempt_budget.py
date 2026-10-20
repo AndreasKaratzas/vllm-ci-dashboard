@@ -897,3 +897,66 @@ def test_publication_validation_retry_cannot_bypass_real_sixteen_attempt_ledger(
     assert observed["request_mode"] == "cap_gated" and observed["collection_retry_required"] == "true"
     assert reserve(checkout, policy, 2001, BASE + timedelta(minutes=30))["request_mode"] == "cap_gated"
     assert remote_sha(checkout, policy) == original_sha
+
+
+def test_superseded_attempt_skips_backoff_counts_cap_and_redispatches_once(repo, policy):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    reserve(checkout, policy, 6000, BASE)
+    superseded = reserve(checkout, policy, 6001, BASE + timedelta(minutes=30))
+    assert reserve(checkout, policy, 6002, BASE + timedelta(minutes=31))["request_mode"] == "retry_gated"
+
+    kwargs = dict(attempt_id=superseded["attempt_id"], actual_request_starts=62, remote="origin")
+    first = budget.mark_superseded(checkout, policy, now=BASE + timedelta(minutes=55), **kwargs)
+    assert first["newly_superseded"] == "true"
+    again = budget.mark_superseded(checkout, policy, now=BASE + timedelta(minutes=56), **kwargs)
+    assert again == {**first, "newly_superseded": "false"}
+    with pytest.raises(budget.AttemptBudgetError, match="different evidence"):
+        budget.mark_superseded(checkout, policy, now=BASE + timedelta(minutes=56),
+                               **{**kwargs, "actual_request_starts": 63})
+    with pytest.raises(budget.AttemptBudgetError, match="cannot be marked successful"):
+        budget.mark_success(checkout, policy, attempt_id=superseded["attempt_id"],
+                            durable_ref=REF, actual_request_starts=62,
+                            now=BASE + timedelta(minutes=56), remote="origin")
+    with pytest.raises(budget.AttemptBudgetError, match="reserved allowance"):
+        budget.mark_superseded(checkout, policy, now=BASE + timedelta(minutes=56),
+                               **{**kwargs, "actual_request_starts": 801})
+
+    ledger = budget.validate_ledger_ref(checkout, remote_sha(checkout, policy), policy).ledger
+    row = next(row for row in ledger["attempts"] if row["id"] == superseded["attempt_id"])
+    assert (row["superseded_at"], row["actual_request_starts"], row["succeeded_at"]) == (
+        budget._iso(BASE + timedelta(minutes=55)), 62, None,
+    )
+    # The replacement is admitted at once: the superseded row neither gates
+    # nor doubles the earlier failure's 30-minute backoff, but holds its slot.
+    replacement = reserve(checkout, policy, 6003, BASE + timedelta(minutes=56))
+    assert replacement["request_mode"] == "reserved"
+    assert replacement["active_attempts"] == 4
+    assert replacement["rolling_reserved_request_starts"] == 3 * 800
+
+
+def test_superseded_rows_still_fill_the_sixteen_attempt_cap(policy):
+    rows = [_row(number, BASE - timedelta(hours=20) + timedelta(minutes=number), policy,
+                 outcome="failed") for number in range(16)]
+    for row in rows:
+        row["superseded_at"] = row["reserved_at"]
+        row["actual_request_starts"] = 1
+    assert budget._request_mode(rows, now=BASE, policy=policy) == (
+        "cap_gated", BASE + timedelta(hours=5),
+    )
+    assert budget._request_mode(rows[:15], now=BASE, policy=policy) == ("reserved", None)
+
+
+def test_superseded_field_requires_an_unpublished_runtime_row(repo, policy):
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    published = record_publication(checkout, policy, state_sha=published_state(checkout))
+    with pytest.raises(budget.AttemptBudgetError, match="published attempt cannot be superseded"):
+        budget.mark_superseded(checkout, policy, attempt_id=published["attempt_id"],
+                               actual_request_starts=1, now=BASE + timedelta(minutes=11),
+                               remote="origin")
+    ledger = budget.validate_ledger_ref(checkout, remote_sha(checkout, policy), policy).ledger
+    row = dict(ledger["attempts"][-1], superseded_at=budget._iso(BASE + timedelta(minutes=11)))
+    with pytest.raises(budget.AttemptBudgetError, match="superseded fields are invalid"):
+        budget._normalize_ledger({**ledger, "updated_at": row["superseded_at"],
+                                  "attempts": [*ledger["attempts"][:-1], row]}, policy)
