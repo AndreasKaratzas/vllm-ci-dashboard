@@ -3,8 +3,9 @@ import { ChevronDown, Search, ServerCrash, SlidersHorizontal } from '@lucide/vue
 import { refDebounced, useMediaQuery } from '@vueuse/core'
 import { computed, h, ref, watch } from 'vue'
 import AgentAbout from '@/components/analytics/agent-health/AgentAbout.vue'
+import AttributionCard from '@/components/analytics/agent-health/AttributionCard.vue'
 import CofailureCard from '@/components/analytics/agent-health/CofailureCard.vue'
-import { dayDetail, eventDetail, failingNodesDetail, nodeDayDetail, nodeDetail, nodeOfDetail } from '@/components/analytics/agent-health/details'
+import { attributionDetail, dayDetail, eventDetail, failingNodesDetail, nodeDayDetail, nodeDetail, nodeOfDetail } from '@/components/analytics/agent-health/details'
 import FleetVerdict from '@/components/analytics/agent-health/FleetVerdict.vue'
 import LoadChart from '@/components/analytics/agent-health/LoadChart.vue'
 import { shortDay } from '@/components/charts/chart'
@@ -31,6 +32,7 @@ import { useSheetStack } from '@/composables/useSheetStack'
 import { useSubviewHeader } from '@/composables/useSubviewHeader'
 import {
   AGENT_UNAVAILABLE_TEXT,
+  agentAttributionBreakdown,
   agentCells,
   agentCofailLabel,
   agentDailySeries,
@@ -42,6 +44,7 @@ import {
   agentLoadBy,
   agentNodeDayMatrix,
   agentOptions,
+  agentScopedFailures,
   agentTableDescription,
   computeAgentView,
   eventKey,
@@ -50,6 +53,7 @@ import {
   signalColumnLabel,
   signalNoun,
   signalTerm,
+  type AgentAttribution,
   type AgentDay,
   type AgentNodeHistory,
   type AgentRow,
@@ -105,7 +109,7 @@ const cancelled = computed({ get: () => (options.value?.excludeCancelled ? '1' :
 const cofail = computed({ get: () => String(options.value?.cofailMins ?? 180), set: (v: string) => (query.cofail.value = v) })
 
 const SIGNALS = [
-  { value: 'infra', label: 'Infra-suspect' },
+  { value: 'infra', label: 'Node-suspect' },
   { value: 'hard', label: 'Hard' },
   { value: 'all', label: 'All', title: 'All (hard + soft)' },
 ]
@@ -131,7 +135,13 @@ useSubviewHeader(() => {
 // ---- Per-day and per-node-day accounting ----
 const days = computed<AgentDay[]>(() => (model.value && view.value && options.value ? agentDailySeries(model.value, view.value, options.value) : []))
 const matrix = computed(() => (model.value && view.value && options.value ? agentNodeDayMatrix(model.value, view.value, options.value) : null))
-const verdict = computed(() => (matrix.value && view.value && options.value ? agentFleetVerdict(matrix.value, view.value, options.value) : null))
+const breakdown = computed(() => (model.value && options.value ? agentAttributionBreakdown(model.value, options.value) : null))
+const verdict = computed(() => {
+  const m = matrix.value
+  if (!m || !model.value || !view.value || !options.value) return null
+  const recent = agentAttributionBreakdown(model.value, options.value, m.days[m.days.length - m.recentDays])
+  return agentFleetVerdict(m, view.value, options.value, recent)
+})
 const queues = computed(() => (view.value ? agentLoadBy(view.value.fRuns, (run) => run.queue) : []))
 const groups = computed(() => (view.value ? agentLoadBy(view.value.fRuns, (run) => run.group) : []))
 const agentsByNode = computed(() => new Map((view.value?.agents ?? []).map((agent) => [agent.node_raw, agent])))
@@ -156,6 +166,9 @@ const nodeSheetRaw = (nodeRaw: string) => {
 function openDay(index: number) {
   const day = days.value[index]
   if (day && matrix.value && view.value && options.value) sheets.open(dayDetail(day, matrix.value, view.value.fRuns, options.value))
+}
+function openAttribution(attribution: AgentAttribution) {
+  if (model.value && options.value) sheets.open(attributionDetail(attribution, agentScopedFailures(model.value, options.value), options.value, nodeSheetRaw))
 }
 function openEvent(event: CofailEvent) {
   selectedEventKey.value = eventKey(event)
@@ -318,11 +331,11 @@ const columns = computed<ColumnSpec<AgentRow>[]>(() => {
     cell: (row) => ({ text: pick(row), muted: !Number(row[id]) }),
     numeric: true,
   })
-  const signalMax = Math.max(1, ...v.agents.map((row) => row.infra_suspect))
+  const signalMax = Math.max(1, ...v.agents.map((row) => row.signal_failures))
   const failureMax = Math.max(1, ...v.agents.map((row) => row.failures))
   // The ranking column carries an inline bar so the worst nodes read at a glance.
-  const ranked = o.signal === 'all' ? 'failures' : 'infra_suspect'
-  const bar = (id: 'failures' | 'infra_suspect', shown: string) => (row: AgentRow) => ({
+  const ranked = o.signal === 'all' ? 'failures' : 'signal_failures'
+  const bar = (id: 'failures' | 'signal_failures', shown: string) => (row: AgentRow) => ({
     text: shown,
     muted: !row[id],
     ...(id === ranked && row[id] > 0 ? { bar: { value: row[id], max: id === 'failures' ? failureMax : signalMax, color: SERIES.primary } } : {}),
@@ -350,7 +363,7 @@ const columns = computed<ColumnSpec<AgentRow>[]>(() => {
     },
     ...(o.signal === 'all'
       ? []
-      : [{ id: 'infra_suspect', label: signalColumnLabel(o.signal), value: (row: AgentRow) => row.infra_suspect, cell: (row: AgentRow) => bar('infra_suspect', cells(row).signal)(row), numeric: true, class: RANK_HEADER }]),
+      : [{ id: 'signal_failures', label: signalColumnLabel(o.signal), value: (row: AgentRow) => row.signal_failures, cell: (row: AgentRow) => bar('signal_failures', cells(row).signal)(row), numeric: true, class: RANK_HEADER }]),
     { ...count('distinct_groups', 'Groups', (row) => cells(row).groups), class: 'hidden lg:table-cell' },
     { ...count('cofailure_event_count', 'Co-fail', (row) => cells(row).cofail), class: 'hidden sm:table-cell' },
   ]
@@ -368,7 +381,7 @@ const tableSummary = computed(() => {
   const order = o.signal === 'all' ? 'test group failures' : `${signalTerm(o.signal)} failures`
   return `${integer(v.agents.length)} ${v.agents.length === 1 ? 'node' : 'nodes'} in ${o.windowId}, sorted by ${order}. Select a node for its days, runs and co-failures.`
 })
-const defaultSort = computed(() => ({ id: options.value?.signal === 'all' ? 'failures' : 'infra_suspect', desc: true }))
+const defaultSort = computed(() => ({ id: options.value?.signal === 'all' ? 'failures' : 'signal_failures', desc: true }))
 const tableDescription = computed(() => (model.value && view.value && options.value ? agentTableDescription(model.value, view.value, options.value) : ''))
 
 // ---- Co-failure events ----
@@ -449,6 +462,15 @@ const ENTER = 'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in
             :action="kpi.action"
           />
         </StatGrid>
+
+        <AttributionCard
+          v-if="breakdown && view.agents.length"
+          :breakdown="breakdown"
+          :window-id="options.windowId"
+          :lower-bound="view.failureDetailIncomplete"
+          :class="ENTER"
+          @open="openAttribution"
+        />
 
         <EmptyState v-if="emptyText" :title="emptyText" :icon="ServerCrash" data-testid="agent-empty" />
 

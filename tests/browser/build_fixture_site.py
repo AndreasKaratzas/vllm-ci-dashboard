@@ -377,7 +377,7 @@ def seed_current_ci(data_dir: Path) -> None:
             if observation:
                 observation["day"] = build["created_at"][:10]
                 observed.append(observation)
-    agents._mark_infra_suspect(observed)
+    agents._attribute_failures(observed)
     generation = agents._prepare_generation(
         list(agents._rollup_rows(observed).values()),
         [agents._failing_row(row) for row in observed if row["state"] in ("hard", "soft")],
@@ -387,7 +387,7 @@ def seed_current_ci(data_dir: Path) -> None:
             "day_basis": "build_created_at_utc", "discovery_legs": {"created": True},
             "requested_days": 7, "collected_from": "2026-10-01T00:00:00Z", "collected_to": GENERATED_AT,
             "exhaustive": True, "complete_window": False,
-            "attempt_policy": "latest_attempt_per_step",
+            "attempt_policy": agents.ATTEMPT_POLICY,
             "terminal_time_policy": "finished_at_or_terminal_build_bound_for_canceled",
         },
     )

@@ -1,5 +1,5 @@
 {
-  "caption": "Showing infra-suspect failures — anomalous, node-attributable (a group that otherwise passes that day, including on another node).",
+  "caption": "Showing node-suspect failures — attributed to the node, or unexplained — without build-wide, test-level and shared-infrastructure failures.",
   "criteriaHidden": false,
   "emptyTable": null,
   "events": [
@@ -40,22 +40,20 @@
       "selected": false
     }
   ],
-  "eventsDescription": "3 event(s) in 7d. Two or more infra-suspect failures on one node within 3h (retries of the same test group within a build count once): \"concurrent\" (overlapping) points to contention or an ephemeral fault; \"sequential\" (back-to-back) suggests the node was left unclean. Click an event to expand it and zoom the timeline to it.",
+  "eventsDescription": "3 event(s) in 7d. Two or more node-suspect failures on one node within 3h (retries of the same test group within a build count once): \"concurrent\" (overlapping) points to contention or an ephemeral fault; \"sequential\" (back-to-back) suggests the node was left unclean. Click an event to expand it and zoom the timeline to it.",
   "eventsEmpty": null,
   "eventsTitle": "Co-failure events",
   "kpis": [
     "IDENTIFIED AMD NODES|25|7,197 exact runs in 7d|ops-status-item ops-linked-metric info",
-    "NODES WITH FAILURES|11|85 exact infra-suspect failures in aggregate|ops-status-item ops-linked-metric soft",
+    "NODES WITH FAILURES|11|85 exact node-suspect failures in aggregate|ops-status-item ops-linked-metric soft",
     "NODE COVERAGE|100.0%|7,197 / 7,197 exact runs identified|ops-status-item ops-linked-metric pass",
     "CO-FAILURE EVENTS|3|0 retained concurrent · 0 retained cross-pipeline|ops-status-item ops-linked-metric hard"
   ],
   "notes": [
-    "ops-evidence-note info|AMD physical CI main agent health. Terminal runs from CI main builds created in the selected UTC window on AMD MI GPU hardware are attributed to the physical node from its Buildkite agent tag. The timeline and co-failure clustering use the selected Failure signal: \"infra-suspect\" (the default — anomalous, node-attributable failures), all hard failures, or all failures. Toggle the signal, nightly subset, cancelled-job handling, and co-failure window; click any node or event to load its timeline.",
     "ops-evidence-note info ops-agent-completion-scope|Terminal runs from CI main builds created in the selected UTC window. Runs require a recorded or bounded completion time. Fresh build creation coverage for the ci pipeline on branch main, from 2026-10-12T00:00:00Z through 2026-10-19T07:50:28Z UTC.",
-    "ops-evidence-note soft|Agent-health pipeline history is incomplete. 304 of 304 failing-run links and 4,400 of 4,400 node-day rows are published in Operations. Complete fresh UTC history for the ci pipeline on branch main begins 2026-10-12T00:00:00Z and ends 2026-10-19T07:50:28Z; the full 60-day window is not yet complete. Older retained history describes observed runs. For selections outside the complete fresh UTC interval or with omitted rows, node counts and node-specific failure rates are unavailable; table counts, timelines, distinct groups, and co-failure events are retained-evidence lower bounds.",
-    "ops-evidence-note neutral ops-agent-criteria|What counts as an anomalous (infra-suspect) failure? When the Failure signal is set to Infra-suspect (the default), a soft or hard failure is treated as node-attributable when its exact test group, on that same UTC build creation day, both: passed at least 50% of its gradable runs (needs ≥ 3 graded samples), so the group demonstrably works; andpassed on at least one other physical node that day, so the failure is isolated to this box rather than a broad code break.Groups that fail broadly (real code bugs) and failures inside auto-cancelled / superseded builds are filtered out by default, isolating the signal that points at a specific machine."
+    "ops-evidence-note soft|Agent-health pipeline history is incomplete. 304 of 304 failing-run links and 4,400 of 4,400 node-day rows are published in Operations. Complete fresh UTC history for the ci pipeline on branch main begins 2026-10-12T00:00:00Z and ends 2026-10-19T07:50:28Z; the full 60-day window is not yet complete. Older retained history describes observed runs. For selections outside the complete fresh UTC interval or with omitted rows, node counts and node-specific failure rates are unavailable; table counts, timelines, distinct groups, and co-failure events are retained-evidence lower bounds."
   ],
-  "panelMeta": "25 node(s) in 7d, sorted by infra-suspect failures. The Infra-suspect failures column is the node-attributable subset of Test group failures — a group that otherwise passed that day, including on another node. Terminal runs from CI builds created in the selected UTC window form the run and failure-rate denominator. Actual job timestamps remain in timelines. Test group failures and Fail % use complete compact failure accounting (with the hard/soft split) and honor the cancelled-build toggle. Groups, Co-fail, timelines, and linked Evidence use the retained exact-row evidence and may be lower bounds when its storage retention note is shown. Click a node (or Evidence) to load its timeline; sort by any column.",
+  "panelMeta": "25 node(s) in 7d, sorted by node-suspect failures. The Node-suspect failures column is the subset of Test group failures attributed to the node or unexplained — not build-wide, not failing on other nodes, not a shared-infrastructure event. Terminal runs from CI builds created in the selected UTC window form the run and failure-rate denominator. Actual job timestamps remain in timelines. Test group failures and Fail % use complete compact failure accounting (with the hard/soft split) and honor the cancelled-build toggle. Groups, Co-fail, timelines, and linked Evidence use the retained exact-row evidence and may be lower bounds when its storage retention note is shown. Click a node (or Evidence) to load its timeline; sort by any column.",
   "rows": [
     [
       "bu-1 (MI355)",
