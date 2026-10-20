@@ -5270,6 +5270,11 @@ class TestAlertAutomationWorkflow:
             "steps.publication-selector.outcome == 'success'"
         )
         persist_run = steps[persist].get("run", "")
+        staged_paths = " ".join(
+            line
+            for line in persist_run.replace("\\\n", " ").splitlines()
+            if line.strip().startswith("git add ")
+        ).split()
         assert "git rm -f --ignore-unmatch -- data/vllm/ci/open_amd_main_failure_issues.json" in persist_run
         assert "python scripts/vllm/amd_main_failure_watcher.py" not in _load_workflow_text("hourly-master.yml")
         for state_file in (
@@ -5278,7 +5283,7 @@ class TestAlertAutomationWorkflow:
             "open_agent_health_issues.json",
             "open_ci_flakiness_issues.json",
         ):
-            assert state_file in persist_run
+            assert f"data/vllm/ci/{state_file}" in staged_paths, state_file
             assert surface_for_path(f"data/vllm/ci/{state_file}") is None
         assert "git add" in persist_run
         assert "git commit" not in persist_run

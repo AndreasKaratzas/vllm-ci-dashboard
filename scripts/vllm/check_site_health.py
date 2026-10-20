@@ -1151,6 +1151,10 @@ def _check_core_age(
             continue
         record = sources.get(name)
         stamp = _parse_timestamp(record.get("timestamp") if isinstance(record, dict) else None)
+        reason = record.get("unavailable_reason") if isinstance(record, dict) else None
+        if stamp is None and reason:
+            problems.append(f"{name} is unavailable ({reason})")
+            continue
         if stamp is None or stamp > checked_at + FUTURE_SKEW:
             problems.append(f"{name} has no trustworthy collection time")
             continue

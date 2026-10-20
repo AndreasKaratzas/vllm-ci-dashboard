@@ -518,6 +518,18 @@ def test_stale_main_cohort_clock_is_core_stale_even_with_fresh_analytics():
     assert "analytics" not in report["reasons"][0]["message"]
 
 
+def test_unavailable_main_cohort_reports_its_reason():
+    sources = {
+        **_core_sources(),
+        "main_ci": {"timestamp": None, "unavailable_reason": "all_main_reliability_missing"},
+    }
+
+    report = health.check_site_health(now=NOW, fetch=Fetcher(core_sources=sources))
+
+    assert _codes(report) == {"core-stale"}
+    assert "main_ci is unavailable (all_main_reliability_missing)" in report["reasons"][0]["message"]
+
+
 def test_perf_eval_is_judged_against_its_own_scheduled_cadence():
     core_limit = health.load_freshness_targets()["core"]["stale_minutes"]
     assert health.source_stale_minutes("perf_eval") > core_limit

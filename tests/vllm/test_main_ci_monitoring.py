@@ -231,7 +231,14 @@ def test_new_hard_failure_on_main_opens_issue_in_the_same_run_and_reaches_main_c
     assert section["incidents"]["issue"]["number"] == number
     assert section["timeline"][0]["event"] == "opened"
 
-    history.append(build(204, "passed", 60))
+    history.append(build(204, "failed", 50))
+    _write_analytics(tmp_path / "analytics.json", _reliability(history, datetime.now(timezone.utc)))
+    assert amd.run_watcher(config) == 0
+    state = json.loads(config.state.read_text())
+    assert len(client.opened) == 1
+    assert [(row["event"], row["build_number"]) for row in state["timeline"]] == [("opened", 203)]
+
+    history.append(build(205, "passed", 60))
     _write_analytics(tmp_path / "analytics.json", _reliability(history, datetime.now(timezone.utc)))
     assert amd.run_watcher(config) == 0
     state = json.loads(config.state.read_text())
@@ -268,6 +275,84 @@ def test_flakiness_watcher_opens_then_resolves_one_managed_issue(monkeypatch, tm
 
     assert client.closed == [number]
     assert json.loads(flaky.STATE.read_text())["groups"] == {}
+
+
+def test_flakiness_thresholds_are_inclusive():
+    thresholds = main_flakiness.load_thresholds()
+    assert thresholds["min_outcome_flips"] == thresholds["min_failed_then_passed"] == 3
+    # Five builds: Flipper p,f,p,f,f flips 3 times; Rescued is rescued in builds 0, 2 and 4.
+    at_threshold = _flaky_builds(NOW - timedelta(days=6), 5, outcome=lambda i: "failed" if i in {1, 3, 4} else "passed")
+    rows = {row["name"]: row["current"] for row in main_flakiness.alerting_rows(_reliability(at_threshold), NOW, thresholds)}
+    assert (rows["Flipper"]["flips"], rows["Rescued"]["recovered"]) == (3, 3)
+
+    # Four builds: Flipper p,f,p,p flips twice; Rescued is rescued twice.
+    below = _flaky_builds(NOW - timedelta(days=6), 4, outcome=lambda i: "failed" if i == 1 else "passed")
+    assert main_flakiness.alerting_rows(_reliability(below), NOW, thresholds) == []
+
+
+def _flaky_issue_run(tmp_path, now, *, extra_group=False):
+    builds = _flaky_builds(now - timedelta(days=6), 8, outcome=lambda i: "failed" if i % 2 else "passed")
+    if extra_group:
+        for index, build in enumerate(builds):
+            at = datetime.fromisoformat(build["created_at"].replace("Z", "+00:00"))
+            build["jobs"].append(_job(f"n{build['number']}", "Newcomer", "failed" if index % 2 else "passed", at))
+    _write_analytics(tmp_path / "analytics.json", _reliability(builds, now))
+    assert flaky.run(now=now) == 0
+    return json.loads(flaky.STATE.read_text())
+
+
+def test_flakiness_rerun_keeps_listed_since_and_issue(monkeypatch, tmp_path):
+    client = FakeIssueClient()
+    _alerting_env(monkeypatch, tmp_path, client)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    first = _flaky_issue_run(tmp_path, now)
+    second = _flaky_issue_run(tmp_path, now + timedelta(hours=2), extra_group=True)
+
+    assert len(client.opened) == 1 and len(client.updated) == 1
+    assert {row["name"] for row in second["groups"].values()} == {"Flipper", "Rescued", "Newcomer"}
+    for group_id, row in first["groups"].items():
+        assert second["groups"][group_id]["listed_since"] == row["listed_since"] == _ts(now)
+    newcomer = next(row for row in second["groups"].values() if row["name"] == "Newcomer")
+    assert newcomer["listed_since"] == _ts(now + timedelta(hours=2))
+
+
+def test_manual_close_holds_while_listed_groups_change(monkeypatch, tmp_path):
+    client = FakeIssueClient()
+    _alerting_env(monkeypatch, tmp_path, client)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    _flaky_issue_run(tmp_path, now)
+    (number, _title, _body), = client.opened
+    client.states[number] = "closed"
+
+    assert _flaky_issue_run(tmp_path, now + timedelta(hours=2))["suppressed"] is True
+    state = _flaky_issue_run(tmp_path, now + timedelta(hours=4), extra_group=True)
+    assert state["suppressed"] is True and state["issue"] is None
+    assert [row[0] for row in client.opened] == [number]
+
+    later = now + timedelta(days=8)
+    calm = _flaky_builds(later - timedelta(hours=12), 2, outcome=lambda _i: "passed")
+    for build in calm:
+        for job in build["jobs"]:
+            job.update(state="passed", retried=False, retried_in_job_id=None)
+    _write_analytics(tmp_path / "analytics.json", _reliability(calm, later))
+    assert flaky.run(now=later) == 0
+    assert json.loads(flaky.STATE.read_text())["suppressed"] is False
+
+    _flaky_issue_run(tmp_path, later + timedelta(hours=1))
+    assert [row[0] for row in client.opened] == [number, number + 1]
+
+
+def test_flakiness_state_keeps_only_the_groups_shown_in_the_issue(monkeypatch, tmp_path):
+    client = FakeIssueClient()
+    _alerting_env(monkeypatch, tmp_path, client)
+    thresholds = {**main_flakiness.load_thresholds(), "max_issue_rows": 1}
+    monkeypatch.setattr(main_flakiness, "load_thresholds", lambda *_args: thresholds)
+    state = _flaky_issue_run(tmp_path, datetime.now(timezone.utc).replace(microsecond=0))
+
+    (_number, title, body), = client.opened
+    assert title.startswith("AMD MI main CI flakiness: 2 test groups")
+    assert len(state["groups"]) == 1
+    assert "1 additional groups are listed on the dashboard." in body
 
 
 def test_flakiness_watcher_refuses_stale_or_history_free_evidence(monkeypatch, tmp_path):
@@ -374,6 +459,12 @@ def test_snapshot_publishes_main_ci_section_shell_and_its_own_source_clock(tmp_p
     assert manifest["shell"]["main_ci"]["builds"] == 8
     published = json.loads((tmp_path / manifest["sections"]["main_ci"]["path"]).read_text())
     assert published["main_ci"]["summary"] == payload["main_ci"]["summary"]
+    assert "unavailable_reason" not in payload["sources"]["main_ci"]
+
+    (tmp_path / "analytics.json").write_text(json.dumps({"ci": {"generated_at": _ts(NOW)}}))
+    payload = ops.build_snapshot(tmp_path, generated_at=_ts(NOW))
+    assert payload["sources"]["main_ci"]["timestamp"] is None
+    assert payload["sources"]["main_ci"]["unavailable_reason"] == "strict_all_main_reliability_unavailable"
 
 
 def test_main_state_compaction_keeps_the_incident_timeline():

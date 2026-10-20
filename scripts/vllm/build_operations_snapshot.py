@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from vllm.bounded_json import atomic_write_bytes  # noqa: E402
 from vllm.constants import amd_gpu_hardware, is_excluded_queue  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
-from vllm.data_freshness_targets import load_freshness_targets  # noqa: E402
+from vllm.data_freshness_targets import core_clock_sources, load_freshness_targets  # noqa: E402
 from vllm.main_ci_section import (  # noqa: E402
     bounded_main_ci,
     build_main_ci,
@@ -4142,6 +4142,8 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         "timestamp_source": "ci.all_main_reliability.generated_at",
         "published": True,
     }
+    if main_ci.get("unavailable_reason"):
+        sources["main_ci"]["unavailable_reason"] = main_ci["unavailable_reason"]
 
     return {
         "schema_version": 2,
@@ -4430,7 +4432,7 @@ def _core_generated_at(sources: dict) -> str | None:
     """Return the oldest core collection time, or None while any core source is undated."""
     stamps = [
         _parse_dt((sources.get(name) or {}).get("timestamp"))
-        for name in load_freshness_targets()["core"]["sources"]
+        for name in core_clock_sources()
     ]
     return None if None in stamps else _utc_iso(min(stamps))
 

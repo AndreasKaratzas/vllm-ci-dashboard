@@ -98,8 +98,9 @@ def _md(value: Any) -> str:
 
 
 def _fingerprint(rows: list[dict]) -> str:
-    encoded = json.dumps(sorted(row["group_id"] for row in rows)).encode()
-    return hashlib.sha256(encoded).hexdigest()
+    # The listed set churns with the sliding window; a manual close must hold
+    # until no group crosses a threshold, not lift on every membership change.
+    return "active" if rows else ""
 
 
 def _content_fingerprint(rows: list[dict]) -> str:
@@ -112,7 +113,7 @@ def _content_fingerprint(rows: list[dict]) -> str:
 
 
 def tracked_groups(rows: list[dict], previous: dict, observed_at: str) -> dict:
-    """Listed groups with the time each first crossed a threshold."""
+    """Groups shown in the issue with the time each first crossed a threshold."""
     tracked = {}
     for row in rows:
         prior = previous.get(row["group_id"]) or {}
@@ -197,7 +198,7 @@ def _issue_body(
             f"| {_md((tracked.get(row['group_id']) or {}).get('listed_since'))} |"
         )
     if len(rows) > limit:
-        lines.extend(["", f"{len(rows) - limit} additional groups are retained in `{STATE.name}`."])
+        lines.extend(["", f"{len(rows) - limit} additional groups are listed on the dashboard."])
     lines.extend(
         [
             "",
@@ -243,7 +244,9 @@ def run(now: datetime | None = None) -> int:
     rows = main_flakiness.alerting_rows(reliability, now, thresholds)
     observed_at = str(reliability.get("generated_at") or now.strftime("%Y-%m-%dT%H:%M:%SZ"))
     state = _read_state()
-    tracked = tracked_groups(rows, state.get("groups") or {}, observed_at)
+    tracked = tracked_groups(
+        rows[: thresholds["max_issue_rows"]], state.get("groups") or {}, observed_at
+    )
     reconciled = reconcile_managed_issue(
         state,
         active=bool(rows),

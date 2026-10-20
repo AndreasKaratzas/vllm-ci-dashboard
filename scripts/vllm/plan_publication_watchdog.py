@@ -145,6 +145,7 @@ class CoreTargets:
 
     sources: tuple[str, ...]
     target_minutes: float
+    main_derived: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -410,9 +411,10 @@ def load_core_targets(path: Path = FRESHNESS_TARGETS) -> CoreTargets:
         if not loaded:
             raise TypeError
         core = payload["core"]
+        main_derived = tuple(core.get("main_derived_sources", ()))
         sources = tuple(
             key
-            for key in (*core["sources"], *core.get("main_derived_sources", ()))
+            for key in (*core["sources"], *main_derived)
             if "path" not in payload["sources"][key]
         )
         target_minutes = _positive_finite(float(core["target_minutes"]), label="core target")
@@ -420,14 +422,15 @@ def load_core_targets(path: Path = FRESHNESS_TARGETS) -> CoreTargets:
         raise ValueError("data freshness targets are invalid") from exc
     if not sources or not all(isinstance(key, str) for key in sources):
         raise ValueError("data freshness targets are invalid")
-    return CoreTargets(sources, target_minutes)
+    return CoreTargets(sources, target_minutes, main_derived)
 
 
 def core_data_age(manifest_path: Path, targets: CoreTargets, *, now: datetime) -> CoreDataAge:
     """Return the oldest core clock in a hydrated operations manifest.
 
     A missing or unreadable clock counts as stale: the collector admission
-    still bounds every Buildkite request.
+    still bounds every Buildkite request. A main-derived clock absent from a
+    manifest written before it existed is skipped, as in Site Health.
     """
     if now.tzinfo is None:
         raise ValueError("now must be timezone-aware")
@@ -437,6 +440,8 @@ def core_data_age(manifest_path: Path, targets: CoreTargets, *, now: datetime) -
     published = shell.get("sources") if isinstance(shell, dict) else None
     oldest: tuple[str, datetime] | None = None
     for key in targets.sources:
+        if key in targets.main_derived and isinstance(published, dict) and key not in published:
+            continue
         entry = published.get(key) if isinstance(published, dict) else None
         raw = entry.get("timestamp") if isinstance(entry, dict) else None
         collected_at = _parse_timestamp(raw)
@@ -444,7 +449,8 @@ def core_data_age(manifest_path: Path, targets: CoreTargets, *, now: datetime) -
             return CoreDataAge(key, None, True)
         if oldest is None or collected_at < oldest[1]:
             oldest = (key, collected_at)
-    assert oldest is not None
+    if oldest is None:
+        return CoreDataAge(targets.sources[0], None, True)
     source, collected_at = oldest
     stale = now - collected_at >= timedelta(minutes=targets.target_minutes)
     return CoreDataAge(source, collected_at, stale)

@@ -995,3 +995,13 @@ def test_preserved_main_cohort_makes_core_stale_while_analytics_is_fresh(tmp_pat
     assert age == watchdog.CoreDataAge(
         "main_ci", NOW - timedelta(minutes=targets.target_minutes + 1), True
     )
+
+
+def test_manifest_predating_main_ci_is_judged_by_its_core_clocks_only(tmp_path) -> None:
+    targets = watchdog.load_core_targets()
+    ages = {key: 30 for key in targets.sources if key not in targets.main_derived}
+    age = watchdog.core_data_age(_manifest(tmp_path, ages), targets, now=NOW)
+    assert age.stale is False and age.source != "main_ci"
+
+    undated = watchdog.core_data_age(_manifest(tmp_path, {**ages, "main_ci": None}), targets, now=NOW)
+    assert undated == watchdog.CoreDataAge("main_ci", None, True)
