@@ -32,6 +32,9 @@ export const SERIES = {
   muted: token('series-muted'),
 } as const
 
+/** Background of a time span with no observations (a collection gap), behind the series. */
+export const CHART_GAP = { fill: 'color-mix(in oklch, var(--muted) 70%, transparent)' as PaletteColor, label: token('muted-foreground') } as const
+
 export type HardwareFamily = 'MI250' | 'MI300' | 'MI325' | 'MI355'
 const HARDWARE_FAMILIES: readonly HardwareFamily[] = ['MI250', 'MI300', 'MI325', 'MI355']
 

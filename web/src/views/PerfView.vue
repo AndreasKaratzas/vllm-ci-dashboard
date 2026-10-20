@@ -105,7 +105,7 @@ const spark = (pick: (nightly: (typeof recent.value)[number]) => number) => rece
 function lastDelta(values: number[], goodWhen: 'up' | 'down'): Delta | undefined {
   if (values.length < 2) return undefined
   const value = values.at(-1)! - values.at(-2)!
-  return { value, text: `${value > 0 ? '+' : ''}${integer(value)}`, goodWhen, title: 'Change from the previous nightly' }
+  return { value, text: `${value > 0 ? '+' : ''}${integer(value)}`, goodWhen, label: 'vs the preceding nightly' }
 }
 
 function selectModel(name: string) {

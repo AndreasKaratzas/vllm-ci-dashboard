@@ -12,7 +12,6 @@ import Cell from './Cell.vue'
 import type { CellSpec, ColumnSpec, FilterSpec } from './columns'
 
 const ALL = '__all__'
-
 const props = withDefaults(
   defineProps<{
     columns: ColumnSpec<T>[]

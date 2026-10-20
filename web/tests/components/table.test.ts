@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import Cell from '@/components/table/Cell.vue'
 import DataTable from '@/components/table/DataTable.vue'
 import { badge, drill, link, mono, num, text as textCell, type ColumnSpec } from '@/components/table/columns'
+import { SERIES } from '@/lib/palette'
 import { installLayoutStubs, settle, text } from './support'
 
 installLayoutStubs()
@@ -135,6 +136,17 @@ describe('DataTable', () => {
   })
 })
 
+describe('DataTable on phones', () => {
+  it('hides low-value columns below their breakpoint and counts a single row', () => {
+    const responsive = columns.map((c) => (c.id === 'runs' ? { ...c, class: 'hidden sm:table-cell' } : c))
+    const wrapper = mount(DataTable<Group>, { props: { columns: responsive, rows: groups.slice(0, 1) } })
+    expect(wrapper.findAll('th')[1]!.classes()).toEqual(expect.arrayContaining(['hidden', 'sm:table-cell']))
+    expect(wrapper.findAll('td')[1]!.classes()).toEqual(expect.arrayContaining(['hidden', 'sm:table-cell']))
+    expect(wrapper.text()).toContain('1 row')
+    expect(wrapper.text()).not.toContain('1 rows')
+  })
+})
+
 describe('Cell', () => {
   it('renders external links with an icon and a new tab', () => {
     const a = mount(Cell, { props: { cell: link('#123', 'https://buildkite.com/x', true) } }).find('a')
@@ -156,6 +168,13 @@ describe('Cell', () => {
     expect(mount(Cell, { props: { cell: num(null) } }).find('span span').classes()).toContain('text-muted-foreground')
     expect(text(mount(Cell, { props: { cell: textCell('main', 'since #12') } }).element)).toBe('main since #12')
     expect(mount(Cell, { props: { cell: mono('abc1234') } }).find('.font-mono').text()).toBe('abc1234')
+  })
+
+  it('explains a muted dash in its tooltip and draws an inline magnitude bar', () => {
+    expect(mount(Cell, { props: { cell: { text: '—', title: 'Needs complete coverage' } } }).find('span span').attributes('title')).toBe('Needs complete coverage')
+    const bar = mount(Cell, { props: { cell: { text: '30', bar: { value: 30, max: 120, color: SERIES.primary } } } })
+    expect(bar.find('[data-slot=cell-bar] span').attributes('style')).toBe('width: 25%; background-color: var(--series-1);')
+    expect(text(bar.element)).toBe('30')
   })
 })
 

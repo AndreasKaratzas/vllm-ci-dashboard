@@ -12,7 +12,8 @@ export interface Delta {
   text?: string
   /** A verdict decided elsewhere (e.g. a threshold): 'hard' is worse, 'pass' is better, anything else is neither. */
   tone?: Tone
-  title?: string
+  /** The baseline, e.g. 'vs the previous nightly'; shown as the tooltip and read out. */
+  label?: string
 }
 
 const props = defineProps<{ delta: Delta }>()
@@ -25,7 +26,10 @@ const verdict = computed<'worse' | 'better' | null>(() => {
   return direction.value === props.delta.goodWhen ? 'better' : 'worse'
 })
 const icon = computed(() => ({ up: TrendingUp, down: TrendingDown, flat: Minus })[direction.value])
-const description = computed(() => `${direction.value === 'flat' ? 'unchanged' : direction.value} ${text.value}${verdict.value ? `, ${verdict.value}` : ''}`)
+const description = computed(() => {
+  const baseline = props.delta.label ? ` ${props.delta.label}` : ''
+  return `${direction.value === 'flat' ? 'unchanged' : direction.value} ${text.value}${baseline}${verdict.value ? `, ${verdict.value}` : ''}`
+})
 // A threshold verdict tints regressions and colors improvements; a plain worse direction only colors the text.
 const classes = computed(() => {
   if (props.delta.tone === undefined) return verdict.value === 'worse' && toneClasses('hard', 'text')
@@ -40,7 +44,7 @@ const classes = computed(() => {
     class="gap-1 font-medium tabular-nums"
     :class="classes"
     :aria-label="description"
-    :title="delta.title"
+    :title="delta.label"
     :data-direction="direction"
     :data-verdict="verdict ?? undefined"
   >

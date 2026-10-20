@@ -21,6 +21,10 @@ export interface CellSpec {
   nowrap?: boolean
   /** A trend drawn after the text; fewer than two values draw nothing. */
   spark?: { values: number[]; label: string; color?: PaletteColor }
+  /** Tooltip on the cell text, e.g. why a value is shown as a muted dash. */
+  title?: string
+  /** An inline magnitude bar before the text, `value` of `max`. */
+  bar?: { value: number; max: number; color: PaletteColor }
 }
 
 export interface ColumnSpec<T> {

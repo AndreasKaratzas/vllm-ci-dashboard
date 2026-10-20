@@ -1,12 +1,25 @@
 <script setup lang="ts" generic="T extends ChartRow">
 import { StackedBar } from '@unovis/ts'
-import { VisArea, VisAxis, VisLine, VisStackedBar, VisTooltip, VisXYContainer } from '@unovis/vue'
+import { VisArea, VisAxis, VisLine, VisPlotband, VisStackedBar, VisTooltip, VisXYContainer } from '@unovis/vue'
 import { useId } from 'reka-ui'
 import { computed, ref } from 'vue'
-import { ChartContainer, ChartCrosshair, ChartTooltip } from '@/components/ui/chart'
 import SegmentedSelect from '@/components/layout/SegmentedSelect.vue'
+import { ChartContainer, ChartCrosshair, ChartTooltip } from '@/components/ui/chart'
+import { CHART_GAP } from '@/lib/palette'
 import { cn } from '@/lib/utils'
-import { chartConfig, integerTicks, plainNumber, seriesValue, shortDay, thinTicks, useSeriesInteraction, useTickCount, type ChartRow, type SeriesSpec } from './chart'
+import {
+  chartConfig,
+  niceTicks,
+  plainNumber,
+  seriesValue,
+  shortDay,
+  thinTicks,
+  timeTicks,
+  useSeriesInteraction,
+  useTickCount,
+  type ChartRow,
+  type SeriesSpec,
+} from './chart'
 import ChartInspect from './ChartInspect.vue'
 import Legend from './Legend.vue'
 
@@ -33,14 +46,21 @@ const props = withDefaults(
     xFormat?: (value: number) => string
     yDomain?: [number, number]
     yFormat?: (value: number) => string
-    ranges?: RangeOption[]
-    hint?: string
-    class?: string
-    bars?: CompanionBars
     /** Explicit y-axis ticks, e.g. to label the bottom of a zoomed domain. */
     yTicks?: number[]
-    /** 'legend' puts the Inspect menu at the end of the legend row instead of a toolbar row above the plot. */
-    inspectPlacement?: 'top' | 'legend'
+    ranges?: RangeOption[]
+    /** Ticks on round UTC times (hours, midnights) instead of on the rows themselves. */
+    timeAxis?: boolean
+    /** Rows farther apart than this (in x units) are a collection gap: the line breaks and the gap is shaded. */
+    maxGap?: number
+    bars?: CompanionBars
+    /**
+     * Where the keyboard Inspect menu sits: a toolbar row above the plot, the end of the legend row,
+     * or nowhere when the page already offers a keyboard path to every point (e.g. an evidence list).
+     */
+    inspectPlacement?: 'top' | 'legend' | 'none'
+    hint?: string
+    class?: string
     onSelect?: (row: T, index: number) => void
   }>(),
   { xFormat: shortDay, yFormat: plainNumber, inspectPlacement: 'top' },
@@ -67,8 +87,6 @@ const svgDefs = computed(() =>
     )
     .join(''),
 )
-const barFormat = (value: number) => (props.bars?.yFormat ?? plainNumber)(value)
-const barKeys = computed(() => new Set((props.bars?.series ?? []).map((s) => s.key)))
 const rangeItems = computed(() => (props.ranges ?? []).map((option) => ({ value: String(option.value), label: option.label })))
 const rangeModel = computed({
   get: () => String(range.value),
@@ -76,6 +94,9 @@ const rangeModel = computed({
     if (value) range.value = Number(value)
   },
 })
+
+const barFormat = (value: number) => (props.bars?.yFormat ?? plainNumber)(value)
+const barKeys = computed(() => new Set((props.bars?.series ?? []).map((s) => s.key)))
 
 // The crosshair tooltip lists the companion bar values too, since both plots share the x-axis.
 const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInteraction<T>({
@@ -87,8 +108,8 @@ const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInterac
   onSelect: () => props.onSelect,
 })
 const inspectTop = computed(() => !!props.onSelect && props.inspectPlacement === 'top')
+const inspectInLegend = computed(() => !!props.onSelect && props.inspectPlacement === 'legend')
 const legendItems = computed(() => [...props.series, ...(props.bars?.series ?? [])])
-const showLegend = computed(() => legendItems.value.length > 1 || (!!props.onSelect && !inspectTop.value))
 
 // With companion bars both plots share fixed margins and an x domain padded by half a step,
 // so every bar sits exactly under its point on the area.
@@ -97,26 +118,61 @@ const xDomain = computed<[number, number] | undefined>(() => {
   if (!props.bars) return undefined
   const xs = visible.value.map(xValue)
   if (!xs.length) return undefined
-  const min = Math.min(...xs)
-  const max = Math.max(...xs)
-  const gaps = xs.slice(1).map((x, i) => Math.abs(x - xs[i]!)).filter((gap) => gap > 0)
-  const half = (gaps.length ? Math.min(...gaps) : 1) / 2
-  return [min - half, max + half]
+  const steps = xs.slice(1).map((x, i) => Math.abs(x - xs[i]!)).filter((step) => step > 0)
+  const half = (steps.length ? Math.min(...steps) : 1) / 2
+  return [Math.min(...xs) - half, Math.max(...xs) + half]
 })
-const xTicks = computed(() => thinTicks(visible.value.map(xValue), ticks.value))
 
-// The padded domain would leave the area short of both plot edges, so the first and last rows are
-// repeated at the edges; those marks carry their row, so hover and click still resolve to it.
-interface Mark {
-  x: number
+// What the area and line draw. A collection gap is bracketed by two value-less points just inside
+// it, so the area drops to the baseline and the line breaks instead of interpolating through it.
+// With companion bars the first and last rows also repeat at the padded domain edges, so the area
+// fills the plot; every point carries its row, so hover and click still resolve to it.
+interface Plotted {
   row: T
+  x: number
+  gap?: true
 }
-const marks = computed<Mark[]>(() => {
-  const points = visible.value.map((row) => ({ x: xValue(row), row }))
+const plotted = computed<Plotted[]>(() => {
+  const out: Plotted[] = []
+  visible.value.forEach((row, i) => {
+    const x = xValue(row)
+    const previous = visible.value[i - 1]
+    if (previous && props.maxGap && x - xValue(previous) > props.maxGap) {
+      const edge = (x - xValue(previous)) / 200
+      out.push({ row: previous, x: xValue(previous) + edge, gap: true }, { row, x: x - edge, gap: true })
+    }
+    out.push({ row, x })
+  })
   const domain = xDomain.value
-  if (!domain || !points.length) return points
-  return [{ x: domain[0], row: points[0]!.row }, ...points, { x: domain[1], row: points.at(-1)!.row }]
+  if (!domain || !out.length) return out
+  return [{ row: out[0]!.row, x: domain[0] }, ...out, { row: out.at(-1)!.row, x: domain[1] }]
 })
+// Only a gap wide enough to hold its label is labelled.
+const gaps = computed(() => {
+  const span = (plotted.value.at(-1)?.x ?? 0) - (plotted.value[0]?.x ?? 0) || 1
+  return plotted.value.flatMap((d, i) => {
+    const next = plotted.value[i + 1]
+    if (!d.gap || !next?.gap) return []
+    return [{ from: d.x, to: next.x, label: (next.x - d.x) / span > 0.08 ? 'No data' : '' }]
+  })
+})
+const value = (key: string) => (d: Plotted) => (d.gap ? undefined : seriesValue(d.row, key))
+const areaValue = (key: string) => (d: Plotted) => (d.gap ? undefined : seriesValue(d.row, key) - floor.value)
+
+const xAxis = computed(() => {
+  const xs = visible.value.map(xValue)
+  if (props.timeAxis && xs.length) return timeTicks([xs[0]!, xs.at(-1)!], ticks.value)
+  return { values: thinTicks(xs, ticks.value), label: props.xFormat }
+})
+
+// The sheet a click opens covers the plot without a pointer move (and a resize would redraw the
+// crosshair where the pointer was), so the crosshair and its tooltip are retired here.
+const crosshairRef = ref<{ component?: { hide: () => void } } | null>(null)
+function openHovered() {
+  selectHovered()
+  crosshairRef.value?.component?.hide()
+}
+
 const bar = useSeriesInteraction<T>({
   rows: () => props.rows,
   series: () => props.bars?.series ?? [],
@@ -127,8 +183,8 @@ const bar = useSeriesInteraction<T>({
 })
 const barAccessors = computed(() => (props.bars?.series ?? []).map((s) => (row: T) => seriesValue(row, s.key)))
 // Failure counts are whole numbers; keep the bar axis off fractional ticks.
-const barScale = computed(() =>
-  integerTicks(0, Math.max(0, ...visible.value.map((row) => barAccessors.value.reduce((sum, accessor) => sum + accessor(row), 0))), 2),
+const barTicks = computed(() =>
+  niceTicks(0, Math.max(0, ...visible.value.map((row) => barAccessors.value.reduce((sum, accessor) => sum + accessor(row), 0))), 2, 1),
 )
 const barEvents = { [StackedBar.selectors.bar]: { click: (row: T) => bar.select(row) } }
 // Stacked bars bind a stack record, not the row, to each path.
@@ -142,21 +198,34 @@ const barTriggers = { [StackedBar.selectors.bar]: (d: { datum: T }) => bar.toolt
       <SegmentedSelect v-if="ranges?.length" v-model="rangeModel" :items="rangeItems" :label="`${label} range`" :show-label="false" class="w-36 sm:w-auto" />
       <ChartInspect v-if="inspectTop" :items="inspectItems(visible)" :label="label" @select="(i) => select(visible[i])" />
     </div>
-    <div ref="host" role="img" :aria-label="label" :class="onSelect && 'cursor-pointer'" @click="selectHovered">
+    <div ref="host" role="img" :aria-label="label" :class="onSelect && 'cursor-pointer [&_svg_*]:cursor-pointer'" @click="openHovered">
       <ChartContainer :config="chartConfig(series)" :class="cn('aspect-auto h-[250px] w-full', props.class)" cursor>
         <VisXYContainer
-          :data="marks"
+          :data="plotted"
           :svg-defs="svgDefs"
           :margin="bars ? { ...SHARED_MARGIN, top: 8, bottom: 4 } : { left: 4, right: 12, top: 8 }"
           :auto-margin="!bars"
           :x-domain="xDomain"
           :y-domain="yDomain"
         >
+          <VisPlotband
+            v-for="(gap, i) in gaps"
+            :key="`gap-${i}`"
+            axis="x"
+            :from="gap.from"
+            :to="gap.to"
+            :color="CHART_GAP.fill"
+            :label-text="gap.label"
+            label-position="top-inside"
+            :label-color="CHART_GAP.label"
+            :label-size="11"
+            :duration="0"
+          />
           <VisArea
             v-for="s in series"
             :key="`area-${s.key}`"
-            :x="(m: Mark) => m.x"
-            :y="(m: Mark) => seriesValue(m.row, s.key) - floor"
+            :x="(d: Plotted) => d.x"
+            :y="areaValue(s.key)"
             :baseline="() => floor"
             :color="`url(#${gradientId(s.key)})`"
             curve-type="monotoneX"
@@ -165,19 +234,31 @@ const barTriggers = { [StackedBar.selectors.bar]: (d: { datum: T }) => bar.toolt
           <VisLine
             v-for="s in series"
             :key="`line-${s.key}`"
-            :x="(m: Mark) => m.x"
-            :y="(m: Mark) => seriesValue(m.row, s.key)"
+            :x="(d: Plotted) => d.x"
+            :y="value(s.key)"
             :color="s.color"
             :line-width="2"
             curve-type="monotoneX"
             :duration="300"
           />
-          <VisAxis v-if="!bars" type="x" :tick-values="xTicks" :tick-format="xFormat" :tick-line="false" :domain-line="false" :grid-line="false" />
+          <VisAxis
+            v-if="!bars"
+            type="x"
+            :x="(d: Plotted) => d.x"
+            :tick-values="xAxis.values"
+            :tick-format="xAxis.label"
+            :tick-line="false"
+            :domain-line="false"
+            :grid-line="false"
+          />
           <VisAxis type="y" :num-ticks="yTicks ? undefined : 4" :tick-values="yTicks" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
           <ChartTooltip />
           <ChartCrosshair
-            :template="(m: Mark) => tooltip(m.row)"
-            :onCrosshairMove="(x: number | Date | undefined, m: Mark | undefined) => track(x, m?.row)"
+            ref="crosshairRef"
+            :x="(d: Plotted) => d.x"
+            :y="series.map((s) => value(s.key))"
+            :template="(d: Plotted) => tooltip(d.row)"
+            :onCrosshairMove="(x: number | Date | undefined, d: Plotted | undefined) => track(x, d?.row)"
             :color="series.map((s) => s.color)"
           />
         </VisXYContainer>
@@ -191,7 +272,13 @@ const barTriggers = { [StackedBar.selectors.bar]: (d: { datum: T }) => bar.toolt
       data-slot="area-chart-bars"
     >
       <ChartContainer :config="chartConfig(bars.series)" class="aspect-auto h-[120px] w-full">
-        <VisXYContainer :data="visible" :margin="{ ...SHARED_MARGIN, top: 4, bottom: 24 }" :auto-margin="false" :x-domain="xDomain" :y-domain="barScale.domain">
+        <VisXYContainer
+          :data="visible"
+          :margin="{ ...SHARED_MARGIN, top: 4, bottom: 24 }"
+          :auto-margin="false"
+          :x-domain="xDomain"
+          :y-domain="[barTicks[0]!, barTicks.at(-1)!]"
+        >
           <VisStackedBar
             :x="xValue"
             :y="barAccessors"
@@ -202,15 +289,15 @@ const barTriggers = { [StackedBar.selectors.bar]: (d: { datum: T }) => bar.toolt
             :duration="300"
             :events="barEvents"
           />
-          <VisAxis type="x" :x="xValue" :tick-values="xTicks" :tick-format="xFormat" :tick-line="false" :domain-line="false" :grid-line="false" />
-          <VisAxis type="y" :tick-values="barScale.ticks" :tick-format="bars.yFormat ?? plainNumber" :tick-line="false" :domain-line="false" />
+          <VisAxis type="x" :x="xValue" :tick-values="xAxis.values" :tick-format="xAxis.label" :tick-line="false" :domain-line="false" :grid-line="false" />
+          <VisAxis type="y" :tick-values="barTicks" :tick-format="barFormat" :tick-line="false" :domain-line="false" />
           <VisTooltip :triggers="barTriggers" />
         </VisXYContainer>
       </ChartContainer>
     </div>
-    <div v-if="showLegend" class="flex flex-wrap items-center justify-between gap-2">
+    <div v-if="legendItems.length > 1 || inspectInLegend" class="flex flex-wrap items-center justify-between gap-2">
       <Legend v-if="legendItems.length > 1" :items="legendItems" />
-      <div v-if="onSelect && !inspectTop" class="ml-auto">
+      <div v-if="inspectInLegend" class="ml-auto">
         <ChartInspect :items="inspectItems(visible)" :label="label" @select="(i) => select(visible[i])" />
       </div>
     </div>

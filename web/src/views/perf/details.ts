@@ -57,7 +57,7 @@ export const deltaText = (label: string) => label.replace(/^[+-](0\.0%)$/, '$1')
 export function blockDelta(block: Rec): Delta {
   const delta = perfDelta(block)
   const pct = Math.round(Number(block.delta_pct) * 10) / 10
-  return { value: Number.isFinite(pct) ? pct : 0, text: deltaText(delta.label), tone: delta.tone, title: delta.title ?? undefined }
+  return { value: Number.isFinite(pct) ? pct : 0, text: deltaText(delta.label), tone: delta.tone, label: delta.title ? 'vs the preceding nightly' : undefined }
 }
 
 const TONE_LABEL: Partial<Record<string, string>> = { hard: 'Regressed', pass: 'Improved' }

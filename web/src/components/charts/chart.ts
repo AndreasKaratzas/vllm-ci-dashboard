@@ -69,6 +69,24 @@ export function distinctTicks([min, max]: [number, number], count: number, forma
   return ticks
 }
 
+const HOUR = 3_600_000
+const DAY_MS = 24 * HOUR
+const TIME_STEPS = [HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, DAY_MS, 2 * DAY_MS, 7 * DAY_MS, 14 * DAY_MS, 28 * DAY_MS]
+const CLOCK = new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'UTC' })
+
+/**
+ * At most `count` ticks on round UTC times (whole hours, midnights) inside the domain, evenly
+ * spaced, with a label that names the day at midnight and the clock time otherwise.
+ */
+export function timeTicks([min, max]: [number, number], count: number): { values: number[]; label: (value: number) => string } {
+  const span = Math.max(0, max - min)
+  const step = TIME_STEPS.find((s) => span / s <= Math.max(1, count)) ?? TIME_STEPS.at(-1)!
+  const values: number[] = []
+  for (let value = Math.ceil(min / step) * step; value <= max; value += step) values.push(value)
+  const label = (value: number) => (step >= DAY_MS || value % DAY_MS === 0 ? shortDay(value) : CLOCK.format(new Date(value)))
+  return { values, label }
+}
+
 /** About one axis tick per `spacing` pixels of the element's width. */
 export function useTickCount(el: Ref<HTMLElement | null>, spacing = 80) {
   const { width } = useElementSize(el)
@@ -107,14 +125,4 @@ export function useSeriesInteraction<T extends ChartRow>(opts: SeriesInteraction
   const inspectItems = (rows: T[]): InspectItem[] =>
     rows.map((row) => ({ label: opts.title(row), detail: describe(row).map((d) => d.value).join(' · ') }))
   return { track, tooltip, select, selectHovered: () => select(hovered), inspectItems }
-}
-
-/** Whole-number ticks covering [lo, hi] in at most about `count` steps, and the domain they span. */
-export function integerTicks(lo: number, hi: number, count = 4): { ticks: number[]; domain: [number, number] } {
-  const step = Math.max(1, Math.ceil((Math.max(hi, 0) - Math.min(lo, 0) || 1) / count))
-  const start = Math.floor(Math.min(lo, 0) / step) * step
-  const end = Math.max(step, Math.ceil(Math.max(hi, 0) / step) * step)
-  const ticks: number[] = []
-  for (let value = start; value <= end; value += step) ticks.push(value)
-  return { ticks, domain: [start, end] }
 }

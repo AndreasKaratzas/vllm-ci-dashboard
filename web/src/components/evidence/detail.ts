@@ -25,6 +25,8 @@ export interface DetailField {
   /** Render the value as an external link. */
   href?: string
   mono?: boolean
+  /** Why the value is missing, shown as the tooltip of its muted dash. */
+  hint?: string
 }
 
 export interface DetailSource {
@@ -56,6 +58,15 @@ export interface DetailSection {
   props?: Record<string, unknown>
 }
 
+/** A small trend panel for the sheet's subject, oldest value first. */
+export interface DetailTrend {
+  title: string
+  meta?: string
+  values: number[]
+  /** Labels of the first and last value. */
+  range?: [string, string]
+}
+
 /** Everything an evidence sheet shows; domain builders return it and stay UI-free. */
 export interface Detail {
   id: string
@@ -69,5 +80,8 @@ export interface Detail {
   sections?: DetailSection[]
   tables?: DetailTable<any>[]
   empty?: string
+  trend?: DetailTrend
+  /** Methodology that would otherwise push the data down; shown after it. */
+  footnote?: string
   width?: 'md' | 'lg' | 'xl'
 }

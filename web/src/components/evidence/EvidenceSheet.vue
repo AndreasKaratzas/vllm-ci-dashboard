@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import Callout from '@/components/feedback/Callout.vue'
 import EmptyState from '@/components/feedback/EmptyState.vue'
 import StatusBadge from '@/components/feedback/StatusBadge.vue'
+import Sparkline from '@/components/stat/Sparkline.vue'
 import DataTable from '@/components/table/DataTable.vue'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -62,7 +63,7 @@ function openRow(table: DetailTable, row: unknown) {
           <div v-for="stat in detail.stats" :key="stat.label" class="flex min-w-0 flex-col gap-1 rounded-lg border bg-linear-to-t from-brand/5 to-card p-3">
             <dt class="text-xs text-muted-foreground">{{ stat.label }}</dt>
             <dd class="flex flex-wrap items-center gap-2">
-              <span class="inline-flex items-center gap-1.5 text-xl font-semibold tabular-nums" :class="stat.tone && stat.tone !== 'pass' && !statBadge(stat) && toneClasses(stat.tone, 'text')">
+              <span class="inline-flex items-center gap-1.5 text-xl font-semibold tabular-nums" data-slot="evidence-stat-value" :class="stat.tone && stat.tone !== 'pass' && !statBadge(stat) && toneClasses(stat.tone, 'text')">
                 <component :is="TONE_ICON[stat.tone]" v-if="stat.tone && stat.tone !== 'pass' && !statBadge(stat)" class="size-4 shrink-0" aria-hidden="true" />{{ stat.value }}
               </span>
               <StatusBadge v-if="statBadge(stat)" :tone="stat.tone!" :label="statBadge(stat)!" />
@@ -71,10 +72,21 @@ function openRow(table: DetailTable, row: unknown) {
           </div>
         </dl>
 
+        <section v-if="detail.trend && detail.trend.values.length > 1" class="flex flex-col gap-2 rounded-lg border p-4" data-slot="evidence-trend">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 class="text-sm font-semibold">{{ detail.trend.title }}</h3>
+            <span v-if="detail.trend.meta" class="text-xs text-muted-foreground">{{ detail.trend.meta }}</span>
+          </div>
+          <Sparkline :values="detail.trend.values" :label="`${detail.trend.title}: ${detail.trend.values.length} points`" />
+          <div v-if="detail.trend.range" class="flex justify-between text-xs text-muted-foreground tabular-nums">
+            <span>{{ detail.trend.range[0] }}</span><span>{{ detail.trend.range[1] }}</span>
+          </div>
+        </section>
+
         <dl v-if="fields.length" data-slot="evidence-fields" class="grid grid-cols-1 gap-x-6 gap-y-2 rounded-lg border p-4 text-sm sm:grid-cols-[minmax(9rem,auto)_1fr]">
           <template v-for="field in fields" :key="field.label">
             <dt class="text-muted-foreground">{{ field.label }}</dt>
-            <dd class="font-medium break-words" :class="field.mono && 'font-mono text-xs leading-5'">
+            <dd class="font-medium break-words" :class="[field.mono && 'font-mono text-xs leading-5', field.value === '—' && 'text-muted-foreground']" :title="field.hint">
               <StatusBadge v-if="field.tone" :tone="field.tone" :label="String(field.value)" />
               <a
                 v-else-if="field.href"
@@ -123,6 +135,8 @@ function openRow(table: DetailTable, row: unknown) {
             @drill="(d) => emit('drill', d)"
           />
         </section>
+
+        <p v-if="detail.footnote" class="border-t pt-4 text-xs text-muted-foreground" data-slot="evidence-footnote">{{ detail.footnote }}</p>
       </div>
     </SheetContent>
   </Sheet>

@@ -7,7 +7,7 @@ import Donut from '@/components/charts/Donut.vue'
 import LineChart from '@/components/charts/LineChart.vue'
 import ProportionBar from '@/components/charts/ProportionBar.vue'
 import Timeline from '@/components/charts/Timeline.vue'
-import { distinctTicks, niceTicks, shortDay, useSeriesInteraction } from '@/components/charts/chart'
+import { distinctTicks, niceTicks, shortDay, timeTicks, useSeriesInteraction } from '@/components/charts/chart'
 import { useDragRange } from '@/components/charts/dragRange'
 import { escapeHtml, tooltipHtml } from '@/components/charts/tooltip'
 import { SERIES, statusVar } from '@/lib/palette'
@@ -17,7 +17,7 @@ import { installLayoutStubs, settle, text } from './support'
 vi.mock('@unovis/vue', async () => {
   const { defineComponent, h } = await import('vue')
   const stub = (name: string) => defineComponent({ name, inheritAttrs: false, setup: (_, { slots }) => () => h('div', { 'data-vis': name }, slots.default?.()) })
-  const names = ['VisXYContainer', 'VisSingleContainer', 'VisArea', 'VisLine', 'VisScatter', 'VisAxis', 'VisStackedBar', 'VisGroupedBar', 'VisDonut', 'VisTooltip', 'VisCrosshair']
+  const names = ['VisXYContainer', 'VisSingleContainer', 'VisArea', 'VisLine', 'VisPlotband', 'VisScatter', 'VisAxis', 'VisStackedBar', 'VisGroupedBar', 'VisDonut', 'VisTooltip', 'VisCrosshair']
   return Object.fromEntries(names.map((name) => [name, stub(name)]))
 })
 
@@ -74,6 +74,33 @@ describe('distinctTicks', () => {
     expect(distinctTicks([start, start + 6 * 3_600_000], 5, shortDay)).toEqual([start])
     const days = distinctTicks([Date.UTC(2026, 8, 20), Date.UTC(2026, 8, 24)], 5, shortDay)
     expect(days.map(shortDay)).toEqual(['Sep 20', 'Sep 21', 'Sep 22', 'Sep 23', 'Sep 24'])
+  })
+})
+
+describe('timeTicks', () => {
+  const at = (iso: string) => Date.parse(iso)
+  it('ticks on round UTC times and names the day at midnight', () => {
+    const { values, label } = timeTicks([at('2026-10-16T05:29:00Z'), at('2026-10-19T05:09:00Z')], 8)
+    expect(values.map(label)).toEqual(['12:00', 'Oct 17', '12:00', 'Oct 18', '12:00', 'Oct 19'])
+    expect(new Set(values.slice(1).map((v, i) => v - values[i]!))).toEqual(new Set([12 * 3_600_000]))
+  })
+
+  it('switches to whole days on long windows', () => {
+    const { values, label } = timeTicks([at('2026-09-20T07:00:00Z'), at('2026-10-19T07:00:00Z')], 6)
+    expect(values.map(label)).toEqual(['Sep 24', 'Oct 1', 'Oct 8', 'Oct 15'])
+  })
+})
+
+describe('crosshair wiring', () => {
+  // A hyphenated `on-` binding reaches Unovis as an unknown key and is never called.
+  it('hands the crosshair move handler to Unovis under its config name', async () => {
+    for (const Chart of [AreaChart, LineChart]) {
+      const wrapper = mount(Chart as typeof AreaChart<Row>, { props: { rows, x: (r: Row) => r.day, series: rate, label: 'Rate', onSelect: () => {} } })
+      const crosshair = wrapper.findComponent({ name: 'VisCrosshair' })
+      expect(typeof crosshair.vm.$attrs.onCrosshairMove).toBe('function')
+      expect(crosshair.vm.$attrs['on-crosshair-move']).toBeUndefined()
+      wrapper.unmount()
+    }
   })
 })
 
@@ -198,13 +225,18 @@ describe('ProportionBar', () => {
     expect(wrapper.find('button').exists()).toBe(false)
   })
 
-  it('turns legend entries into buttons when selectable and mutes zero counts', async () => {
+  it('turns segments and legend entries into buttons when selectable and mutes zero counts', async () => {
     const picked: string[] = []
     const wrapper = mount(ProportionBar, { props: { segments, label: 'Groups', max: 16, onSelect: (s: { key: string }) => picked.push(s.key) } })
-    expect(wrapper.find('[role=img] span').attributes('style')).toContain('width: 37.5%')
-    const buttons = wrapper.findAll('button')
+    const bar = wrapper.find('[role=group]')
+    expect(bar.attributes('aria-label')).toBe('Groups: Passing 6, Hard 2, Soft 0')
+    const parts = bar.findAll('button')
+    expect(parts.map((p) => p.attributes('aria-label'))).toEqual(['Passing: 6', 'Hard: 2'])
+    expect(parts[0]!.attributes('style')).toContain('width: 37.5%')
+    await parts[0]!.trigger('click')
+    const buttons = wrapper.findAll('li button')
     await buttons[1]!.trigger('click')
-    expect(picked).toEqual(['hard'])
+    expect(picked).toEqual(['pass', 'hard'])
     expect(buttons[2]!.find('.tabular-nums').classes()).toContain('text-muted-foreground')
   })
 })

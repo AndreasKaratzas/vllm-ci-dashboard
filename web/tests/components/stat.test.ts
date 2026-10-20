@@ -91,7 +91,30 @@ describe('KpiCard', () => {
   })
 })
 
+describe('KpiCard withheld and quiet values', () => {
+  it('says why a value is withheld instead of a bare dash', () => {
+    const wrapper = mount(KpiCard, { props: { label: 'Share', value: null, empty: 'Needs complete coverage' } })
+    const value = wrapper.find('[data-slot=kpi-empty]')
+    expect(text(value.element)).toBe('Needs complete coverage')
+    expect(wrapper.find('[data-slot=kpi-value]').exists()).toBe(false)
+  })
+
+  it('mutes a zero and can put the badges beside the value', () => {
+    const wrapper = mount(KpiCard, { props: { label: 'Queued', value: 0, delta: { value: 5, text: '+5%' }, badges: 'inline' } })
+    const value = wrapper.find('[data-slot=kpi-value]')
+    expect(value.classes()).toContain('text-muted-foreground')
+    expect(value.element.parentElement!.textContent).toContain('+5%')
+    expect(wrapper.find('[data-slot=card-action]').exists()).toBe(false)
+  })
+})
+
 describe('DeltaBadge', () => {
+  it('names its baseline in the tooltip and the accessible label', () => {
+    const badge = mount(DeltaBadge, { props: { delta: { value: 51, text: '+51%', label: 'vs the first half of the window' } } }).find('[data-direction]')
+    expect(badge.attributes('title')).toBe('vs the first half of the window')
+    expect(badge.attributes('aria-label')).toBe('up +51% vs the first half of the window')
+  })
+
   it('states direction and whether the change is better or worse', () => {
     const worse = mount(DeltaBadge, { props: { delta: { value: 3, goodWhen: 'down' } } })
     expect(worse.attributes('aria-label')).toBe('up +3, worse')
