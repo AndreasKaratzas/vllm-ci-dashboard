@@ -237,6 +237,15 @@ body {
   --vis-timeline-scrollbar-color: var(--muted-foreground);
 }
 
+/* Hovering a clickable bar dims the other categories. Unovis writes an inline
+   opacity on every bar group, so only an important declaration can override it. */
+[data-slot='bar-plot'][data-clickable] [class*='-barGroup'] {
+  transition: opacity 150ms ease-out;
+}
+[data-slot='bar-plot'][data-clickable] svg:has([class*='-barGroup']:hover) [class*='-barGroup']:not(:hover) {
+  opacity: 0.45 !important;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

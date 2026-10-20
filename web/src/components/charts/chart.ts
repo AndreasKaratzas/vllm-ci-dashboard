@@ -33,6 +33,22 @@ export const shortDayTime = (value: number | Date) => DAY_TIME.format(new Date(v
 
 export const plainNumber = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 1 })
 
+/**
+ * Round ticks from at or below `min` to at or beyond `max`: about `count` steps of 1, 2, 2.5 or 5
+ * times a power of ten, never finer than `minStep` (1 for counts).
+ */
+export function niceTicks(min: number, max: number, count: number, minStep = 0): number[] {
+  const span = max - min
+  if (!(span > 0)) return [min, min + Math.max(1, minStep)]
+  const raw = Math.max(span / Math.max(1, count), minStep)
+  const power = 10 ** Math.floor(Math.log10(raw))
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * power).find((candidate) => candidate >= raw)!
+  const ticks: number[] = []
+  for (let tick = Math.floor(min / step) * step; tick < max + step / 2; tick += step) ticks.push(Math.round(tick * 1e9) / 1e9)
+  if (ticks.at(-1)! < max) ticks.push(Math.round((ticks.at(-1)! + step) * 1e9) / 1e9)
+  return ticks
+}
+
 /** At most `max` of the values, evenly spaced and always keeping the latest one. */
 export function thinTicks(values: number[], max: number): number[] {
   const step = Math.max(1, Math.ceil(values.length / Math.max(1, max)))

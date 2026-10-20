@@ -2,8 +2,8 @@
 import { computed } from 'vue'
 import AreaChart, { type CompanionBars } from '@/components/charts/AreaChart.vue'
 import { shortDay, type SeriesSpec } from '@/components/charts/chart'
-import RangeToggle, { type RangeOption } from '@/components/charts/RangeToggle.vue'
 import EmptyState from '@/components/feedback/EmptyState.vue'
+import SegmentedSelect, { type SegmentedItem } from '@/components/layout/SegmentedSelect.vue'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useQueryState } from '@/composables/useQueryState'
 import { passRateAxis, type NightlyCounts } from '@/domain/home'
@@ -43,12 +43,7 @@ const FAILURES: CompanionBars = {
 
 const RANGE_KEYS = ['all', '30', '14', '7'] as const
 type RangeKey = (typeof RANGE_KEYS)[number]
-const RANGES: RangeOption[] = [
-  { value: 0, label: 'All' },
-  { value: 30, label: 'Last 30' },
-  { value: 14, label: 'Last 14' },
-  { value: 7, label: 'Last 7' },
-]
+const RANGES: SegmentedItem[] = RANGE_KEYS.map((key) => ({ value: key, label: key === 'all' ? 'All' : `Last ${key}` }))
 const rangeParam = useQueryState<RangeKey>('range', { default: 'all', allowed: RANGE_KEYS })
 const range = computed({
   get: () => (rangeParam.value === 'all' ? 0 : Number(rangeParam.value)),
@@ -74,7 +69,7 @@ const rowLabel = (row: Row) => `Nightly #${row.number} · ${dayOf(row.index)}`
         <span class="hidden @3xl/main:inline"> · hard and soft failures below</span>
       </CardDescription>
       <CardAction v-if="rows.length > 1">
-        <RangeToggle v-model="range" :options="RANGES" label="Nightly range" />
+        <SegmentedSelect v-model="rangeParam" :items="RANGES" label="Nightly range" :show-label="false" class="w-32 sm:w-auto" />
       </CardAction>
     </CardHeader>
     <CardContent class="px-3 sm:px-6">

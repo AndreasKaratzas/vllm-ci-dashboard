@@ -28,6 +28,8 @@ const props = withDefaults(
     columnMenu?: boolean
     /** Count rows as "shown of total" so filtered views keep the population visible. */
     showTotal?: boolean
+    /** The ordering before any header is clicked. */
+    defaultSort?: { id: string; desc: boolean }
     onRowClick?: (row: T) => void
   }>(),
   { filters: () => [], pageSize: 10, searchable: true, columnMenu: true, searchPlaceholder: 'Filter rows…', emptyText: 'No rows.' },
@@ -35,7 +37,7 @@ const props = withDefaults(
 const emit = defineEmits<{ drill: [Detail] }>()
 
 const query = ref('')
-const sort = ref<{ id: string; desc: boolean } | null>(null)
+const sort = ref<{ id: string; desc: boolean } | null>(props.defaultSort ? { ...props.defaultSort } : null)
 const hidden = ref(new Set<string>())
 const page = ref(0)
 const filterValues = reactive<Record<string, string>>(Object.fromEntries(props.filters.map((f) => [f.id, f.initial ?? ALL])))
@@ -62,6 +64,7 @@ const sorted = computed(() => {
   if (!active || !column) return filtered.value
   const direction = active.desc ? -1 : 1
   return [...filtered.value].sort((a, b) => {
+    if (column.compare) return column.compare(a, b) * direction
     const x = column.value(a)
     const y = column.value(b)
     const order = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'en', { numeric: true })

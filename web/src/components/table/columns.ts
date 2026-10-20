@@ -26,6 +26,8 @@ export interface ColumnSpec<T> {
   /** Sort and search key. */
   value: (row: T) => string | number
   cell?: (row: T) => CellSpec
+  /** Replaces the default ordering of `value` (numbers by difference, text by numeric-aware collation). */
+  compare?: (a: T, b: T) => number
   numeric?: boolean
   sortable?: boolean
   hideable?: boolean

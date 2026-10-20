@@ -35,7 +35,7 @@ async function tableRows(scope, width) {
 }
 
 async function detailFields(scope) {
-  return scope.locator('[data-slot=detail-fields]').evaluate((dl) => {
+  return scope.locator('[data-slot=evidence-fields]').evaluate((dl) => {
     const terms = [...dl.querySelectorAll('dt')].map((n) => n.textContent.trim().toLowerCase());
     const values = [...dl.querySelectorAll('dd')].map((n) => n.textContent.trim());
     return terms.map((term, i) => [term, values[i]]);

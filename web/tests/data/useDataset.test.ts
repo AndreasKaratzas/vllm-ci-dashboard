@@ -268,7 +268,7 @@ describe('useDataset', () => {
   })
 })
 
-describe('useDnsData', () => {
+describe('the dns dataset', () => {
   it('serves the newer DNS candidate and refreshes it on every poll', async () => {
     const fixtures = resolve(__dirname, '../fixtures')
     const live = JSON.parse(readFileSync(resolve(fixtures, 'dns_live.json'), 'utf8'))
@@ -277,11 +277,11 @@ describe('useDnsData', () => {
     const [livePath, pagesPath] = DATASETS.dns.paths
     server.set(livePath, live)
     server.set(pagesPath, pages)
-    const { useDnsData } = await import('@/components/analytics/dns/useDnsData')
-    const dns = mount(() => useDnsData())
+    const { useDataset } = await import('@/composables/useDataset')
+    const dns = mount(() => useDataset('dns'))
     await elapse(400)
-    expect(dns.payload.value?.generated_at).toBe(live.generated_at)
-    expect(dns.payload.value?.__sourceAsset).toBe(livePath)
+    expect(dns.data.value?.generated_at).toBe(live.generated_at)
+    expect(dns.data.value?.__sourceAsset).toBe(livePath)
     await vi.advanceTimersByTimeAsync(FIVE_MINUTES)
     await elapse(400)
     expect(server.count(livePath)).toBe(2)

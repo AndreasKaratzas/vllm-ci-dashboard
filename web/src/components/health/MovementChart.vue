@@ -53,7 +53,6 @@ const totals = computed(() => Object.fromEntries(ALL_SERIES.map((s) => [s.key, r
         :category="(row: Row) => `#${row.build.number}`"
         :series="series"
         :diverging="['fixed']"
-        integer
         label="Nightly failure movement"
         :on-select="(row: Row) => emit('select', row.build)"
       />

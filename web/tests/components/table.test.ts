@@ -158,3 +158,25 @@ describe('Cell', () => {
     expect(mount(Cell, { props: { cell: mono('abc1234') } }).find('.font-mono').text()).toBe('abc1234')
   })
 })
+
+describe('DataTable ordering', () => {
+  it('starts from the default sort and lets a header click change it', async () => {
+    const wrapper = mount(DataTable<Group>, { props: { columns, rows: groups, pageSize: false, defaultSort: { id: 'runs', desc: true } }, attachTo: document.body })
+    const runs = () => wrapper.findAll('tbody tr').map((tr) => Number(text(tr.findAll('td')[1]!.element)))
+    expect(runs()).toEqual([...groups.map((g) => g.runs)].sort((a, b) => b - a))
+    await wrapper.findAll('thead button').find((b) => b.text().startsWith('Runs'))!.trigger('click')
+    expect(runs()).not.toEqual([...groups.map((g) => g.runs)].sort((a, b) => b - a))
+    wrapper.unmount()
+  })
+
+  it('orders by a column comparator when given, in both directions', async () => {
+    // Case-sensitive order, which the default numeric-aware collation would not give.
+    const named = ['b', 'B', 'a', 'A'].map((name, i) => ({ ...groups[i]!, name }))
+    const byCode: ColumnSpec<Group> = { id: 'name', label: 'Group', value: (g) => g.name, compare: (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) }
+    const wrapper = mount(DataTable<Group>, { props: { columns: [byCode], rows: named, defaultSort: { id: 'name', desc: false } }, attachTo: document.body })
+    expect(firstColumn(wrapper)).toEqual(['A', 'B', 'a', 'b'])
+    await wrapper.find('thead button').trigger('click')
+    expect(firstColumn(wrapper)).toEqual(['b', 'a', 'B', 'A'])
+    wrapper.unmount()
+  })
+})

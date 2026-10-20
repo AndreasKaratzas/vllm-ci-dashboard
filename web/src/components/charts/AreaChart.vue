@@ -4,13 +4,17 @@ import { VisArea, VisAxis, VisLine, VisStackedBar, VisTooltip, VisXYContainer } 
 import { useId } from 'reka-ui'
 import { computed, ref } from 'vue'
 import { ChartContainer, ChartCrosshair, ChartTooltip } from '@/components/ui/chart'
+import SegmentedSelect from '@/components/layout/SegmentedSelect.vue'
 import { cn } from '@/lib/utils'
 import { chartConfig, integerTicks, plainNumber, seriesValue, shortDay, thinTicks, useSeriesInteraction, useTickCount, type ChartRow, type SeriesSpec } from './chart'
 import ChartInspect from './ChartInspect.vue'
 import Legend from './Legend.vue'
-import RangeToggle, { type RangeOption } from './RangeToggle.vue'
 
-export type { RangeOption }
+export interface RangeOption {
+  /** Number of trailing points to show; 0 shows every point. */
+  value: number
+  label: string
+}
 
 /** Stacked bars drawn under the area on the same x positions, e.g. failure counts under a pass rate. */
 export interface CompanionBars {
@@ -63,6 +67,13 @@ const svgDefs = computed(() =>
 )
 const barFormat = (value: number) => (props.bars?.yFormat ?? plainNumber)(value)
 const barKeys = computed(() => new Set((props.bars?.series ?? []).map((s) => s.key)))
+const rangeItems = computed(() => (props.ranges ?? []).map((option) => ({ value: String(option.value), label: option.label })))
+const rangeModel = computed({
+  get: () => String(range.value),
+  set: (value: string) => {
+    if (value) range.value = Number(value)
+  },
+})
 
 // The crosshair tooltip lists the companion bar values too, since both plots share the x-axis.
 const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInteraction<T>({
@@ -124,7 +135,7 @@ const barTriggers = { [StackedBar.selectors.bar]: (row: T) => bar.tooltip(row) }
 <template>
   <div class="flex min-w-0 flex-col gap-2" data-slot="area-chart">
     <div v-if="ranges?.length || inspectTop" class="flex items-center justify-end gap-2">
-      <RangeToggle v-if="ranges?.length" v-model="range" :options="ranges" :label="`${label} range`" />
+      <SegmentedSelect v-if="ranges?.length" v-model="rangeModel" :items="rangeItems" :label="`${label} range`" :show-label="false" class="w-36 sm:w-auto" />
       <ChartInspect v-if="inspectTop" :items="inspectItems(visible)" :label="label" @select="(i) => select(visible[i])" />
     </div>
     <div ref="host" role="img" :aria-label="label" :class="onSelect && 'cursor-pointer'" @click="selectHovered">

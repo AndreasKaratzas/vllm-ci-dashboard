@@ -12,6 +12,10 @@ const ROUTES = [
   '/#/health?view=parity',
   '/#/health?view=coverage',
   '/#/health?view=mirrors',
+  '/#/analytics?view=dns',
+  '/#/analytics?view=dns&dns_window=720h&dns_scope=canonical',
+  '/#/analytics?view=agent-health',
+  '/#/analytics?view=agent-health&agent_window=14d&agent_signal=all',
 ];
 
 for (const theme of ['light', 'dark']) {
@@ -22,7 +26,7 @@ for (const theme of ['light', 'dark']) {
         await page.setViewportSize(viewport);
         const errors = collectErrors(page);
         await page.goto(route);
-        await page.getByRole('heading', { level: 1 }).first().waitFor();
+        await page.locator('[data-slot="page-header"]').first().waitFor();
         await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
         await expectQuality(page, errors);
       });

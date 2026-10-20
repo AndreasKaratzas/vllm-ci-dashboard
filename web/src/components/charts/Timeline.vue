@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Axis, Timeline, Tooltip, XYContainer } from '@unovis/ts'
+import { useElementSize } from '@vueuse/core'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ChartContainer } from '@/components/ui/chart'
 import type { PaletteColor } from '@/lib/palette'
@@ -35,8 +36,10 @@ const props = defineProps<{
 const ROW_HEIGHT = 26
 const DAY_MS = 86_400_000
 const rowCount = computed(() => new Set(props.segments.map((s) => s.row)).size)
-const height = computed(() => Math.max(160, rowCount.value * ROW_HEIGHT + 48))
+// One lane per row plus the time axis, so no empty lane is drawn below the last row.
+const height = computed(() => Math.max(1, rowCount.value) * ROW_HEIGHT + 40)
 const host = ref<HTMLElement | null>(null)
+const { width } = useElementSize(host)
 let chart: XYContainer<TimelineSegment> | null = null
 let timeline: Timeline<TimelineSegment> | null = null
 
@@ -49,7 +52,8 @@ function containerConfig() {
   const ends = props.segments.map((s) => s.end)
   const xDomain = props.xDomain ?? ([Math.min(...starts), Math.max(...ends)] as [number, number])
   const format = props.xFormat ?? (xDomain[1] - xDomain[0] < 2 * DAY_MS ? shortDayTime : shortDay)
-  const tickCount = Math.max(2, Math.floor((host.value?.clientWidth ?? 400) / (format === shortDayTime ? 120 : 90)))
+  const plotWidth = width.value || host.value?.clientWidth || 600
+  const tickCount = Math.max(2, Math.floor(plotWidth / (format === shortDayTime ? 120 : 90)))
   return {
     height: height.value,
     margin: { left: 4, right: 12 },
@@ -64,7 +68,8 @@ function containerConfig() {
         lineCap: false,
         rowHeight: ROW_HEIGHT,
         showRowLabels: true,
-        rowMaxLabelWidth: 220,
+        // Labels keep at most 40% of a narrow plot.
+        rowMaxLabelWidth: Math.min(220, Math.round(plotWidth * 0.4)),
         rowLabelTextAlign: 'left',
         showEmptySegments: true,
         lineCursor: () => (props.onSelect ? 'pointer' : 'default'),
@@ -105,7 +110,7 @@ const { selection, onDown, onClickCapture } = useDragRange({
 const inspectItems = computed<InspectItem[]>(() => props.segments.map((s) => ({ label: s.title, detail: s.row })))
 
 watch(
-  () => [props.segments, props.xDomain],
+  () => [props.segments, props.xDomain, Math.round(width.value / 40)],
   () => void nextTick(render),
   { immediate: true },
 )

@@ -155,7 +155,6 @@ const inventoryLinks = computed(() => [
               :category="(row: Rec) => row.area"
               :series="AREA_SERIES"
               orientation="horizontal"
-              integer
               label="Upstream logical groups per test area by configured coverage"
               :on-select="(row: Rec) => openArea(row.area, false)"
             />

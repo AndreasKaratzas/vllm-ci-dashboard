@@ -4,6 +4,7 @@ import DeltaBadge from '@/components/stat/DeltaBadge.vue'
 import KpiCard from '@/components/stat/KpiCard.vue'
 import Sparkline from '@/components/stat/Sparkline.vue'
 import StatGrid from '@/components/stat/StatGrid.vue'
+import { kpiTrend } from '@/components/stat/trend'
 import { settle, testRouter, text } from './support'
 
 afterEach(() => {
@@ -117,5 +118,34 @@ describe('StatGrid', () => {
   it('lays KPIs out two-up on mobile', () => {
     const wrapper = mount(StatGrid, { props: { cols: 4 } })
     expect(wrapper.classes()).toEqual(expect.arrayContaining(['grid-cols-2', '@5xl/main:grid-cols-4', '*:min-w-0']))
+  })
+})
+
+describe('KpiCard empty and zero values', () => {
+  it('shows an in-card empty state instead of a value and trend', () => {
+    const wrapper = mount(KpiCard, { props: { label: 'Node coverage', value: null, empty: 'Incomplete history', footnote: 'aggregate accounting unavailable', spark: [1, 2, 3] } })
+    expect(text(wrapper.find('[data-slot=kpi-empty]').element)).toBe('Incomplete history')
+    expect(wrapper.find('[data-slot=kpi-value]').exists()).toBe(false)
+    expect(wrapper.find('[data-slot=sparkline]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('aggregate accounting unavailable')
+  })
+
+  it('renders a zero count muted, keeping its unit', () => {
+    const value = mount(KpiCard, { props: { label: 'Failures', value: 0, unit: 'jobs' } }).find('[data-slot=kpi-value]')
+    expect(value.classes()).toContain('text-muted-foreground')
+    expect(text(value.element)).toBe('0 jobs')
+    expect(mount(KpiCard, { props: { label: 'Failures', value: 3 } }).find('[data-slot=kpi-value]').classes()).not.toContain('text-muted-foreground')
+  })
+})
+
+describe('kpiTrend', () => {
+  it('trends the known points and states the last change', () => {
+    expect(kpiTrend([4, null, 6, 3], 'down')).toEqual({ spark: [4, 6, 3], delta: { value: -3, goodWhen: 'down', text: '-3' } })
+    expect(kpiTrend([97.25, 99], 'up', ' pts')).toEqual({ spark: [97.25, 99], delta: { value: 1.8, goodWhen: 'up', text: '+1.8 pts' } })
+  })
+
+  it('gives nothing without two known points', () => {
+    expect(kpiTrend([null, 5])).toEqual({})
+    expect(kpiTrend([])).toEqual({})
   })
 })

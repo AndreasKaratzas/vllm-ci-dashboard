@@ -61,7 +61,6 @@ const select = computed(() => (props.onSelect ? (row: Row) => props.onSelect!(ro
     :rows="rows"
     :category="day"
     :row-label="rowLabel"
-    integer
     inspect-placement="legend"
     :series="SERIES"
     :diverging="['fixed']"
