@@ -1042,29 +1042,39 @@ def reconcile_issue(
     repo: str,
     run_url: str,
     observed_at: str,
+    hold_close: str | None = None,
 ) -> dict:
-    """Reconcile the managed umbrella issue with ``state['active']``."""
+    """Reconcile the managed umbrella issue with ``state['active']``.
+
+    ``hold_close`` names why the issue may not be closed (or recovered and
+    closed) in this run; the issue is then left untouched while nothing is
+    active.
+    """
     active = state.get("active") or {}
-    reconciled = reconcile_managed_issue(
-        state,
-        active=bool(active),
-        fingerprint=_migrate_signal_fingerprint(state, active),
-        content_fingerprint=_content_fingerprint(active),
-        title=_issue_title_for(active, config),
-        body=_issue_body_for(active, reliability, run_url, repo_owner(repo), config),
-        ownership_marker=config.ownership_marker,
-        recovery_body=(
-            f"No strict {config.scope_name} origin/main test-group incidents remain under the "
-            "watcher's explicit-pass resolution rule. Closing this tracked umbrella issue.\n\n"
-            f"*{run_url}*"
-        ),
-        observed_at=observed_at,
-        label_specs=list(config.label_specs),
-        client=client,
-        discovery_label=config.label_specs[0][0],
-        recovery_labels=("automated", "workstream:dev"),
-        refresh_before_close=config.refresh_before_close,
-    )
+    if hold_close and not active:
+        log.warning("::warning::Leaving the managed issue untouched: %s", hold_close)
+        reconciled = normalize_managed_state(state)
+    else:
+        reconciled = reconcile_managed_issue(
+            state,
+            active=bool(active),
+            fingerprint=_migrate_signal_fingerprint(state, active),
+            content_fingerprint=_content_fingerprint(active),
+            title=_issue_title_for(active, config),
+            body=_issue_body_for(active, reliability, run_url, repo_owner(repo), config),
+            ownership_marker=config.ownership_marker,
+            recovery_body=(
+                f"No strict {config.scope_name} origin/main test-group incidents remain under the "
+                "watcher's explicit-pass resolution rule. Closing this tracked umbrella issue.\n\n"
+                f"*{run_url}*"
+            ),
+            observed_at=observed_at,
+            label_specs=list(config.label_specs),
+            client=client,
+            discovery_label=config.label_specs[0][0],
+            recovery_labels=("automated", "workstream:dev"),
+            refresh_before_close=config.refresh_before_close,
+        )
     reconciled["schema_version"] = 2
     if config.job_scope == "amd_gpu":
         reconciled["hardware_scope"] = "amd_mi_gpu"
@@ -1072,23 +1082,43 @@ def reconcile_issue(
     return reconciled
 
 
-def _merge_main_pulse(state: dict) -> dict:
-    """Adopt newer main-pulse observations named by ``MAIN_PULSE_STATE_FILE``."""
+def _merge_main_pulse(state: dict) -> tuple[dict, dict | str | None]:
+    """Adopt newer main-pulse observations named by ``MAIN_PULSE_STATE_FILE``.
+
+    Returns the merged state and the export record, or the reason the overlay
+    could not be read (closing must then wait), or None outside pulse mode.
+    """
     path = os.getenv("MAIN_PULSE_STATE_FILE")
     if not path:
-        return state
-    from vllm.ci.main_pulse_overlay import load_overlay_file, merge_overlay
+        return state, None
+    from vllm.ci.main_pulse_overlay import load_export_file, merge_overlay
 
     try:
-        overlay = load_overlay_file(Path(path))
+        export = load_export_file(Path(path))
     except (OSError, ValueError) as error:
-        log.warning("Main pulse overlay is unusable; using collection state only: %s", error)
-        return state
+        log.warning("::warning::Main pulse overlay is unavailable: %s", error)
+        return state, f"the main pulse overlay is unavailable ({error})"
+    overlay = export["overlay"]
     if overlay is None:
-        return state
-    merged = merge_overlay(state, overlay)
+        return state, export
     log.info("Merged the main pulse overlay of %d groups", len(overlay["groups"]))
-    return merged
+    return merge_overlay(state, overlay), export
+
+
+def _main_pulse_close_hold(export: dict | str | None) -> str | None:
+    """Why closing must wait: the overlay was unreadable or the pulse moved on."""
+    if export is None or isinstance(export, str):
+        return export
+    from vllm.ci.main_pulse_overlay import state_head
+    from vllm.queue_request_budget import QueueRequestBudgetError
+
+    try:
+        head = state_head(ROOT, "origin", export["branch"])
+    except (QueueRequestBudgetError, OSError, ValueError) as error:
+        return f"the main pulse state head is unreadable ({error})"
+    if head != export["state_sha"]:
+        return "the main pulse published newer observations after the overlay export"
+    return None
 
 
 def run_watcher(config: WatcherConfig) -> int:
@@ -1127,8 +1157,9 @@ def run_watcher(config: WatcherConfig) -> int:
         reliability = mi_scoped_reliability(reliability)
 
     restored_state = _read_state(config.state)
+    pulse_export: dict | str | None = None
     if config.job_scope == "amd_gpu":
-        restored_state = _merge_main_pulse(mi_scoped_state(restored_state, reliability))
+        restored_state, pulse_export = _merge_main_pulse(mi_scoped_state(restored_state, reliability))
     events: list[dict] = []
     state = advance_incidents(
         reliability,
@@ -1149,6 +1180,7 @@ def run_watcher(config: WatcherConfig) -> int:
         repo=repo,
         run_url=run_url,
         observed_at=observed_at,
+        hold_close=None if active else _main_pulse_close_hold(pulse_export),
     )
     _write_state(
         reconciled,

@@ -2172,8 +2172,8 @@ jobs:
         run: python scripts/vllm/omni_surge_watcher.py --issues-only
 
       # The main pulse (queue-monitor.yml) records failures from builds that
-      # finished after this cohort. Without the overlay the watcher only sees
-      # its own cohort, so a missing branch or read failure is not fatal.
+      # finished after this cohort. If this export fails the watcher still
+      # runs on its own cohort but keeps the managed issue open.
       - name: Read main pulse observations
         if: >-
           inputs.dns_generation == '' && inputs.queue_generation == '' &&

@@ -6,6 +6,11 @@ plus the managed-issue fields it changed. Merging takes a group from the
 overlay only while its watermark is still newer, and the issue fields only
 while the collection state has not reconciled the issue since the pulse read
 it, so a later collection that saw the same builds always wins.
+
+The collection reads the overlay through an export record that names the
+state commit it saw. It may close the managed issue only when that record is
+present and the state branch has not moved since: otherwise the pulse may
+own an incident the collection cannot see.
 """
 
 from __future__ import annotations
@@ -14,9 +19,11 @@ import hashlib
 import json
 import re
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from vllm import amd_main_failure_watcher as watcher
+from vllm import queue_request_budget as ledger_git
 from vllm.ci.managed_issue import normalize_managed_state
 
 
@@ -34,6 +41,7 @@ MAX_OVERLAY_GROUPS = 4096
 MAX_PROCESSED_BUILDS = 512
 MAX_TIMELINE_EVENTS = watcher.TIMELINE_MAX_EVENTS
 SHA256_RE = re.compile(r"[0-9a-f]{64}")
+EXPORT_FIELDS = frozenset({"schema_version", "branch", "state_sha", "overlay"})
 OVERLAY_FIELDS = frozenset(
     {
         "schema_version",
@@ -199,3 +207,50 @@ def load_overlay_file(path: Path) -> dict | None:
     if not path.exists():
         return None
     return decode_overlay(path.read_bytes())
+
+
+def encode_export(branch: str, state_sha: str | None, overlay: dict | None) -> bytes:
+    """One export record; ``state_sha`` is None only when the branch is absent."""
+    return (
+        json.dumps(
+            normalize_export(
+                {
+                    "schema_version": OVERLAY_SCHEMA_VERSION,
+                    "branch": branch,
+                    "state_sha": state_sha,
+                    "overlay": overlay,
+                }
+            ),
+            indent=1,
+            sort_keys=True,
+        )
+        + "\n"
+    ).encode()
+
+
+def normalize_export(value: Any) -> dict:
+    _require(isinstance(value, dict) and set(value) == EXPORT_FIELDS, "export has an unexpected shape")
+    _require(value["schema_version"] == OVERLAY_SCHEMA_VERSION, "export schema is unsupported")
+    try:
+        ledger_git._safe_branch(value["branch"], label="branch")
+    except ledger_git.QueueRequestBudgetError as exc:
+        raise ValueError(f"main pulse overlay export {exc}") from None
+    sha = value["state_sha"]
+    _require(sha is None or (isinstance(sha, str) and ledger_git.FULL_SHA_RE.fullmatch(sha)), "export sha is malformed")
+    _require((sha is None) == (value["overlay"] is None), "export sha and overlay disagree")
+    if value["overlay"] is not None:
+        normalize_overlay(value["overlay"])
+    return value
+
+
+def load_export_file(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_bytes().decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"main pulse overlay export is not UTF-8 JSON: {exc}") from exc
+    return normalize_export(value)
+
+
+def state_head(root: Path, remote: str, branch: str) -> str | None:
+    """The current commit of the pulse state branch (None when absent)."""
+    return ledger_git._remote_ref_sha(root, remote, SimpleNamespace(branch=branch))

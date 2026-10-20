@@ -16,7 +16,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `build_queue_section.py` | Builds only the compact public Queue shard from queue-owned inputs | Every independent queue-monitor run |
 | `ci_main_failure_watcher.py` | Reconciles one upstream `ci`/`main` failure issue and retains bisect candidate bounds per strict group | Hourly after analytics collection |
 | `ci_flakiness_watcher.py` | Reconciles one issue listing AMD MI groups whose final outcome flips, or whose hard failures are rescued by retries, at or above `config/ci_flakiness_thresholds.json` on `ci`/`main` | Every reserved full collection after analytics |
-| `main_pulse.py` | Lists `ci` branch=main builds finished since its durable cursor, applies their AMD MI jobs through the main-failure watcher's transitions on top of the published watcher state, and opens or updates (never closes) the managed issue; `export-overlay` hands its newer observations to the collection watcher | Every `queue-monitor.yml` trigger, admitted at most every ten minutes by its own ledger |
+| `main_pulse.py` | Lists `ci` branch=main builds finished since its durable cursor, applies their AMD MI jobs through the main-failure watcher's transitions on top of the published watcher state, and opens or updates the managed issue while an incident is active; `export-overlay` hands its newer observations to the collection watcher | Every `queue-monitor.yml` trigger, admitted at most every ten minutes by its own ledger |
 | `ci_area_regression_watcher.py` | Maps every exact AMD matrix definition to its owned test-area rotation and reconciles one state-owned dashboard issue per area with confirmed incidents | Hourly after matrix collection |
 | `ensure_ci_operations_labels.py` | Ensures managed and workstream labels exist before issue watchers run | Every canonical collection |
 | `sync_ci_operations_project.py` | Adds open managed dashboard issues to the linked AMD CI Operations Project, split by workstream labels | Hourly after issue reconciliation |
@@ -529,12 +529,17 @@ An admitted run reads the published `open_ci_main_failure_issues.json` from
 `dashboard-state` and its own overlay from `main-pulse-data` (cursor, the
 strict groups whose watermark is newer than that state, the issue fields it
 changed, and its timeline events), lists builds finished since the cursor
-(clamped to three hours), and opens or updates the issue in the same run. It
-never closes the issue. Data Collection merges the overlay before
+(clamped to three hours; a truncated page keeps the cursor), and opens or
+updates the issue in the same run. It reconciles the issue only while an
+incident is active and defers to its next run when GitHub disagrees with the
+published state, which lags the collection's own issue changes. Data
+Collection exports the overlay with its state commit before
 `ci_main_failure_watcher.py` runs: a group is taken only while the overlay's
 watermark is newer, and the issue fields only while the collection state has
 not reconciled the issue since the pulse read it, so the collection stays the
-authority.
+authority. The pulse publishes its observations before it touches the issue;
+if the export failed or the state branch moved since, the collection leaves the
+issue open for its next run instead of closing it.
 
 Expected latency from a build finishing to its hard failure reaching the issue
 is the wait for the next admitted run plus about two minutes of job time:

@@ -11,8 +11,17 @@ updates the managed issue in the pulse run.
 Durable state lives on two parentless one-file branches: the request ledger
 (``budget_branch``) is reserved before any Buildkite token is exposed, and the
 overlay (``state_branch``) holds the cursor plus only the observations that
-are newer than the collection state. The pulse never closes the issue;
-resolution stays with the collection watcher, which merges the overlay first.
+are newer than the collection state. The pulse reconciles the issue only while
+an incident is active, so closing a resolved issue stays with the collection
+watcher, which merges the overlay first. (The shared reconciliation may still
+close a verified duplicate managed issue, as the collection would.)
+
+The authority state is the last *published* collection state, which lags the
+collection's own issue mutation. Before mutating the issue the pulse checks
+that GitHub agrees with it (its issue is still open, or no managed issue is
+open when it owns none) and otherwise defers to its next run. The pulse also
+publishes its observations before mutating the issue, so a collection that
+exported an older overlay sees the state branch move and does not close.
 """
 
 from __future__ import annotations
@@ -27,7 +36,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -39,7 +48,12 @@ from vllm import amd_main_failure_watcher as watcher  # noqa: E402
 from vllm import ci_main_failure_watcher as ci_watcher  # noqa: E402
 from vllm import queue_request_budget as ledger_git  # noqa: E402
 from vllm.ci import main_pulse_overlay as overlay_lib  # noqa: E402
-from vllm.ci.managed_issue import DASHBOARD_REPO, GitHubIssueClient, validate_target_repo  # noqa: E402
+from vllm.ci.managed_issue import (  # noqa: E402
+    DASHBOARD_REPO,
+    GitHubIssueClient,
+    normalize_managed_state,
+    validate_target_repo,
+)
 from vllm.ci.reliability_history import (  # noqa: E402
     build_all_main_reliability,
     validate_all_main_reliability,
@@ -384,7 +398,8 @@ class DryRunIssueClient:
         return True
 
     def close_issue(self, number: int) -> bool:
-        raise MainPulseError("the pulse never closes the managed issue")
+        self.actions.append(("close", number))
+        return True
 
 
 def _ready_authority(raw: Any) -> dict:
@@ -394,6 +409,25 @@ def _ready_authority(raw: Any) -> dict:
     if not state.get("initialized") or raw.get("hardware_scope") != "amd_mi_gpu":
         raise MainPulseError("collection watcher state is not an initialized MI-scoped state")
     return state
+
+
+def issue_basis_is_current(state: dict, client: Any) -> bool:
+    """Whether GitHub agrees with the issue ownership the pulse is working from."""
+    managed = normalize_managed_state(state)
+    marker = ci_watcher.CONFIG.ownership_marker
+    if managed["issue"]:
+        return client.issue_state(managed["issue"]["number"], marker) == "open"
+    if managed["suppressed"]:
+        return True
+    if isinstance(client, GitHubIssueClient):
+        found = client.find_open_issues(
+            marker,
+            durable_label=ci_watcher.CONFIG.label_specs[0][0],
+            recovery_labels=("automated", "workstream:dev"),
+        )
+    else:
+        found = client.find_open_issues(marker)
+    return not found
 
 
 def pulse_step(
@@ -408,8 +442,13 @@ def pulse_step(
     client: Any,
     repo: str,
     run_url: str,
+    before_issue_mutation: Callable[[dict], None] | None = None,
 ) -> tuple[dict, dict]:
-    """Apply one fetched slice; return the next overlay and a run summary."""
+    """Apply one fetched slice; return the next overlay and a run summary.
+
+    ``before_issue_mutation`` receives the overlay without the issue change
+    and must make it durable before the issue is touched.
+    """
     authority = _ready_authority(authority_raw)
     base = overlay_lib.merge_overlay(authority, overlay)
     previous_processed = {row["number"]: row for row in (overlay or {}).get("processed_builds") or []}
@@ -437,25 +476,16 @@ def pulse_step(
         partial_cohort=True,
     )
     active = state.get("active") or {}
-    changed = watcher._content_fingerprint(active) != watcher._content_fingerprint(base.get("active") or {})
-    issue_action = "none"
+    content = watcher._content_fingerprint(active)
+    changed = content != watcher._content_fingerprint(base.get("active") or {})
     issue, basis = None, ""
     if overlay and overlay["issue"] is not None and overlay["issue_basis"] == overlay_lib.issue_basis(authority):
         issue, basis = overlay["issue"], overlay["issue_basis"]
-    if active and (changed or not (state.get("issue") or state.get("suppressed"))):
-        before = (state.get("issue") or {}).get("number")
-        state = watcher.reconcile_issue(
-            state,
-            reliability,
-            ci_watcher.CONFIG,
-            client=client,
-            repo=repo,
-            run_url=run_url,
-            observed_at=generated_at,
-        )
-        after = (state.get("issue") or {}).get("number")
-        issue_action = "opened" if after and not before else "updated" if after else "unresolved"
-        issue, basis = overlay_lib.issue_block(state), overlay_lib.issue_basis(authority)
+    needs_issue = bool(active) and (
+        changed
+        or not state.get("suppressed")
+        and (not state.get("issue") or state.get("last_content_fingerprint") != content)
+    )
 
     groups = overlay_lib.overlay_groups(authority, state)
     timeline = watcher.bounded_timeline(
@@ -476,33 +506,62 @@ def pulse_step(
         ),
         key=lambda row: row["number"],
     )[-overlay_lib.MAX_PROCESSED_BUILDS:]
-    cursor = max(since, fetched_at - timedelta(minutes=config.cursor_overlap_minutes))
+    exhaustive = leg.get("exhaustive") is True
+    # A truncated newest-first page leaves older builds unseen; keep them in
+    # the next window instead of skipping past them.
+    cursor = max(since, fetched_at - timedelta(minutes=config.cursor_overlap_minutes)) if exhaustive else since
     summary = {
         "fetched_at": generated_at,
         "finished_from": since.isoformat(),
         "builds_fetched": len(builds),
         "main_builds": len(reliability.get("builds") or []),
         "new_builds": len(set(int(b["number"]) for b in reliability.get("builds") or []) - set(base["processed_build_numbers"])),
-        "exhaustive": leg.get("exhaustive") is True,
+        "exhaustive": exhaustive,
         "opened": sum(event["event"] == "opened" for event in events),
         "resolved": sum(event["event"] == "resolved" for event in events),
         "active": len(active),
         "pending_soft": len(state.get("pending_soft") or {}),
-        "issue_action": issue_action,
+        "issue_action": "none",
     }
-    next_overlay = overlay_lib.normalize_overlay(
-        {
-            "schema_version": overlay_lib.OVERLAY_SCHEMA_VERSION,
-            "updated_at": generated_at,
-            "cursor": _iso(cursor),
-            "groups": groups,
-            "issue": issue,
-            "issue_basis": basis,
-            "timeline": [event for event in timeline if event.get("group_id") in groups],
-            "processed_builds": processed_builds,
-            "last_run": dict(summary),
-        }
-    )
+    if not exhaustive:
+        log.warning("::warning::Main pulse page was truncated; the cursor stays at %s", since.isoformat())
+
+    def overlay_with(issue_fields: dict | None, issue_basis: str) -> dict:
+        return overlay_lib.normalize_overlay(
+            {
+                "schema_version": overlay_lib.OVERLAY_SCHEMA_VERSION,
+                "updated_at": generated_at,
+                "cursor": _iso(cursor),
+                "groups": groups,
+                "issue": issue_fields,
+                "issue_basis": issue_basis,
+                "timeline": [event for event in timeline if event.get("group_id") in groups],
+                "processed_builds": processed_builds,
+                "last_run": dict(summary),
+            }
+        )
+
+    if needs_issue:
+        if not issue_basis_is_current(state, client):
+            summary["issue_action"] = "deferred"
+            log.info("Published collection state disagrees with GitHub; deferring the issue to the next pulse")
+        else:
+            if before_issue_mutation is not None:
+                before_issue_mutation(overlay_with(issue, basis))
+            before = (state.get("issue") or {}).get("number")
+            state = watcher.reconcile_issue(
+                state,
+                reliability,
+                ci_watcher.CONFIG,
+                client=client,
+                repo=repo,
+                run_url=run_url,
+                observed_at=generated_at,
+            )
+            after = (state.get("issue") or {}).get("number")
+            summary["issue_action"] = "opened" if after and not before else "updated" if after else "unresolved"
+            issue, basis = overlay_lib.issue_block(state), overlay_lib.issue_basis(authority)
+    next_overlay = overlay_with(issue, basis)
     return next_overlay, summary
 
 
@@ -548,38 +607,48 @@ def run(args: argparse.Namespace, config: PulseConfig) -> dict:
         if not github_token:
             raise MainPulseError("GITHUB_TOKEN is not set")
         client = GitHubIssueClient(github_token, repo)
+    lease = {"sha": observed_sha}
+
+    def publish(value: dict) -> None:
+        payload = overlay_lib.encode_overlay(value)
+        if len(payload) > config.max_state_bytes:
+            raise MainPulseError("main pulse overlay exceeds its byte limit")
+        if args.state_file is not None:
+            args.state_file.parent.mkdir(parents=True, exist_ok=True)
+            args.state_file.write_bytes(payload)
+            return
+        lease["sha"] = publish_branch_file(
+            root, args.remote, config.state_branch, config.state_path, payload,
+            expected_sha=lease["sha"],
+            message=f"main pulse: observations through {value['cursor']}",
+            at=value["updated_at"],
+        )
+
     next_overlay, summary = pulse_step(
         config, authority, overlay, builds, leg,
         since=since, fetched_at=started, client=client, repo=repo, run_url=run_url,
+        before_issue_mutation=publish,
     )
     if args.dry_run:
         summary["dry_run_issue_actions"] = [list(action) for action in client.actions]
-    payload = overlay_lib.encode_overlay(next_overlay)
-    if len(payload) > config.max_state_bytes:
-        raise MainPulseError("main pulse overlay exceeds its byte limit")
-    if args.state_file is not None:
-        args.state_file.parent.mkdir(parents=True, exist_ok=True)
-        args.state_file.write_bytes(payload)
-    else:
-        summary["state_sha"] = publish_branch_file(
-            root, args.remote, config.state_branch, config.state_path, payload,
-            expected_sha=observed_sha,
-            message=f"main pulse: observations through {next_overlay['cursor']}",
-            at=next_overlay["updated_at"],
-        )
+    publish(next_overlay)
+    if lease["sha"] is not None and args.state_file is None:
+        summary["state_sha"] = lease["sha"]
     return summary
 
 
 def export_overlay(args: argparse.Namespace, config: PulseConfig) -> dict:
-    _sha, payload = read_branch_file(
+    """Write the export record; any failure leaves no file, so closing waits."""
+    sha, payload = read_branch_file(
         args.root.resolve(), args.remote, config.state_branch, config.state_path, config.max_state_bytes
     )
-    if payload is None:
-        return {"overlay": "absent"}
-    overlay = overlay_lib.decode_overlay(payload)
+    overlay = overlay_lib.decode_overlay(payload) if payload is not None else None
+    record = overlay_lib.encode_export(config.state_branch, sha, overlay)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_bytes(overlay_lib.encode_overlay(overlay))
-    return {"overlay": "exported", "groups": len(overlay["groups"]), "cursor": overlay["cursor"]}
+    args.output.write_bytes(record)
+    if overlay is None:
+        return {"overlay": "absent"}
+    return {"overlay": "exported", "groups": len(overlay["groups"]), "cursor": overlay["cursor"], "state_sha": sha}
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:

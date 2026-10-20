@@ -559,9 +559,11 @@ jobs:
     # Detect new AMD MI failures on main between full Data Collections. Every
     # trigger of this workflow wakes the pulse, but its own durable ledger
     # admits at most one five-start Buildkite reservation per ten minutes;
-    # gated wake-ups expose no token and make zero requests.
+    # gated wake-ups expose no token and make zero requests. A pulse failure
+    # must not fail the queue snapshot run that hosts it.
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 8
+    continue-on-error: true
     env:
       PYTHONPATH: ${{ github.workspace }}/scripts
     permissions:
