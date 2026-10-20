@@ -919,10 +919,27 @@ umbrella issues in this repository:
   first failing commit as a candidate range for later ancestry validation and
   automated git bisection. The duplicate AMD main watcher is retired; its shared
   retry and issue-state helpers remain in use by the canonical CI watcher.
-- AMD main duration regressions compare the median wall completion time of the
-  latest three successful final attempts with the preceding six to twelve runs.
-  Queue wait is excluded. A 15% increase opens the alert, and the baseline stays
-  fixed until the latest-three median recovers below that threshold.
+- AMD main duration slowdowns treat one Buildkite step on one queue as one
+  signal: per completed main build, the summed wall time of its jobs (shards)
+  when all of them passed, compared only across builds with the step's current
+  shard count. Jobs without a step key are not signals, and the watcher
+  refuses issue mutations while more than 10% of the AMD duration history
+  lacks a step key (builds cached before step keys were kept, until the next
+  full refresh). Each signal is segmented into level regimes (splits need half a
+  minute, 3% and five standard errors of the median difference). A slowdown is
+  the latest level change whose prior level the current level exceeds by two
+  minutes and 20% (or 15 minutes), five standard errors, with 80% of the
+  current runs above the midpoint, at most 20% of the baseline runs above it
+  and no level since the change back at the baseline. It opens once the new
+  level has 8 runs over 24 hours and the slowdown is 48 hours old, so
+  self-recovering infrastructure events (such as a day of slow setup on one
+  queue) stay out; an open one keeps its onset and holds until its increase
+  falls below half of the thresholds. Queue wait is excluded. Fourteen days
+  after its latest increase a slowdown leaves the issue and stays listed as
+  settled in `operations_v2/main_ci.json` (`slowdowns`, published only when
+  the watcher evaluated the same cohort), with its onset builds, vLLM compare
+  range and up to 60 samples (20 before the onset). The issue body is
+  rewritten when a slowdown or its onset changes and at most daily for levels.
 - CI agent health uses the dashboard's infra-suspect definition, excludes
   canceled builds and unidentified nodes, and alerts when a six-hour window
   contains a three-hour co-failure cluster with at least three logical failures

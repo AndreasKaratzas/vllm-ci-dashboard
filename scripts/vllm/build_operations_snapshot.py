@@ -101,6 +101,7 @@ ORG_SUMMARY_MAX_BYTES = writer_max_bytes("org_summary")
 ORG_SUMMARY_SCHEMA_VERSION = 7
 QUEUE_LIFECYCLE_NAME = "queue_lifecycle.json"
 MAIN_FAILURE_STATE_NAME = "open_ci_main_failure_issues.json"
+DURATION_STATE_NAME = "open_amd_duration_regression_issues.json"
 NIGHTLY_BUILD_LIMIT = 30
 RANKING_LIMIT = 20
 GROUP_HISTORY_LIMIT = 60
@@ -4051,6 +4052,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         ci_analytics,
         _load_json(data_dir / MAIN_FAILURE_STATE_NAME),
         generated_at or _utc_now(),
+        duration_state=_load_json(data_dir / DURATION_STATE_NAME),
     )
     test_group_parity = loaded.get("test_group_parity") or {}
     if test_group_parity:
