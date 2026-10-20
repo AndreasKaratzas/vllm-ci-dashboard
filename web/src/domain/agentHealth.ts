@@ -43,6 +43,32 @@ export function buildkiteJobUrl(pipeline: unknown, build: unknown, jobId: unknow
   return url
 }
 
+/** The collector's verdict on what caused a failing attempt (collect_agent_health._attribute_failures). */
+export const AGENT_ATTRIBUTIONS = ['node', 'build', 'test', 'infra', 'unknown'] as const
+export type AgentAttribution = (typeof AGENT_ATTRIBUTIONS)[number]
+export const ATTRIBUTION_LABEL: Record<AgentAttribution, string> = {
+  node: 'Node',
+  build: 'Build-wide',
+  test: 'Test or code',
+  infra: 'Shared infrastructure',
+  unknown: 'Unexplained',
+}
+export const ATTRIBUTION_REASON: Record<string, string> = {
+  agent_lost: 'The agent died mid-job on this node alone.',
+  agent_loss_burst: 'Agents died on three or more nodes within half an hour.',
+  job_never_started: 'The job’s containers never started.',
+  build_wide: 'The same build failed on five or more nodes.',
+  failed_on_retry_elsewhere: 'The automatic retry failed on another node too.',
+  group_fails_elsewhere: 'The test group also failed on other nodes within a day.',
+  group_not_passing_elsewhere: 'The test group passed on no other node within a day.',
+  node_repeats: 'Unexplained failures of two or more test groups on this node within three days.',
+  isolated: 'An unexplained one-off: the group passes elsewhere and nothing else failed here.',
+}
+
+export function agentAttribution(raw: unknown): AgentAttribution {
+  return (AGENT_ATTRIBUTIONS as readonly unknown[]).includes(raw) ? (raw as AgentAttribution) : 'unknown'
+}
+
 export interface AgentRun {
   node_raw: string
   hardware: string
@@ -51,7 +77,13 @@ export interface AgentRun {
   group: string
   state: string
   nightly: boolean
-  infra_suspect: boolean
+  /** Attributed to the node or unexplained: the failures the 'infra' signal keeps. */
+  node_suspect: boolean
+  attribution: AgentAttribution
+  confidence: string
+  reason: string
+  /** Buildkite superseded this attempt with an automatic retry. */
+  retried: boolean
   build_canceled: boolean
   build_number: unknown
   url: string
@@ -155,9 +187,9 @@ interface AccountingOptions {
   signal?: string
 }
 
-/** Whether a compact failure-accounting row counts toward the selected failure signal. */
+/** Whether a compact failure-accounting row counts toward the selected failure signal ('node': attributed to the node). */
 export function accountingSignal(row: Rec, signal: string | undefined): boolean {
-  return (signal === 'infra' && !!row.i) || (signal === 'hard' && row.s === 'hard') || signal === 'all'
+  return (signal === 'infra' && !!row.i) || (signal === 'hard' && row.s === 'hard') || signal === 'all' || (signal === 'node' && row.a === 'node')
 }
 
 /** Hard, soft, and signal failure counts per node, or per any other key of the accounting row. */
@@ -247,7 +279,7 @@ export function agentSourceCoverage(agentHealth: Rec | null | undefined): { star
     scope.requested_days > 60 ||
     scope.basis !== (isCreatedCohort ? 'terminal_jobs_by_build_created_at' : 'terminal_jobs_by_started_at') ||
     scope.exhaustive !== true ||
-    scope.attempt_policy !== 'latest_attempt_per_step' ||
+    scope.attempt_policy !== 'every_executed_attempt' ||
     scope.terminal_time_policy !== 'finished_at_or_terminal_build_bound_for_canceled' ||
     typeof scope.complete_window !== 'boolean' ||
     !scope.discovery_legs ||
@@ -383,7 +415,30 @@ export interface AgentModel {
   /** The page notes, computed once from the source-wide history state as classic does. */
   completionScopeNote: string | null
   retentionNote: { title: string; body: string } | null
-  criteria: { pct: string; samples: number; dayLabel: string }
+  rules: AttributionRules
+}
+
+/** The collector's published attribution thresholds (see AgentAbout). */
+export interface AttributionRules {
+  buildWideNodes: number
+  recurrenceHours: number
+  repeatHours: number
+  repeatGroups: number
+  burstNodes: number
+  burstMinutes: number
+}
+
+function attributionRules(raw: unknown): AttributionRules {
+  const rules = (raw && typeof raw === 'object' ? raw : {}) as Rec
+  const count = (value: unknown, fallback: number) => (Number.isSafeInteger(value) && (value as number) > 0 ? (value as number) : fallback)
+  return {
+    buildWideNodes: count(rules.build_wide_min_failing_nodes, 5),
+    recurrenceHours: count(rules.recurrence_window_hours, 24),
+    repeatHours: count(rules.node_repeat_window_hours, 72),
+    repeatGroups: count(rules.node_repeat_min_groups, 2),
+    burstNodes: count(rules.agent_loss_burst_min_nodes, 3),
+    burstMinutes: count(rules.agent_loss_burst_window_minutes, 30),
+  }
 }
 
 export function agentHealthModel(agentHealth: Rec): AgentModel {
@@ -427,7 +482,11 @@ export function agentHealthModel(agentHealth: Rec): AgentModel {
       group: r.g,
       state: r.s,
       nightly: !!r.ng,
-      infra_suspect: !!r.i,
+      node_suspect: !!r.i,
+      attribution: agentAttribution(r.a),
+      confidence: typeof r.ac === 'string' ? r.ac : 'low',
+      reason: typeof r.ar === 'string' ? r.ar : 'isolated',
+      retried: !!r.rt,
       build_canceled: !!r.bc,
       build_number: r.b,
       url: buildkiteJobUrl(r.p, r.b, r.j),
@@ -491,7 +550,6 @@ export function agentHealthModel(agentHealth: Rec): AgentModel {
         'node counts and node-specific failure rates are unavailable; table counts, timelines, distinct groups, and co-failure events are retained-evidence lower bounds.',
     }
   }
-  const rate = Number(agentHealth.infra_suspect_min_pass_rate)
   return {
     health: agentHealth,
     nodeDays,
@@ -515,11 +573,7 @@ export function agentHealthModel(agentHealth: Rec): AgentModel {
     failing,
     completionScopeNote,
     retentionNote,
-    criteria: {
-      pct: Number.isFinite(rate) ? Math.round(rate * 100) + '%' : '50%',
-      samples: Number(agentHealth.infra_suspect_min_samples) || 3,
-      dayLabel: buildCreatedCohort ? 'UTC build creation day' : 'day',
-    },
+    rules: attributionRules(agentHealth.attribution_rules),
   }
 }
 
@@ -579,7 +633,8 @@ export interface AgentRow {
   hard: number
   canceled: number
   incident_rate: number
-  infra_suspect: number
+  /** Failures matching the selected signal. */
+  signal_failures: number
   distinct_groups: number
   cofailure_event_count: number
   _runs: AgentRun[]
@@ -610,23 +665,23 @@ export function matchesFilter(options: Pick<AgentOptions, 'gpu' | 'search'>, har
 }
 
 export function signalMatch(signal: AgentSignal, r: AgentRun): boolean {
-  if (signal === 'infra') return r.infra_suspect
+  if (signal === 'infra') return r.node_suspect
   if (signal === 'hard') return r.state === 'hard'
   return true
 }
 
 export function signalTerm(signal: AgentSignal): string {
-  return signal === 'infra' ? 'infra-suspect' : signal === 'hard' ? 'hard' : 'all'
+  return signal === 'infra' ? 'node-suspect' : signal === 'hard' ? 'hard' : 'all'
 }
 
 export function signalColumnLabel(signal: AgentSignal): string {
-  return signal === 'infra' ? 'Infra-suspect failures' : 'Hard failures'
+  return signal === 'infra' ? 'Node-suspect failures' : 'Hard failures'
 }
 
 export function signalCaption(signal: AgentSignal): string {
   if (signal === 'infra')
-    return 'Showing infra-suspect failures — anomalous, node-attributable (a group that otherwise passes that day, including on another node).'
-  if (signal === 'hard') return 'Showing every hard failure on the node — not just the infra-suspect subset.'
+    return 'Showing node-suspect failures — attributed to the node, or unexplained — without build-wide, test-level and shared-infrastructure failures.'
+  if (signal === 'hard') return 'Showing every hard failure on the node — not just the node-suspect subset.'
   return 'Showing all failures (hard + soft) on the node.'
 }
 
@@ -651,6 +706,12 @@ function agentRunInScope(model: AgentModel, options: AgentOptions): (run: AgentR
     !(options.nightlyOnly && !run.nightly) &&
     !(options.excludeCancelled && run.build_canceled) &&
     matchesFilter(options, run.hardware, run.node_raw)
+}
+
+/** Retained failing runs under every page filter, whatever the failure signal. */
+export function agentScopedFailures(model: AgentModel, options: AgentOptions): AgentRun[] {
+  const inScope = agentRunInScope(model, options)
+  return model.failing.filter((run) => (run.state === 'hard' || run.state === 'soft') && inScope(run))
 }
 
 /** node_days rows in the window and filters that have runs, with the bucket of the selected build scope. */
@@ -770,7 +831,7 @@ export function computeAgentView(model: AgentModel, options: AgentOptions): Agen
       hard: f.hard,
       canceled: agg.canceled,
       incident_rate: denom ? failures / denom : 0,
-      infra_suspect: signalByNode[nodeRaw] || 0,
+      signal_failures: signalByNode[nodeRaw] || 0,
       distinct_groups: groupsByNode[nodeRaw] || 0,
       cofailure_event_count: eventsByNode[nodeRaw] || 0,
       _runs: runsByNode.get(nodeRaw) || [],
@@ -810,7 +871,7 @@ export interface AgentKpi {
 
 export function agentKpis(model: AgentModel, view: AgentView, options: Pick<AgentOptions, 'windowId' | 'signal'>): AgentKpi[] {
   const identifiedNodes = view.agents.filter((a) => a.identified).length
-  const unreliable = view.agents.filter((a) => a.identified && a.infra_suspect > 0).length
+  const unreliable = view.agents.filter((a) => a.identified && a.signal_failures > 0).length
   const coveragePct = view.totalRuns ? (100 * view.identifiedRuns) / view.totalRuns : 0
   const concurrent = view.events.filter((e) => e.concurrent).length
   const cross = view.events.filter((e) => e.cross_pipeline).length
@@ -868,7 +929,7 @@ export function agentCells(model: AgentModel, view: AgentView, row: AgentRow): A
     failRate: view.nodeDetailIncomplete || view.failureDetailIncomplete ? 'Unavailable' : (Number(row.incident_rate) * 100).toFixed(1) + '%',
     failures: (view.failureDetailIncomplete ? '≥' : '') + integer(row.failures),
     split: row.hard || row.soft ? integer(row.hard) + ' hard · ' + integer(row.soft) + ' soft' : null,
-    signal: (view.failureDetailIncomplete ? '≥' : '') + integer(row.infra_suspect),
+    signal: (view.failureDetailIncomplete ? '≥' : '') + integer(row.signal_failures),
     groups: (model.evidenceIncomplete ? '≥' : '') + integer(row.distinct_groups),
     cofail: (model.evidenceIncomplete ? '≥' : '') + integer(row.cofailure_event_count),
   }
@@ -888,7 +949,7 @@ export function agentTableDescription(model: AgentModel, view: AgentView, option
   if (options.signal === 'infra') {
     return (
       count +
-      ', sorted by infra-suspect failures. The Infra-suspect failures column is the node-attributable subset of Test group failures — a group that otherwise passed that day, including on another node. ' +
+      ', sorted by node-suspect failures. The Node-suspect failures column is the subset of Test group failures attributed to the node or unexplained — not build-wide, not failing on other nodes, not a shared-infrastructure event. ' +
       base +
       tail
     )
@@ -1086,23 +1147,40 @@ interface NodeDayFailures {
   soft: number
   signalHard: number
   signalSoft: number
+  /** Node-suspect failures (attributed to the node or unexplained), whatever the signal. */
+  suspect: number
+  /** Failures attributed to the node itself. */
+  node: number
 }
 
 /**
  * Hard and soft failures per UTC day and node from the compact failure accounting, or from the
- * retained failing runs when there is none, with the part matching the failure signal.
+ * retained failing runs when there is none, with the parts matching the failure signal, the
+ * node-suspect subset, and the failures attributed to the node.
  */
 function agentNodeDayFailures(model: AgentModel, options: AgentOptions): NodeDayFailures[] {
   const out: NodeDayFailures[] = []
   if (model.failureAccounting.length) {
     const rows = model.failureAccounting.filter((row) => matchesFilter(options, row.h, row.nd))
     const startDay = agentWindowStartDay(model, options.windowId)
-    const accounting = { startDay, nightlyOnly: options.nightlyOnly, excludeCancelled: options.excludeCancelled, signal: options.signal }
-    const byState = agentFailureAccountingCounts(rows, accounting, (row) => JSON.stringify([row.d, row.nd, row.s]))
-    byState.forEach((counts, key) => {
+    const keyOf = (row: Rec) => JSON.stringify([row.d, row.nd, row.s])
+    const count = (signal: string) =>
+      agentFailureAccountingCounts(rows, { startDay, nightlyOnly: options.nightlyOnly, excludeCancelled: options.excludeCancelled, signal }, keyOf)
+    const suspect = count('infra')
+    const node = count('node')
+    count(options.signal).forEach((counts, key) => {
       const [day, nodeRaw, state] = JSON.parse(key) as [string, string, string]
       const hard = state === 'hard'
-      out.push({ day, nodeRaw, hard: counts.hard, soft: counts.soft, signalHard: hard ? counts.signal : 0, signalSoft: hard ? 0 : counts.signal })
+      out.push({
+        day,
+        nodeRaw,
+        hard: counts.hard,
+        soft: counts.soft,
+        signalHard: hard ? counts.signal : 0,
+        signalSoft: hard ? 0 : counts.signal,
+        suspect: suspect.get(key)?.signal ?? 0,
+        node: node.get(key)?.signal ?? 0,
+      })
     })
     return out
   }
@@ -1112,9 +1190,54 @@ function agentNodeDayFailures(model: AgentModel, options: AgentOptions): NodeDay
     const hard = Number(run.state === 'hard')
     const soft = Number(run.state === 'soft')
     const matched = signalMatch(options.signal, run)
-    out.push({ day: String(run.day), nodeRaw: run.node_raw, hard, soft, signalHard: matched ? hard : 0, signalSoft: matched ? soft : 0 })
+    out.push({
+      day: String(run.day),
+      nodeRaw: run.node_raw,
+      hard,
+      soft,
+      signalHard: matched ? hard : 0,
+      signalSoft: matched ? soft : 0,
+      suspect: Number(run.node_suspect),
+      node: Number(run.attribution === 'node'),
+    })
   }
   return out
+}
+
+export interface AttributionBreakdown {
+  /** Failures in scope, and how many of them each attribution explains, in AGENT_ATTRIBUTIONS order. */
+  total: number
+  shares: { attribution: AgentAttribution; label: string; count: number }[]
+  /** Failures explained by the build, the test, or shared infrastructure rather than a node. */
+  notNode: number
+}
+
+/**
+ * Failures by attribution from the first UTC day of the window (or `fromDay`, if later) under the
+ * page filters, from the compact failure accounting, or the retained failing runs without it.
+ */
+export function agentAttributionBreakdown(model: AgentModel, options: AgentOptions, fromDay?: string): AttributionBreakdown {
+  const windowStart = agentWindowStartDay(model, options.windowId)
+  const startDay = fromDay && fromDay > windowStart ? fromDay : windowStart
+  const counts = new Map<AgentAttribution, number>(AGENT_ATTRIBUTIONS.map((a) => [a, 0]))
+  const add = (raw: unknown, count: number) => {
+    const attribution = agentAttribution(raw)
+    counts.set(attribution, counts.get(attribution)! + count)
+  }
+  if (model.failureAccounting.length) {
+    const rows = model.failureAccounting.filter((row) => matchesFilter(options, row.h, row.nd))
+    const accounting = { startDay, nightlyOnly: options.nightlyOnly, excludeCancelled: options.excludeCancelled, signal: 'all' }
+    agentFailureAccountingCounts(rows, accounting, (row) => agentAttribution(row.a)).forEach((entry, attribution) => add(attribution, entry.hard + entry.soft))
+  } else {
+    const inScope = agentRunInScope(model, options)
+    for (const run of model.failing) {
+      if (inScope(run) && String(run.day) >= startDay && (run.state === 'hard' || run.state === 'soft')) add(run.attribution, 1)
+    }
+  }
+  const shares = AGENT_ATTRIBUTIONS.map((attribution) => ({ attribution, label: ATTRIBUTION_LABEL[attribution], count: counts.get(attribution)! }))
+  const total = shares.reduce((sum, share) => sum + share.count, 0)
+  const notNode = (['build', 'test', 'infra'] as const).reduce((sum, a) => sum + counts.get(a)!, 0)
+  return { total, shares, notNode }
 }
 
 /** Every UTC day of the selected window, oldest first. */
@@ -1173,6 +1296,9 @@ export type AgentNodeDayCell = {
   signalSoft: number
   /** Failures matching the signal. */
   signal: number
+  /** Node-suspect failures and failures attributed to the node, whatever the signal. */
+  suspect: number
+  node: number
   /** Co-failure events that started on this node that day. */
   cofailEvents: number
 }
@@ -1190,6 +1316,9 @@ export interface AgentNodeHistory {
   activeDays: number
   /** Signal failures in the last RECENT_DAYS days of the window. */
   recent: number
+  /** Node-suspect failures and failures attributed to the node in the last RECENT_DAYS days. */
+  recentSuspect: number
+  recentNode: number
   /** Co-failure events that started in the last RECENT_DAYS days of the window. */
   recentCofail: number
   cofailEvents: number
@@ -1230,12 +1359,14 @@ export function agentNodeDayMatrix(model: AgentModel, view: AgentView, options: 
         node: agent?.node ?? agentNodeLabel(nodeRaw, hw),
         node_raw: nodeRaw,
         hardware: hw,
-        cells: days.map((d) => ({ day: d, runs: 0, hard: 0, soft: 0, signalHard: 0, signalSoft: 0, signal: 0, cofailEvents: 0 })),
+        cells: days.map((d) => ({ day: d, runs: 0, hard: 0, soft: 0, signalHard: 0, signalSoft: 0, signal: 0, suspect: 0, node: 0, cofailEvents: 0 })),
         signal: 0,
         signalHard: 0,
         signalSoft: 0,
         activeDays: 0,
         recent: 0,
+        recentSuspect: 0,
+        recentNode: 0,
         recentCofail: 0,
         cofailEvents: 0,
       }
@@ -1251,6 +1382,8 @@ export function agentNodeDayMatrix(model: AgentModel, view: AgentView, options: 
     cell.signalHard += counts.signalHard
     cell.signalSoft += counts.signalSoft
     cell.signal += counts.signalHard + counts.signalSoft
+    cell.suspect += counts.suspect
+    cell.node += counts.node
   }
   for (const event of view.events) {
     const cell = cellOf(event.node_raw, event.started_at.slice(0, 10), event.hardware)
@@ -1271,6 +1404,8 @@ export function agentNodeDayMatrix(model: AgentModel, view: AgentView, options: 
       if (cell.signal) node.activeDays += 1
       if (i >= recentFrom) {
         node.recent += cell.signal
+        node.recentSuspect += cell.suspect
+        node.recentNode += cell.node
         node.recentCofail += cell.cofailEvents
       }
       max = Math.max(max, cell.signal)
@@ -1287,7 +1422,7 @@ export function agentNodeDayMatrix(model: AgentModel, view: AgentView, options: 
   return { days, nodes: ranked, max, recentDays: Math.min(RECENT_DAYS, days.length) }
 }
 
-/** The plural noun of the failure signal: "infra-suspect failures", "hard failures", or "failures". */
+/** The plural noun of the failure signal: "node-suspect failures", "hard failures", or "failures". */
 export function signalNoun(signal: AgentSignal): string {
   return signal === 'all' ? 'failures' : signalTerm(signal) + ' failures'
 }
@@ -1297,22 +1432,34 @@ export interface AgentFleetVerdict {
   label: string
   headline: string
   detail: string
-  /** Nodes with two or more recent signal failures or a recent co-failure event, worst first. */
+  /** Nodes with two or more recent failures attributed to the node itself, worst first. */
   hotNodes: AgentNodeHistory[]
+  /** Nodes with recent node-suspect failures that no second failure corroborates. */
+  watchNodes: AgentNodeHistory[]
   recentFailures: number
   recentNodes: number
   /** Share of the window's signal failures on the five worst nodes; null without failures. */
   topShare: number | null
 }
 
+/** A node is hurting once this many recent failures are attributed to it. */
+export const HURTING_NODE_FAILURES = 2
+
 const nodesWord = (count: number) => integer(count) + (count === 1 ? ' node' : ' nodes')
 const failuresWord = (count: number, noun: string) => integer(count) + ' ' + (count === 1 ? noun.replace(/s$/, '') : noun)
 
 /**
- * Whether the fleet is healthy right now: hurting when a node repeats a signal failure or has a
- * co-failure event in the recent days, watch when failures are isolated, healthy without any.
+ * Whether a node is hurting CI right now: hurting when recent failures are attributed to a node
+ * itself (a lost agent, or unexplained failures of several test groups), watch when node-suspect
+ * failures are uncorroborated, healthy without any. `recent` breaks the recent failures down by
+ * attribution so the verdict says how many were the build, the test, or shared infrastructure.
  */
-export function agentFleetVerdict(matrix: AgentNodeDayMatrix, view: AgentView, options: Pick<AgentOptions, 'signal' | 'windowId'>): AgentFleetVerdict {
+export function agentFleetVerdict(
+  matrix: AgentNodeDayMatrix,
+  view: AgentView,
+  options: Pick<AgentOptions, 'signal' | 'windowId'>,
+  recent: AttributionBreakdown,
+): AgentFleetVerdict {
   const noun = signalNoun(options.signal)
   const bound = view.failureDetailIncomplete ? 'at least ' : ''
   const recentNodes = matrix.nodes.filter((node) => node.recent > 0)
@@ -1321,45 +1468,44 @@ export function agentFleetVerdict(matrix: AgentNodeDayMatrix, view: AgentView, o
   const top = matrix.nodes.slice(0, 5).reduce((sum, node) => sum + node.signal, 0)
   const topShare = total ? top / total : null
   const hotNodes = matrix.nodes
-    .filter((node) => node.recent >= 2 || node.recentCofail > 0)
-    .sort((a, b) => b.recent - a.recent || b.recentCofail - a.recentCofail || b.signal - a.signal)
-  const hotFailures = hotNodes.reduce((sum, node) => sum + node.recent, 0)
+    .filter((node) => node.recentNode >= HURTING_NODE_FAILURES)
+    .sort((a, b) => b.recentNode - a.recentNode || b.recentSuspect - a.recentSuspect || b.signal - a.signal)
+  const watchNodes = matrix.nodes
+    .filter((node) => node.recentSuspect > 0 && node.recentNode < HURTING_NODE_FAILURES)
+    .sort((a, b) => b.recentSuspect - a.recentSuspect || b.signal - a.signal)
   const span = matrix.recentDays === 1 ? 'today' : `in the last ${matrix.recentDays} days`
+  const explained = recent.notNode
+    ? ` ${capitalize(bound)}${integer(recent.notNode)} of the ${integer(recent.total)} failures ${span} were build-wide, test or shared-infrastructure failures, not node faults.`
+    : ''
   const concentration =
     topShare !== null && matrix.nodes.length > 5 ? ` The 5 worst nodes carry ${Math.round(topShare * 100)}% of the ${options.windowId} ${noun}.` : ''
+  const base = { hotNodes, watchNodes, recentFailures, recentNodes: recentNodes.length, topShare }
   if (hotNodes.length) {
+    const attributed = hotNodes.reduce((sum, node) => sum + node.recentNode, 0)
     return {
+      ...base,
       tone: 'hard',
       label: 'Hurting',
-      headline: `${nodesWord(hotNodes.length)} ${hotNodes.length === 1 ? 'is' : 'are'} hurting CI right now`,
-      detail: `${capitalize(bound)}${failuresWord(recentFailures, noun)} on ${nodesWord(recentNodes.length)} ${span}. ${hotNodes.length === 1 ? 'One node repeats failures or clusters them into co-failure events and accounts' : `${nodesWord(hotNodes.length)} repeat failures or cluster them into co-failure events and account`} for ${integer(hotFailures)} of them.${concentration}`,
-      hotNodes,
-      recentFailures,
-      recentNodes: recentNodes.length,
-      topShare,
+      headline: `${nodesWord(hotNodes.length)} ${hotNodes.length === 1 ? 'is' : 'are'} failing jobs themselves`,
+      detail: `${capitalize(bound)}${failuresWord(attributed, 'failures')} ${span} ${attributed === 1 ? 'is' : 'are'} attributed to ${hotNodes.length === 1 ? 'one node' : nodesWord(hotNodes.length)}: lost agents, or unexplained failures of several test groups on one node.${explained}${concentration}`,
     }
   }
-  if (recentFailures) {
+  if (watchNodes.length) {
+    const suspect = watchNodes.reduce((sum, node) => sum + node.recentSuspect, 0)
     return {
+      ...base,
       tone: 'soft',
       label: 'Watch',
-      headline: 'Isolated failures, no repeat offender',
-      detail: `${capitalize(bound)}${failuresWord(recentFailures, noun)} on ${nodesWord(recentNodes.length)} ${span}, none repeating on one node.${concentration}`,
-      hotNodes,
-      recentFailures,
-      recentNodes: recentNodes.length,
-      topShare,
+      headline: 'No node is failing jobs repeatedly',
+      detail: `${capitalize(bound)}${failuresWord(suspect, 'node-suspect failures')} on ${nodesWord(watchNodes.length)} ${span}, none corroborated by a second test group or a lost agent.${explained}${concentration}`,
     }
   }
   return {
+    ...base,
     tone: 'pass',
     label: 'Healthy',
     headline: 'No node is hurting CI right now',
-    detail: `No ${noun} ${span}` + (total ? `; ${bound}${integer(total)} earlier in ${options.windowId}.` : ` or earlier in ${options.windowId}.`),
-    hotNodes,
-    recentFailures,
-    recentNodes: 0,
-    topShare,
+    detail: `No node-suspect failures ${span}.${explained}` + (total ? ` ${capitalize(bound)}${integer(total)} ${noun} earlier in ${options.windowId}.` : ''),
   }
 }
 

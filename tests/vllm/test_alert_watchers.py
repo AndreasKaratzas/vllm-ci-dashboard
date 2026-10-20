@@ -1260,7 +1260,8 @@ def _agent_row(
     build=100,
     job="job",
     state="soft",
-    infra=1,
+    attribution="node",
+    reason="node_repeats",
     canceled=0,
     pipeline="ci",
 ):
@@ -1272,7 +1273,11 @@ def _agent_row(
         "g": group,
         "s": state,
         "ng": False,
-        "i": infra,
+        "i": int(attribution in ("node", "unknown")),
+        "a": attribution,
+        "ac": "medium",
+        "ar": reason,
+        "rt": 0,
         "bc": canceled,
         "b": build,
         "j": job,
@@ -1282,18 +1287,24 @@ def _agent_row(
     }
 
 
-def test_agent_health_alert_requires_three_logical_failures_and_two_groups():
+def test_agent_health_alert_requires_two_failures_attributed_to_the_node():
     payload = {
         "generated_at": "2026-07-17T12:00:00Z",
         "failing_runs": [
-            _agent_row("gpu1", "group-a", "2026-07-17T10:00:00Z", build=1, job="a1"),
-            _agent_row("gpu1", "group-a", "2026-07-17T10:05:00Z", build=1, job="a2"),
+            # Retries of one build/group count once; unexplained failures join the event,
+            # and node evidence two days apart still corroborates.
+            _agent_row("gpu1", "group-a", "2026-07-15T13:00:00Z", build=1, job="a1"),
+            _agent_row("gpu1", "group-a", "2026-07-15T13:05:00Z", build=1, job="a2"),
             _agent_row("gpu1", "group-b", "2026-07-17T10:10:00Z", build=2, job="b"),
-            _agent_row("gpu1", "group-c", "2026-07-17T10:20:00Z", build=3, job="c"),
+            _agent_row("gpu1", "group-c", "2026-07-17T10:20:00Z", build=3, job="c", attribution="unknown", reason="isolated"),
             _agent_row("gpu1", "canceled", "2026-07-17T10:30:00Z", build=4, canceled=1),
             _agent_row("(unidentified)", "unknown", "2026-07-17T10:40:00Z", build=5),
-            _agent_row("gpu2", "one", "2026-07-17T10:00:00Z", build=6),
-            _agent_row("gpu2", "two", "2026-07-17T10:10:00Z", build=7),
+            # Build-wide and test failures never make a node event.
+            _agent_row("gpu2", "one", "2026-07-17T10:00:00Z", build=6, attribution="build", reason="build_wide"),
+            _agent_row("gpu2", "two", "2026-07-17T10:10:00Z", build=7, attribution="test", reason="group_fails_elsewhere"),
+            # One node-attributed failure among unexplained ones is not enough.
+            _agent_row("gpu3", "one", "2026-07-17T10:00:00Z", build=8, attribution="node", reason="agent_lost"),
+            _agent_row("gpu3", "two", "2026-07-17T10:10:00Z", build=9, attribution="unknown", reason="isolated"),
         ],
     }
 
@@ -1302,19 +1313,17 @@ def test_agent_health_alert_requires_three_logical_failures_and_two_groups():
     assert len(events) == 1
     event = events[0]
     assert event["node"] == "gpu1"
-    assert event["failure_count"] == 3
-    assert event["group_count"] == 3
+    assert (event["failure_count"], event["node_attributed"], event["group_count"]) == (3, 2, 3)
     assert {run["job_id"] for run in event["runs"]} == {"a2", "b", "c"}
 
 
-def test_agent_health_alert_uses_six_hour_window_and_infra_signal_only():
+def test_agent_health_alert_uses_the_three_day_window_and_node_suspect_signal_only():
     payload = {
         "generated_at": "2026-07-17T12:00:00Z",
         "failing_runs": [
-            _agent_row("gpu1", "old", "2026-07-17T05:59:00Z", build=1),
-            _agent_row("gpu1", "not-infra", "2026-07-17T10:00:00Z", build=2, infra=0),
+            _agent_row("gpu1", "old", "2026-07-14T11:59:00Z", build=1),
+            _agent_row("gpu1", "not-node", "2026-07-17T10:00:00Z", build=2, attribution="test", reason="failed_on_retry_elsewhere"),
             _agent_row("gpu1", "one", "2026-07-17T10:05:00Z", build=3),
-            _agent_row("gpu1", "two", "2026-07-17T10:10:00Z", build=4),
         ],
     }
 
@@ -1326,8 +1335,8 @@ def test_agent_health_issue_body_links_each_exact_buildkite_attempt():
         "generated_at": "2026-07-17T12:00:00Z",
         "failing_runs": [
             _agent_row("gpu-chi-1", "a", "2026-07-17T10:00:00Z", build=1, job="job-a"),
-            _agent_row("gpu-chi-1", "b", "2026-07-17T10:05:00Z", build=2, job="job-b"),
-            _agent_row("gpu-chi-1", "c", "2026-07-17T10:10:00Z", build=3, job="job-c"),
+            _agent_row("gpu-chi-1", "b", "2026-07-17T10:05:00Z", build=2, job="job-b", reason="agent_lost"),
+            _agent_row("gpu-chi-2", "c", "2026-07-17T10:10:00Z", build=3, job="job-c", attribution="build", reason="build_wide"),
         ],
     }
     events = agent.find_alert_events(payload)
@@ -1342,8 +1351,11 @@ def test_agent_health_issue_body_links_each_exact_buildkite_attempt():
     assert "steps/canvas?jid=job-a&tab=output" in body
     assert "ops_analytics_view=agent-health" in body
     assert "ops_agent_node=gpu-chi-1" in body
-    assert "at least three logical failures" in body
-    assert "terminal ci/main executions" in body
+    assert "at least two logical failures attributed to the node" in body
+    assert "Of 3 failing attempts in the window, 2 are attributed to a node, 1 to build-wide breakage" in body
+    assert "node (different groups fail only on this node)" in body
+    assert "node (agent lost mid-job)" in body
+    assert "every terminal ci/main attempt" in body
     assert "amd-ci" not in body
 
 
@@ -1354,8 +1366,9 @@ def test_agent_health_issue_body_links_each_exact_buildkite_attempt():
 ])
 def test_agent_health_alert_excludes_foreign_and_non_gpu_execution(field, value):
     rows = [_agent_row("gpu1", f"group-{index}", "2026-07-17T10:00:00Z", build=index)
-            for index in range(1, 4)]
-    rows[2][field] = value
+            for index in range(1, 3)]
+    assert agent.find_alert_events({"generated_at": "2026-07-17T12:00:00Z", "failing_runs": rows})
+    rows[1][field] = value
     assert agent.find_alert_events({"generated_at": "2026-07-17T12:00:00Z", "failing_runs": rows}) == []
 
 
@@ -1386,7 +1399,7 @@ def _main_agent_payload():
             "day_basis": "build_created_at_utc",
             "eligible_completion": "current_ci_build_creation_cohort_with_provable_completion",
             "discovery_legs": {"created": True}, "exhaustive": True,
-            "attempt_policy": "latest_attempt_per_step",
+            "attempt_policy": "every_executed_attempt",
             "terminal_time_policy": "finished_at_or_terminal_build_bound_for_canceled",
             "requested_days": 7, "collected_from": "2026-07-10T00:00:00Z",
             "collected_to": "2026-07-17T12:00:00Z",
@@ -1466,7 +1479,7 @@ def test_agent_main_watcher_accepts_exact_scope_and_preserves_observation_clock(
     assert len(reconciliations) == len(persisted) == 1
     assert reconciliations[0]["observed_at"] == payload["generated_at"]
     assert reconciliations[0]["active"] is False
-    assert "terminal ci/main executions" in reconciliations[0]["body"]
+    assert "every terminal ci/main attempt" in reconciliations[0]["body"]
 
 
 def test_alert_payload_freshness_fails_closed():

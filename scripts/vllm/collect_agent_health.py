@@ -4,8 +4,9 @@
 Unlike ``scripts/collect_ci.py`` — which tracks only main-branch *nightly*
 builds for the dashboard's headline CI health — this collector can walk every
 build in the selected pipeline and branch scope, across all triggers. Manual
-all-branch collection includes PRs and release branches. For each job that ran on a physical AMD **GPU** node it
-observes one terminal run. Normal Actions use an explicit seven-day main-branch
+all-branch collection includes PRs and release branches. Every terminal
+attempt of a job that ran on a physical AMD **GPU** node is one run, including
+attempts superseded by a retry. Normal Actions use an explicit seven-day main-branch
 build creation cohort; node-day membership follows the parent's
 UTC creation day while execution timestamps remain intact. Manual start-day
 collection can additionally discover recent executions in older parents.
@@ -21,20 +22,18 @@ and emits compact artifacts:
   1. Per-node/day **rollups** (run / failure / cancelled counts, split into an
      "all builds" bucket and a "nightly-on-main" bucket) — the reliability table
      denominators. Tiny.
-  2. **Failing runs** — every hard/soft failing run is shipped raw (still far
-     smaller than all runs) so the frontend's "failure signal" toggle can drive
-     the timeline / co-failure clustering off any of three subsets: infra-suspect
-     only, hard failures, or all failures. Each row carries an ``i`` flag marking
-     the *infra-suspect* subset: a failure whose test group *mostly passes that
-     day* (pass-rate >= threshold across >=N samples) AND passed on a *different*
-     node the same day — isolating anomalous, node-attributable failures from
-     broadly-broken code. The frontend clusters the selected subset into
-     co-failure events reactively (per the window / signal / nightly toggles).
+  2. **Failing runs** — every hard/soft failing attempt, including attempts that
+     Buildkite superseded with an automatic retry (``rt``), because a node fault
+     usually fails one attempt and passes on the retry elsewhere. Each row
+     carries an **attribution** (``a``: node / build / test / unknown, with
+     confidence ``ac`` and rule ``ar``) derived from cheap cross-run evidence;
+     ``i`` marks the failures that may be the node's fault (node or unknown).
+     See ``_attribute_failures``.
 
 On-disk stores (merged incrementally, pruned to 60d and then byte-bounded by
 dropping the oldest complete UTC days):
     data/vllm/ci/agent_health/node_days.jsonl        per-(node,day) rollups
-    data/vllm/ci/agent_health/infra_failures.jsonl   failing runs (i=infra-suspect)
+    data/vllm/ci/agent_health/infra_failures.jsonl   failing attempts (i=node-suspect)
 Assembled output (read by build_operations_snapshot and published atomically
 with the two-file ledger):
     data/vllm/ci/agent_health.json
@@ -115,10 +114,25 @@ COFAILURE_WINDOW_OPTIONS = (30, 60, 120, 180, 360, 720, 1440)
 DEFAULT_COFAILURE_WINDOW_MINS = 180
 UNIDENTIFIED_NODE = "(unidentified)"
 
-# Infra-suspect thresholds: a failing run counts as node-attributable only when
-# its test group demonstrably works that day (so the failure is anomalous).
-INFRA_SUSPECT_MIN_PASS_RATE = 0.5
-INFRA_SUSPECT_MIN_SAMPLES = 3
+# Failure attribution (see _attribute_failures). A build whose failing steps
+# span this many physical nodes cannot be explained by one bad node.
+BUILD_WIDE_MIN_FAILING_STEPS = 5
+BUILD_WIDE_MIN_FAILING_NODES = 5
+# A test group failing on another node within this window is a test or code
+# problem, not a property of the node.
+RECURRENCE_WINDOW = timedelta(hours=24)
+# Unexplained failures of this many test groups on one node within the window
+# corroborate a node fault; one flaky group repeating does not.
+NODE_REPEAT_WINDOW = timedelta(hours=72)
+NODE_REPEAT_MIN_GROUPS = 2
+# Agents lost on this many nodes within the window are a cluster or registry
+# event (pods terminated, containers never connected), not one node.
+AGENT_LOSS_BURST_MIN_NODES = 3
+AGENT_LOSS_BURST_WINDOW = timedelta(minutes=30)
+ATTRIBUTIONS = ("node", "build", "test", "infra", "unknown")
+# Every executed attempt is a run on its node. Buildkite's documented
+# ``include_retried_jobs`` keeps superseded attempts in the embedded roster.
+ATTEMPT_POLICY = "every_executed_attempt"
 
 # The hourly workflow refreshes the default seven-day display. An upstream page with
 # 100 embedded job rosters is large enough to approach the HTTP timeout, so
@@ -236,6 +250,12 @@ def _observe(slug: str, build: dict, job: dict, nightly_re: re.Pattern | None) -
         "build_canceled": build_canceled,
         "build_number": build.get("number"),
         "job_id": str(job.get("id") or ""),
+        "retry_of": str((job.get("retry_source") or {}).get("job_id") or ""),
+        "superseded": bool(job.get("retried") or job.get("retried_in_job_id")),
+        # Buildkite exit -1: the agent was lost or stopped mid-job, unless the
+        # job was canceled or its containers never started (process_run_error).
+        "agent_lost": job.get("exit_status") == -1 and job.get("signal_reason") not in ("cancel", "process_run_error"),
+        "never_started": job.get("signal_reason") == "process_run_error",
         "started_at": started,
         "finished_at": str(job.get("finished_at") or "").strip(),
     }
@@ -532,9 +552,12 @@ def _fetch_pipeline_builds(
     """
     if branch not in ("all", "main"):
         raise ValueError("agent-health branch scope is invalid")
+    # Superseded attempts add about 1% to a ci/main page (50.4 MB -> 50.9 MB for
+    # the 50 main builds of 2026-10-19) and carry the node faults a retry hides.
     base_params = {
         "per_page": 100,
         "exclude_pipeline": "true",
+        "include_retried_jobs": "true",
         **({"branch": "main"} if branch == "main" else {}),
     }
 
@@ -635,11 +658,6 @@ def _fetch_pipeline_observations(
     query_time = query_time or datetime.now(timezone.utc)
     created_from = _job_window_start(query_time, days)
     url = f"{cfg.BK_API_BASE}/organizations/{cfg.BK_ORG}/pipelines/{slug}/builds"
-    # NB: we deliberately do NOT request include_retried_jobs. The upstream ``ci``
-    # pipeline has thousands of builds over 60d; pulling every superseded attempt
-    # inline makes pages huge and the endpoint time out. The latest attempt per
-    # job still carries the node tag + terminal state, which is what node-health
-    # needs, and this keeps both the backfill and the hourly incremental fast.
     nightly_re = None
     pattern = NIGHTLY_NAME_PATTERNS_BY_SLUG.get(slug)
     if pattern:
@@ -728,6 +746,7 @@ def _fetch_pipeline_observations(
     old_params = {
         "per_page": UPSTREAM_INCREMENTAL_PER_PAGE if slug == "ci" else 100,
         "exclude_pipeline": "true",
+        "include_retried_jobs": "true",
         "created_to": created_from.isoformat(),
     }
     older_finished = _paginate_observation_builds(
@@ -746,31 +765,116 @@ def _fetch_pipeline_observations(
     return obs
 
 
-def _mark_infra_suspect(obs: list[dict]) -> None:
-    """Flag each failing observation as infra-suspect (in place).
+def _attribute_failures(obs: list[dict]) -> None:
+    """Attribute every failing attempt to its most likely cause (in place).
 
-    Infra-suspect := the failing run's (group, day) mostly passes and passed on
-    at least one *other* node — so the failure is anomalous / node-attributable
-    rather than broadly-broken code failing everywhere.
+    Rules, first match wins, all from the embedded build rosters:
+
+    - infra/high ``agent_loss_burst``: the agent died mid-job (exit -1 without
+      a cancellation) while agents on AGENT_LOSS_BURST_MIN_NODES nodes died
+      within AGENT_LOSS_BURST_WINDOW of it.
+    - node/medium ``agent_lost``: the agent died mid-job on this node alone.
+    - infra/medium ``job_never_started``: the pod's containers never connected
+      (``process_run_error``), a cluster or image-pull failure before any test.
+    - build/high ``build_wide``: the build's failing steps span at least
+      BUILD_WIDE_MIN_FAILING_NODES nodes; one node cannot cause that.
+    - test/high ``failed_on_retry_elsewhere``: another attempt of the same step
+      failed on a different node.
+    - test ``group_fails_elsewhere``: the test group failed on another node in
+      another build within RECURRENCE_WINDOW (high with two or more nodes).
+    - test/medium ``group_not_passing_elsewhere``: the group did not pass on any
+      other node within RECURRENCE_WINDOW, so the node has nothing to compare to.
+    - node ``node_repeats``: the remaining (unexplained) failures on one node,
+      together with its lost agents, span NODE_REPEAT_MIN_GROUPS test groups
+      within NODE_REPEAT_WINDOW (high with more groups).
+    - unknown/low ``isolated``: an unexplained one-off.
+
+    ``node_suspect`` keeps the failures that may be the node's fault.
     """
-    grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
-    for row in obs:
-        grouped[(row["group"], row["day"])].append(row)
-    for rows in grouped.values():
-        gradable = [r for r in rows if r["state"] in ("pass", "hard", "soft")]
-        passes = [r for r in gradable if r["state"] == "pass"]
-        pass_nodes = {r["node"] for r in passes}
-        rate = (len(passes) / len(gradable)) if gradable else 0.0
-        healthy_group = (
-            len(gradable) >= INFRA_SUSPECT_MIN_SAMPLES
-            and rate >= INFRA_SUSPECT_MIN_PASS_RATE
-        )
+    failing = [r for r in obs if r["state"] in ("hard", "soft")]
+    by_id = {r["job_id"]: r for r in obs if r["job_id"]}
+
+    def step_of(row: dict) -> str:
+        seen = set()
+        while row["retry_of"] in by_id and row["job_id"] not in seen:
+            seen.add(row["job_id"])
+            row = by_id[row["retry_of"]]
+        return row["job_id"]
+
+    started = {
+        id(r): _aware_timestamp(r["started_at"]) or datetime.min.replace(tzinfo=timezone.utc)
+        for r in obs
+    }
+    lost = [r for r in failing if r["agent_lost"]]
+    lost_at = {id(r): _aware_timestamp(r["finished_at"]) or started[id(r)] for r in lost}
+    steps = {r["job_id"]: step_of(r) for r in obs if r["job_id"]}
+    build_steps: dict[tuple, set] = defaultdict(set)
+    build_nodes: dict[tuple, set] = defaultdict(set)
+    step_failures: dict[str, list[dict]] = defaultdict(list)
+    group_failures: dict[str, list[dict]] = defaultdict(list)
+    group_passes: dict[str, list[dict]] = defaultdict(list)
+    for r in failing:
+        build = (r["pipeline"], r["build_number"])
+        build_steps[build].add(steps.get(r["job_id"], r["job_id"]))
+        if r["identified"]:
+            build_nodes[build].add(r["node"])
+        step_failures[steps.get(r["job_id"], r["job_id"])].append(r)
+        group_failures[r["group"]].append(r)
+    for r in obs:
+        if r["state"] == "pass":
+            group_passes[r["group"]].append(r)
+
+    def near(rows: list[dict], row: dict, window: timedelta) -> list[dict]:
+        at = started[id(row)]
+        return [other for other in rows if abs(started[id(other)] - at) <= window]
+
+    suspects: list[dict] = []
+    for r in failing:
+        build = (r["pipeline"], r["build_number"])
+        elsewhere = {
+            other["node"] for other in near(group_failures[r["group"]], r, RECURRENCE_WINDOW)
+            if other["node"] != r["node"] and other["build_number"] != r["build_number"]
+        }
+        if r["agent_lost"]:
+            burst = {
+                other["node"] for other in lost
+                if abs(lost_at[id(other)] - lost_at[id(r)]) <= AGENT_LOSS_BURST_WINDOW
+            }
+            if len(burst) >= AGENT_LOSS_BURST_MIN_NODES:
+                verdict = ("infra", "high", "agent_loss_burst")
+            else:
+                verdict = ("node", "medium", "agent_lost")
+                suspects.append(r)
+        elif r["never_started"]:
+            verdict = ("infra", "medium", "job_never_started")
+        elif (len(build_steps[build]) >= BUILD_WIDE_MIN_FAILING_STEPS
+              and len(build_nodes[build]) >= BUILD_WIDE_MIN_FAILING_NODES):
+            verdict = ("build", "high", "build_wide")
+        elif any(other["node"] != r["node"] for other in step_failures[steps.get(r["job_id"], r["job_id"])]):
+            verdict = ("test", "high", "failed_on_retry_elsewhere")
+        elif elsewhere:
+            verdict = ("test", "high" if len(elsewhere) >= 2 else "medium", "group_fails_elsewhere")
+        elif not any(other["node"] != r["node"] for other in near(group_passes[r["group"]], r, RECURRENCE_WINDOW)):
+            verdict = ("test", "medium", "group_not_passing_elsewhere")
+        else:
+            verdict = ("unknown", "low", "isolated")
+            suspects.append(r)
+        r["attribution"], r["confidence"], r["reason"] = verdict
+
+    by_node: dict[str, list[dict]] = defaultdict(list)
+    for r in suspects:
+        if r["identified"]:
+            by_node[r["node"]].append(r)
+    for rows in by_node.values():
         for r in rows:
-            r["infra_suspect"] = bool(
-                healthy_group
-                and r["state"] in ("hard", "soft")
-                and (pass_nodes - {r["node"]})
-            )
+            corroborating = near(rows, r, NODE_REPEAT_WINDOW)
+            groups = {other["group"] for other in corroborating}
+            if r["reason"] != "agent_lost" and len(groups) >= NODE_REPEAT_MIN_GROUPS:
+                r["attribution"], r["confidence"], r["reason"] = (
+                    "node", "high" if len(groups) > NODE_REPEAT_MIN_GROUPS else "medium", "node_repeats",
+                )
+    for r in failing:
+        r["node_suspect"] = r["attribution"] in ("node", "unknown")
 
 
 def _rollup_rows(obs: list[dict]) -> dict[tuple[str, str], dict]:
@@ -802,11 +906,11 @@ def _rollup_rows(obs: list[dict]) -> dict[tuple[str, str], dict]:
 
 
 def _failing_row(r: dict) -> dict:
-    """Compact failing-run record shipped to the frontend.
+    """Compact failing-attempt record shipped to the frontend.
 
-    ``i`` marks the infra-suspect subset (anomalous, node-attributable); the
-    frontend's signal toggle uses it plus ``s`` (hard/soft) to select which
-    failures drive the timeline and co-failure clustering.
+    ``i`` marks the failures that may be the node's fault; ``a``/``ac``/``ar``
+    carry the attribution, its confidence, and the rule that decided it, and
+    ``rt`` marks an attempt Buildkite superseded with a retry.
     """
     return {
         "nd": r["node"],
@@ -816,7 +920,11 @@ def _failing_row(r: dict) -> dict:
         "g": r["group"],
         "s": r["state"],
         "ng": r["nightly"],
-        "i": 1 if r.get("infra_suspect") else 0,
+        "i": 1 if r.get("node_suspect") else 0,
+        "a": r.get("attribution") or "unknown",
+        "ac": r.get("confidence") or "low",
+        "ar": r.get("reason") or "isolated",
+        "rt": 1 if r.get("superseded") else 0,
         "bc": 1 if r.get("build_canceled") else 0,
         "b": r["build_number"],
         "j": r["job_id"],
@@ -887,6 +995,7 @@ def _failure_accounting_rows(failing: list[dict]) -> list[dict]:
             str(row.get("h") or ""),
             str(row.get("s") or ""),
             1 if row.get("i") else 0,
+            str(row.get("a") or "unknown"),
             1 if row.get("ng") else 0,
             1 if row.get("bc") else 0,
         )
@@ -898,11 +1007,12 @@ def _failure_accounting_rows(failing: list[dict]) -> list[dict]:
             "h": hardware,
             "s": state,
             "i": infra,
+            "a": attribution,
             "ng": nightly,
             "bc": build_canceled,
             "c": count,
         }
-        for (day, node, hardware, state, infra, nightly, build_canceled), count
+        for (day, node, hardware, state, infra, attribution, nightly, build_canceled), count
         in sorted(counts.items())
     ]
 
@@ -928,7 +1038,7 @@ def _valid_retained_main_proof(summary: dict, retention: dict, scope: dict) -> b
         "exhaustive", "attempt_policy", "terminal_time_policy", "complete_window",
     }:
         return False
-    if (scope.get("attempt_policy") != "latest_attempt_per_step"
+    if (scope.get("attempt_policy") != ATTEMPT_POLICY
             or scope.get("terminal_time_policy") != TERMINAL_TIME_POLICY
             or scope.get("collected_to") != summary.get("generated_at")
             or type(scope.get("requested_days")) is not int
@@ -1075,8 +1185,15 @@ def _assemble(
         "pipelines": list(pipelines),
         **({"job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu"} if tuple(pipelines) == ("ci",) else {}),
         "hardware_types": hardware_types,
-        "infra_suspect_min_pass_rate": INFRA_SUSPECT_MIN_PASS_RATE,
-        "infra_suspect_min_samples": INFRA_SUSPECT_MIN_SAMPLES,
+        "attribution_rules": {
+            "build_wide_min_failing_steps": BUILD_WIDE_MIN_FAILING_STEPS,
+            "build_wide_min_failing_nodes": BUILD_WIDE_MIN_FAILING_NODES,
+            "recurrence_window_hours": int(RECURRENCE_WINDOW.total_seconds() // 3600),
+            "node_repeat_window_hours": int(NODE_REPEAT_WINDOW.total_seconds() // 3600),
+            "node_repeat_min_groups": NODE_REPEAT_MIN_GROUPS,
+            "agent_loss_burst_min_nodes": AGENT_LOSS_BURST_MIN_NODES,
+            "agent_loss_burst_window_minutes": int(AGENT_LOSS_BURST_WINDOW.total_seconds() // 60),
+        },
         "total_runs": total_runs,
         "node_day_count": len(node_days),
         "infra_failure_count": source_failure_count,
@@ -1181,7 +1298,7 @@ def _prepare_generation(
                     "published": len(published_failing),
                     "omitted": omitted,
                     "complete_relative_to_source": omitted == 0,
-                    "selection": "newest_then_infra_suspect_then_recency",
+                    "selection": "newest_then_node_suspect_then_recency",
                 },
                 "failure_accounting": {
                     "source": len(source_failing),
@@ -1456,19 +1573,19 @@ def main() -> int:
                 if args.branch == "main" and row.get("is_main") is not True:
                     raise RuntimeError("agent-health main cohort returned an unproved branch observation")
                 obs.append(row)
-    _mark_infra_suspect(obs)
+    _attribute_failures(obs)
 
     fresh_rollups = list(_rollup_rows(obs).values())
-    # Ship every hard/soft failure raw; ``i`` marks the infra-suspect subset so
-    # the frontend's signal toggle can select infra-only / hard / all failures.
+    # Ship every hard/soft failing attempt raw with its attribution so the
+    # frontend's signal toggle can select node-suspect / hard / all failures.
     fresh_failing = [_failing_row(r) for r in obs if r["state"] in ("hard", "soft")]
 
     log.info(
         "Observed %d runs (%d identified) -> %d node-days, %d failing runs "
-        "(%d infra-suspect); hardware=%s",
+        "(attribution %s); hardware=%s",
         len(obs), sum(1 for r in obs if r["identified"]),
         len(fresh_rollups), len(fresh_failing),
-        sum(1 for r in fresh_failing if r["i"]),
+        dict(Counter(r["a"] for r in fresh_failing)),
         dict(Counter(r["hardware"] for r in obs)),
     )
 
@@ -1518,7 +1635,7 @@ def main() -> int:
             "collected_to": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "requested_days": days,
             "exhaustive": True,
-            "attempt_policy": "latest_attempt_per_step",
+            "attempt_policy": ATTEMPT_POLICY,
             "terminal_time_policy": TERMINAL_TIME_POLICY,
             "complete_window": query_from <= now - timedelta(days=MAX_WINDOW_DAYS),
         },

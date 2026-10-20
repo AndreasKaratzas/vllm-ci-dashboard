@@ -68,6 +68,7 @@ CI = VLLM / "ci"
 
 AMD_FAILURE_STATES = {"failed", "timed_out", "broken", "soft_fail"}
 AMD_WAITING_STATES = {"running", "scheduled", "assigned"}
+AGENT_ATTRIBUTIONS = ("node", "build", "test", "unknown")
 OPERATIONS_SOURCE_MAX_AGE_HOURS = 6
 OPERATIONS_FRESH_SOURCE_KEYS = frozenset({
     "analytics",
@@ -4338,7 +4339,7 @@ class DashboardAudit:
         )
         if scope.get("basis") != expected_basis:
             invalid.append("basis")
-        if scope.get("attempt_policy") != "latest_attempt_per_step":
+        if scope.get("attempt_policy") != "every_executed_attempt":
             invalid.append("attempt_policy")
         if scope.get("terminal_time_policy") != "finished_at_or_terminal_build_bound_for_canceled":
             invalid.append("terminal_time_policy")
@@ -4504,16 +4505,18 @@ class DashboardAudit:
                 f"{len(bad_state)} failing runs have a non-failure state, e.g. {bad_state[:3]}",
                 relpath,
             )
-        # The signal toggle needs an infra-suspect flag (1/0) on every failing run.
+        # Every failing run carries an attribution; the node-suspect flag (i)
+        # is exactly "attributed to the node or unexplained".
         bad_flag = [
-            _mapping(run).get("i")
+            {key: _mapping(run).get(key) for key in ("i", "a")}
             for run in failing
-            if _mapping(run).get("i") not in (0, 1)
+            if _mapping(run).get("a") not in AGENT_ATTRIBUTIONS
+            or _mapping(run).get("i") != int(_mapping(run).get("a") in ("node", "unknown"))
         ]
         if bad_flag:
             self.error(
                 "operations-agent-health-infra-flag",
-                f"{len(bad_flag)} failing runs have a bad infra-suspect flag (i), e.g. {bad_flag[:3]}",
+                f"{len(bad_flag)} failing runs have a bad attribution or node-suspect flag, e.g. {bad_flag[:3]}",
                 relpath,
             )
 
@@ -4528,7 +4531,8 @@ class DashboardAudit:
                     not row.get("d")
                     or not row.get("nd")
                     or row.get("s") not in ("hard", "soft")
-                    or row.get("i") not in (0, 1)
+                    or row.get("a") not in AGENT_ATTRIBUTIONS
+                    or row.get("i") != int(row.get("a") in ("node", "unknown"))
                     or row.get("ng") not in (0, 1)
                     or row.get("bc") not in (0, 1)
                     or not _is_nonnegative_int(count)

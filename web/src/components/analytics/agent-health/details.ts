@@ -3,6 +3,8 @@ import type { Detail } from '@/components/evidence/detail'
 import { link, mono, text, type CellSpec, type ColumnSpec } from '@/components/table/columns'
 import {
   AMD_AGENT_HEALTH_ASSET,
+  ATTRIBUTION_LABEL,
+  ATTRIBUTION_REASON,
   agentCells,
   agentCofailLabel,
   agentLoadBy,
@@ -12,6 +14,7 @@ import {
   signalColumnLabel,
   signalNoun,
   signalTerm,
+  type AgentAttribution,
   type AgentDay,
   type AgentLoad,
   type AgentModel,
@@ -103,8 +106,9 @@ export function runDetail(run: AgentRun): Detail {
       { label: 'State', value: stateLabel(run.state) },
       { label: 'Duration', value: duration(minutes(run)) },
       { label: 'Build', value: `#${value(run.build_number)}` },
-      { label: 'Infra-suspect', value: run.infra_suspect ? 'Yes' : 'No' },
+      { label: 'Attributed to', value: ATTRIBUTION_LABEL[run.attribution], meta: `${run.confidence} confidence` },
     ],
+    description: ATTRIBUTION_REASON[run.reason] ?? undefined,
     fields: [
       { label: 'Physical node', value: run.node_raw, mono: true },
       { label: 'GPU', value: run.hardware },
@@ -113,6 +117,7 @@ export function runDetail(run: AgentRun): Detail {
       { label: 'Started', value: shortDate(run.started_at) },
       { label: 'Nightly build', value: run.nightly ? 'Yes' : 'No' },
       { label: 'Build canceled', value: run.build_canceled ? 'Yes' : 'No' },
+      { label: 'Superseded by a retry', value: run.retried ? 'Yes' : 'No' },
     ],
     sources: run.url ? [{ label: 'Buildkite log', url: run.url }] : SOURCES,
     empty: run.url ? undefined : 'The exact Buildkite log is unavailable for this run.',
@@ -337,11 +342,58 @@ export function loadDetail(kind: 'queue' | 'group', load: AgentLoad, options: Ag
   }
 }
 
+/** The retained failures one attribution explains: why, on which nodes, and the runs. */
+export function attributionDetail(
+  attribution: AgentAttribution,
+  runs: AgentRun[],
+  options: AgentOptions,
+  node: (nodeRaw: string) => Detail | undefined,
+): Detail {
+  const own = runs.filter((run) => run.attribution === attribution)
+  const reasons = agentLoadBy(own, (run) => run.reason)
+  const nodes = agentLoadBy(own, (run) => run.node_raw)
+  const hardware = new Map(own.map((run) => [run.node_raw, run.hardware]))
+  return {
+    id: `agent-attribution:${attribution}`,
+    title: `${ATTRIBUTION_LABEL[attribution]} failures`,
+    subtitle: `Retained failing attempts in ${options.windowId} explained as ${ATTRIBUTION_LABEL[attribution].toLowerCase()}`,
+    stats: [
+      { label: 'Failures', value: integer(own.length) },
+      { label: 'Nodes', value: integer(nodes.length) },
+      { label: 'Test groups', value: integer(new Set(own.map((run) => run.group)).size) },
+      { label: 'Superseded by a retry', value: integer(own.filter((run) => run.retried).length) },
+    ],
+    sources: SOURCES,
+    tables: [
+      {
+        title: 'Why',
+        columns: [
+          { id: 'reason', label: 'Rule', value: (row: AgentLoad) => row.key, cell: (row: AgentLoad) => text(ATTRIBUTION_REASON[row.key] ?? row.key), hideable: false },
+          { id: 'failures', label: 'Failures', value: (row: AgentLoad) => row.failures, numeric: true },
+        ],
+        rows: reasons,
+        pageSize: false,
+      },
+      {
+        title: 'Nodes',
+        meta: plural(nodes.length, 'node'),
+        columns: loadColumns('node', 'Physical node', nodes, (row) => nodeCell(row.key, hardware.get(row.key) ?? '')),
+        rows: nodes,
+        pageSize: 10,
+        onRowClick: (row: AgentLoad) => node(row.key),
+      },
+      { title: 'Retained failing runs', columns: runColumns(true), rows: newestFirst(own), pageSize: 25 },
+    ],
+    empty: own.length ? undefined : `No retained failure in ${options.windowId} is explained this way.`,
+    width: 'xl',
+  }
+}
+
 /** Nodes with at least one failure matching the signal, each drilling into its node sheet. */
 export function failingNodesDetail(options: AgentOptions, view: AgentView, signalText: (agent: AgentRow) => string, node: (agent: AgentRow) => Detail): Detail {
-  const rows = view.agents.filter((agent) => agent.identified && agent.infra_suspect > 0).sort((a, b) => b.infra_suspect - a.infra_suspect)
+  const rows = view.agents.filter((agent) => agent.identified && agent.signal_failures > 0).sort((a, b) => b.signal_failures - a.signal_failures)
   const label = options.signal === 'all' ? 'Test group failures' : signalColumnLabel(options.signal)
-  const max = Math.max(1, ...rows.map((agent) => agent.infra_suspect))
+  const max = Math.max(1, ...rows.map((agent) => agent.signal_failures))
   return {
     id: 'agent-failing-nodes',
     title: 'Nodes with failures',
@@ -354,8 +406,8 @@ export function failingNodesDetail(options: AgentOptions, view: AgentView, signa
           {
             id: 'signal',
             label,
-            value: (agent: AgentRow) => agent.infra_suspect,
-            cell: (agent: AgentRow) => ({ ...countBar(agent.infra_suspect, max), text: signalText(agent) }),
+            value: (agent: AgentRow) => agent.signal_failures,
+            cell: (agent: AgentRow) => ({ ...countBar(agent.signal_failures, max), text: signalText(agent) }),
             numeric: true,
             class: WRAP_HEADER,
           },

@@ -61,7 +61,7 @@ function classicDom(health: Rec, sel: Selection) {
   })
   const host = document.createElement('div')
   document.body.append(host)
-  classic.renderAmdAgentHealth!(host, health)
+  classic.renderAmdAgentHealth!(host, forClassic(health))
   const input = host.querySelector('.ops-agent-search') as HTMLInputElement | null
   if (sel.search && input) {
     input.value = sel.search
@@ -77,10 +77,38 @@ async function settle() {
 /** Table rows in one canonical order: the page sorts its own table, so only the row contents are compared. */
 const byContent = (rows: (string | null)[][]) => rows.slice().sort((a, b) => (a.join('|') < b.join('|') ? -1 : a.join('|') > b.join('|') ? 1 : 0))
 
+/**
+ * The classic renderer predates failure attribution: it reads the retired attempt policy and calls
+ * the node signal "infra-suspect" with the old rule's wording. These adapters keep every count,
+ * row, and event comparable; only the renamed signal and its rewritten captions
+ * (fixtures/agent_signal_renames.json, shared with the browser specs) differ.
+ */
+function forClassic(health: Rec): Rec {
+  const copy = structuredClone(health)
+  const scope = copy.retention?.pipeline_scope
+  if (scope?.attempt_policy === 'every_executed_attempt') scope.attempt_policy = 'latest_attempt_per_step'
+  return copy
+}
+const CLASSIC_WORDING = readFixture<[string, string][]>('agent_signal_renames.json')
+function classicWording<T>(value: T): T {
+  if (typeof value === 'string') return CLASSIC_WORDING.reduce((text, [from, to]) => text.split(from).join(to), value as string) as T
+  if (Array.isArray(value)) return value.map(classicWording) as T
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, classicWording(v)])) as T
+  return value
+}
+/** Classic-only static notes: the page introduction and the retired infra-suspect criteria. */
+const CLASSIC_STATIC_NOTE = /^[^|]*(\|AMD physical CI main agent health\.|ops-agent-criteria\|)/
+
 function scrape(host: HTMLElement) {
+  return classicWording(scrapeClassic(host))
+}
+
+function scrapeClassic(host: HTMLElement) {
   const tableRows = [...host.querySelectorAll('.ops-agent-table tbody tr')]
   const result = {
-    notes: [...host.querySelectorAll(':scope > .ops-evidence-note, :scope > div > .ops-evidence-note')].map((n) => `${n.className}|${n.textContent}`),
+    notes: [...host.querySelectorAll(':scope > .ops-evidence-note, :scope > div > .ops-evidence-note')]
+      .map((n) => `${n.className}|${n.textContent}`)
+      .filter((note) => !CLASSIC_STATIC_NOTE.test(note)),
     criteriaHidden: (host.querySelector('.ops-agent-criteria') as HTMLElement | null)?.hidden ?? null,
     kpis: [...host.querySelectorAll('.ops-status-item')].map(
       (k) => `${text(k.querySelector('.ops-stat-label'))}|${text(k.querySelector('.ops-stat-value'))}|${text(k.querySelector('.ops-stat-meta'))}|${k.className}`,
@@ -122,21 +150,9 @@ function v2Scrape(health: Rec, sel: Selection, state: { eventNodeFilter: string;
     (sel.search ?? '').trim(),
   )
   const view = v2.computeAgentView(model, options)
-  const notes = [
-    'ops-evidence-note info|AMD physical CI main agent health. Terminal runs from CI main builds created in the selected UTC window on AMD MI GPU hardware are attributed to the physical node from its Buildkite agent tag. The timeline and co-failure clustering use the selected Failure signal: "infra-suspect" (the default — anomalous, node-attributable failures), all hard failures, or all failures. Toggle the signal, nightly subset, cancelled-job handling, and co-failure window; click any node or event to load its timeline.',
-  ]
+  const notes: string[] = []
   if (model.completionScopeNote) notes.push('ops-evidence-note info ops-agent-completion-scope|' + model.completionScopeNote)
   if (model.retentionNote) notes.push('ops-evidence-note soft|' + model.retentionNote.title + model.retentionNote.body)
-  const c = model.criteria
-  notes.push(
-    'ops-evidence-note neutral ops-agent-criteria|What counts as an anomalous (infra-suspect) failure? When the Failure signal is set to Infra-suspect (the default), a soft or hard failure is treated as node-attributable when its exact test group, on that same ' +
-      c.dayLabel +
-      ', both: passed at least ' +
-      c.pct +
-      ' of its gradable runs (needs ≥ ' +
-      c.samples +
-      ' graded samples), so the group demonstrably works; andpassed on at least one other physical node that day, so the failure is isolated to this box rather than a broad code break.Groups that fail broadly (real code bugs) and failures inside auto-cancelled / superseded builds are filtered out by default, isolating the signal that points at a specific machine.',
-  )
   const empty = v2.agentEmptyText(model, view)
   if (empty) notes.push('ops-evidence-note soft|' + empty)
   const rows = view.agents
@@ -228,8 +244,8 @@ async function expectSame(health: Rec, sel: Selection) {
         evidenceButton.click()
         const dialog = document.querySelector('[role="dialog"]')!
         const drawer = v2.nodeEvidence(agent, options)
-        parity('nodeEvidenceTitle', drawer.title, text(dialog.querySelector('.ops-overlay-title')))
-        parity('nodeEvidenceSubtitle', drawer.subtitle, text(dialog.querySelector('.ops-overlay-subtitle')))
+        parity('nodeEvidenceTitle', drawer.title, classicWording(text(dialog.querySelector('.ops-overlay-title'))))
+        parity('nodeEvidenceSubtitle', drawer.subtitle, classicWording(text(dialog.querySelector('.ops-overlay-subtitle'))))
         const classicRows = [...dialog.querySelectorAll('tbody tr')].map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent).join('|'))
         parity(
           'nodeEvidenceRows',
@@ -277,10 +293,10 @@ describe('CI agent health domain matches the classic renderer', () => {
   }, 60_000)
 
   it('agrees on the classic helpers for the real snapshot', () => {
-    parity('agentSourceCoverage', v2.agentSourceCoverage(fixture), classic.agentSourceCoverage!(fixture))
+    parity('agentSourceCoverage', v2.agentSourceCoverage(fixture), classic.agentSourceCoverage!(forClassic(fixture)))
     parity('agentPipelineScopeLabel', v2.agentPipelineScopeLabel(fixture), classic.agentPipelineScopeLabel!(fixture))
     for (const day of [undefined, '2026-10-01', '2026-10-12', '2026-10-13', '2026-10-19', '2026-10-20', 'bad']) {
-      parity('agentSourceHistoryComplete', v2.agentSourceHistoryComplete(fixture, day), classic.agentSourceHistoryComplete!(fixture, day))
+      parity('agentSourceHistoryComplete', v2.agentSourceHistoryComplete(fixture, day), classic.agentSourceHistoryComplete!(forClassic(fixture), day))
     }
     for (const signal of ['infra', 'hard', 'all', 'x']) {
       for (const startDay of ['', '2026-10-12', '2026-10-18']) {
@@ -370,8 +386,8 @@ describe('CI agent health domain matches the classic renderer', () => {
       (h) => (h.node_days[0].h = 'H100'),
       (h) => (h.failing_runs[0].q = 'gpu_1'),
       (h) => (h.hardware_types = ['MI300', 'H100']),
-      (h) => (h.infra_suspect_min_pass_rate = 0.75),
-      (h) => (h.infra_suspect_min_samples = 0),
+      (h) => (h.attribution_rules = { build_wide_min_failing_nodes: 7, node_repeat_min_groups: 0 }),
+      (h) => h.failing_runs.forEach((row: Rec, i: number) => (row.a = [...v2.AGENT_ATTRIBUTIONS, 'bogus'][i % 6])),
       (h) => (h.cofailure_window_options = [60, 240]),
       (h) => (h.window_options = [1, 7]),
       (h) => h.node_days.forEach((row: Rec) => (row.a = row.a.slice(0, 3))),
@@ -424,7 +440,7 @@ describe('CI agent health domain matches the classic renderer', () => {
       version: 3, branch: 'main', basis: 'terminal_jobs_by_build_created_at', requested_days: 7,
       collected_from: '2026-10-01T00:00:00Z', collected_to: '2026-10-08T20:00:00Z', exhaustive: true,
       discovery_legs: { created: true }, eligible_completion: 'current_ci_build_creation_cohort_with_provable_completion',
-      day_basis: 'build_created_at_utc', attempt_policy: 'latest_attempt_per_step',
+      day_basis: 'build_created_at_utc', attempt_policy: 'every_executed_attempt',
       terminal_time_policy: 'finished_at_or_terminal_build_bound_for_canceled', complete_window: false,
     }
     Object.assign(base, {

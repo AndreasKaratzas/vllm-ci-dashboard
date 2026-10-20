@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { dayDetail, eventDetail, loadDetail, nodeDayDetail, nodeDetail, nodeOfDetail } from '@/components/analytics/agent-health/details'
+import { attributionDetail, dayDetail, eventDetail, loadDetail, nodeDayDetail, nodeDetail, nodeOfDetail, runDetail } from '@/components/analytics/agent-health/details'
 import NodeDays from '@/components/analytics/agent-health/NodeDays.vue'
 import NodeTimeline from '@/components/analytics/agent-health/NodeTimeline.vue'
-import { agentDailySeries, agentHealthModel, agentLoadBy, agentNodeDayMatrix, agentOptions, computeAgentView, type AgentRouteState } from '@/domain/agentHealth'
+import { agentDailySeries, agentHealthModel, agentLoadBy, agentNodeDayMatrix, agentOptions, agentScopedFailures, computeAgentView, type AgentRouteState } from '@/domain/agentHealth'
 import type { Rec } from '@/domain/format'
 import { pinClock, readFixture } from './support/fixtures'
 
@@ -70,5 +70,28 @@ describe('agent-health sheets', () => {
     expect(loadDetail('group', group!, options, () => undefined).tables!.map((t) => t.title)).toEqual(['Nodes', 'Retained failing runs'])
     // agent_node follows node sheets only, whichever list opened them.
     expect([detail, detail.tables![0]!.onRowClick!(detail.tables![0]!.rows[0]) as typeof detail].map(nodeOfDetail)).toEqual(['', opened[0]])
+  })
+
+  it('explain one attribution: its rules, its nodes and its runs, and say why a run is attributed', () => {
+    const { model, options } = page({ window: '14d', signal: 'all' })
+    const runs = agentScopedFailures(model, options)
+    const opened: string[] = []
+    const detail = attributionDetail('test', runs, options, (node) => {
+      opened.push(node)
+      return undefined
+    })
+    const own = runs.filter((run) => run.attribution === 'test')
+    expect(own.length).toBeGreaterThan(0)
+    expect(detail.title).toBe('Test or code failures')
+    expect(detail.stats![0]).toEqual({ label: 'Failures', value: String(own.length) })
+    const [why, nodes, list] = detail.tables!
+    expect(why!.rows.reduce((total: number, row) => total + (row as { failures: number }).failures, 0)).toBe(own.length)
+    expect(list!.rows).toHaveLength(own.length)
+    nodes!.onRowClick!(nodes!.rows[0])
+    expect(opened).toHaveLength(1)
+    expect(attributionDetail('infra', [], options, () => undefined).empty).toMatch(/^No retained failure in 14d/)
+    const run = runDetail(own[0]!)
+    expect(run.stats!.find((s) => s.label === 'Attributed to')).toMatchObject({ value: 'Test or code' })
+    expect(run.description).toBe('The test group also failed on other nodes within a day.')
   })
 })

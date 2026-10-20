@@ -116,7 +116,7 @@ QUEUE_JOB_PIPELINES = frozenset({"ci", "vllm-omni-amd-ci"})
 # Per-physical-agent (node) AMD GPU health is now collected and aggregated by
 # scripts/vllm/collect_agent_health.py (current ci/main cohort) and embedded
 # verbatim from agent_health.json by _amd_agent_health below. See that collector
-# for the rollup / infra-suspect model and the frontend for client-side
+# for the rollup / failure-attribution model and the frontend for client-side
 # aggregation + co-failure clustering.
 FAILED_STATES = {"failed", "timed_out", "broken", "canceled"}
 SOFT_FAILED_STATES = {"soft_fail", "soft_failed"}
@@ -3550,9 +3550,9 @@ def _amd_agent_health(data_dir: Path) -> dict:
     """Load the pre-aggregated AMD agent-health block for the CI-agent-health view.
 
     All heavy lifting — walking the current ci/main build-creation cohort on
-    AMD MI hardware, computing per-node/day reliability rollups, and isolating
-    infra-suspect failures (a failure whose test group otherwise passes that day,
-    on another node) — is done by ``scripts/vllm/collect_agent_health.py`` and
+    AMD MI hardware, computing per-node/day reliability rollups, and attributing
+    every failing attempt to the node, the build, the test, or an unknown
+    cause — is done by ``scripts/vllm/collect_agent_health.py`` and
     persisted to ``agent_health.json``. This snapshot simply embeds that payload;
     the frontend aggregates the reliability table and clusters co-failure events
     client-side, reactive to the window / GPU / node / co-failure-window /
@@ -3626,6 +3626,7 @@ def _agent_health_failure_accounting(failing_runs: list[dict]) -> list[dict]:
             str(row.get("h") or ""),
             str(row.get("s") or ""),
             bool(row.get("i")),
+            str(row.get("a") or "unknown"),
             bool(row.get("ng")),
             bool(row.get("bc")),
         )] += 1
@@ -3636,12 +3637,13 @@ def _agent_health_failure_accounting(failing_runs: list[dict]) -> list[dict]:
             "h": hardware,
             "s": state,
             "i": int(infra),
+            "a": attribution,
             "ng": nightly,
             "bc": cancelled,
             "c": count,
         }
         for (
-            day, node, hardware, state, infra, nightly, cancelled,
+            day, node, hardware, state, infra, attribution, nightly, cancelled,
         ), count in sorted(counts.items())
     ]
 
@@ -3660,6 +3662,7 @@ def _agent_health_failure_totals(accounting: list[dict]) -> list[dict]:
             str(row.get("h") or ""),
             str(row.get("s") or ""),
             bool(row.get("i")),
+            str(row.get("a") or "unknown"),
             bool(row.get("ng")),
             bool(row.get("bc")),
         )] += count
@@ -3669,11 +3672,12 @@ def _agent_health_failure_totals(accounting: list[dict]) -> list[dict]:
             "h": hardware,
             "s": state,
             "i": int(infra),
+            "a": attribution,
             "ng": nightly,
             "bc": cancelled,
             "c": count,
         }
-        for (day, hardware, state, infra, nightly, cancelled), count
+        for (day, hardware, state, infra, attribution, nightly, cancelled), count
         in sorted(counts.items())
     ]
 

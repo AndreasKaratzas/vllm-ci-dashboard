@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Open one state-owned issue for concentrated AMD CI agent-health incidents.
+"""Open one state-owned issue for AMD CI nodes that are failing jobs themselves.
 
-The watcher reuses the CI Analytics infra-suspect signal: a failing group that
-mostly passes that day and passes on another physical node. It excludes canceled
-builds and unidentified nodes, then applies the dashboard's three-hour
-co-failure clustering over a six-hour live window. An alert needs at least three
-logical failures across at least two distinct test groups on one node.
+The collector attributes every failing attempt to the node, the build, the test,
+shared infrastructure, or an unknown cause (collect_agent_health._attribute_failures).
+Like the dashboard's "Hurting" verdict, the watcher alerts on identified nodes
+with at least two logical failures attributed to the node itself within the
+collector's three-day node-repeat window, excluding canceled builds.
 """
 
 from __future__ import annotations
@@ -47,16 +47,15 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 AGENT_HEALTH = ROOT / "data" / "vllm" / "ci" / "agent_health.json"
 STATE = ROOT / "data" / "vllm" / "ci" / "open_agent_health_issues.json"
 
-LOOKBACK = timedelta(hours=6)
-COFAILURE_WINDOW = timedelta(hours=3)
+# collect_agent_health.NODE_REPEAT_WINDOW: node evidence is corroborated over three days.
+LOOKBACK = timedelta(hours=72)
 MAX_DATA_AGE = timedelta(hours=3)
-MIN_LOGICAL_FAILURES = 3
-MIN_DISTINCT_GROUPS = 2
+MIN_NODE_ATTRIBUTED = 2
 MAX_ISSUE_EVENTS = 12
 MAX_RUNS_PER_EVENT = 12
 OWNERSHIP_MARKER = "<!-- vllm-ci-dashboard:managed-alert:agent-health:v1 -->"
 LABEL_SPECS = [
-    ("ci-agent-health", "b60205", "Concentrated infra-suspect failures on an AMD CI node"),
+    ("ci-agent-health", "b60205", "Failures attributed to an AMD CI node"),
     ("automated", "6f42c1", "Managed by dashboard automation"),
     ("workstream:infra", "0e8a16", "AMD CI infrastructure and capacity"),
 ]
@@ -160,7 +159,7 @@ def _current_main_scope(payload: dict) -> bool:
         and set(scope["discovery_legs"]) == {"created"}
         and scope["discovery_legs"]["created"] is True
         and scope.get("exhaustive") is True
-        and scope.get("attempt_policy") == "latest_attempt_per_step"
+        and scope.get("attempt_policy") == "every_executed_attempt"
         and scope.get("terminal_time_policy") == "finished_at_or_terminal_build_bound_for_canceled"
         and type(days) is int and 1 <= days <= 60
         and scope.get("collected_to") == payload.get("generated_at")
@@ -185,7 +184,8 @@ def _job_url(run: dict) -> str:
     return f"{base}/steps/canvas?jid={job_id}&tab=output" if job_id else base
 
 
-def _normalized_runs(payload: dict) -> list[dict]:
+def _window_runs(payload: dict) -> list[dict]:
+    """Every scoped failing attempt of the live window, whatever its attribution."""
     end = _parse_ts(payload.get("generated_at"))
     if end is None:
         return []
@@ -202,7 +202,6 @@ def _normalized_runs(payload: dict) -> list[dict]:
             raw.get("p") != "ci"
             or not amd_gpu_hardware(str(raw.get("q") or ""))
             or raw.get("ng") is True
-            or raw.get("i") != 1
             or raw.get("bc") == 1
             or not node
             or node == "(unidentified)"
@@ -221,6 +220,10 @@ def _normalized_runs(payload: dict) -> list[dict]:
             "state": state,
             "build_number": raw.get("b"),
             "job_id": str(raw.get("j") or ""),
+            "suspect": raw.get("i") == 1,
+            "attribution": str(raw.get("a") or "unknown"),
+            "reason": str(raw.get("ar") or "isolated"),
+            "retried": raw.get("rt") == 1,
             "started_at": started,
             "finished_at": finished or started,
             "url": _job_url(raw),
@@ -228,63 +231,46 @@ def _normalized_runs(payload: dict) -> list[dict]:
     return runs
 
 
-def _event_from_cluster(node: str, cluster: list[dict]) -> dict | None:
+def _node_event(node: str, runs: list[dict]) -> dict | None:
     # Match the UI: retries of one pipeline/build/group are one logical failure,
-    # and the latest attempt in the cluster is retained.
+    # and the latest attempt is retained.
     logical: dict[tuple[str, Any, str], dict] = {}
-    for run in cluster:
+    for run in runs:
         key = (run["pipeline"], run["build_number"], run["group"])
         current = logical.get(key)
         if current is None or run["started_at"] > current["started_at"]:
             logical[key] = run
     runs = sorted(logical.values(), key=lambda row: row["started_at"])
-    groups = {run["group"] for run in runs}
-    if len(runs) < MIN_LOGICAL_FAILURES or len(groups) < MIN_DISTINCT_GROUPS:
+    node_attributed = sum(run["attribution"] == "node" for run in runs)
+    if node_attributed < MIN_NODE_ATTRIBUTED:
         return None
-    starts = [run["started_at"] for run in runs]
-    ends = [run["finished_at"] for run in runs]
     hardware = next((run["hardware"] for run in runs if run["hardware"]), "unknown")
     pipelines = sorted({run["pipeline"] for run in runs if run["pipeline"]})
     return {
         "node": node,
         "hardware": hardware,
-        "started_at": min(starts),
-        "finished_at": max(ends),
+        "started_at": min(run["started_at"] for run in runs),
+        "finished_at": max(run["finished_at"] for run in runs),
         "failure_count": len(runs),
-        "group_count": len(groups),
+        "node_attributed": node_attributed,
+        "group_count": len({run["group"] for run in runs}),
         "hard": sum(run["state"] == "hard" for run in runs),
         "soft": sum(run["state"] == "soft" for run in runs),
         "pipelines": pipelines,
-        "cross_pipeline": len(pipelines) > 1,
         "runs": runs,
     }
 
 
 def find_alert_events(payload: dict) -> list[dict]:
+    """One event per node with node-attributed failures, its unexplained ones alongside."""
     by_node: dict[str, list[dict]] = defaultdict(list)
-    for run in _normalized_runs(payload):
-        by_node[run["node"]].append(run)
-
-    events = []
-    for node, runs in by_node.items():
-        runs.sort(key=lambda row: row["started_at"])
-        cluster: list[dict] = []
-        cluster_end: datetime | None = None
-        for run in runs:
-            if cluster_end is not None and run["started_at"] - cluster_end > COFAILURE_WINDOW:
-                event = _event_from_cluster(node, cluster)
-                if event:
-                    events.append(event)
-                cluster = []
-                cluster_end = None
-            cluster.append(run)
-            cluster_end = max(cluster_end, run["finished_at"]) if cluster_end else run["finished_at"]
-        event = _event_from_cluster(node, cluster)
-        if event:
-            events.append(event)
-
+    for run in _window_runs(payload):
+        if run["suspect"]:
+            by_node[run["node"]].append(run)
+    events = [event for node, runs in by_node.items() if (event := _node_event(node, runs))]
     events.sort(
         key=lambda event: (
+            event["node_attributed"],
             event["hard"],
             event["failure_count"],
             event["group_count"],
@@ -318,7 +304,7 @@ def _fingerprint(events: list[dict]) -> str:
 def _dashboard_url(node: str = "") -> str:
     params = {
         "ops_analytics_view": "agent-health",
-        "ops_agent_window": "1d",
+        "ops_agent_window": "3d",
         "ops_agent_signal": "infra",
         "ops_agent_excl_cancel": "1",
         "ops_agent_cofail": "180",
@@ -334,9 +320,27 @@ def _md(value: Any) -> str:
 
 def _issue_title(events: list[dict]) -> str:
     nodes = {event["node"] for event in events}
+    return f"AMD CI agent health: {len(nodes)} nodes failing jobs themselves"
+
+
+REASON_TEXT = {
+    "agent_lost": "agent lost mid-job",
+    "node_repeats": "different groups fail only on this node",
+    "isolated": "unexplained one-off",
+}
+
+
+def _attribution_summary(payload: dict) -> str:
+    """How the window's other failures were explained, so the alert reads in context."""
+    counts: dict[str, int] = defaultdict(int)
+    for run in _window_runs(payload):
+        counts[run["attribution"]] += 1
+    total = sum(counts.values())
     return (
-        f"AMD CI agent health: {len(nodes)} nodes with concentrated "
-        f"infra-suspect failures"
+        f"Of {total} failing attempts in the window, {counts['node']} are attributed to a node, "
+        f"{counts['build']} to build-wide breakage, {counts['test']} to their test group (it also fails "
+        f"on other nodes or passes nowhere else), {counts['infra']} to shared infrastructure, and "
+        f"{counts['unknown']} are unexplained one-offs."
     )
 
 
@@ -347,31 +351,33 @@ def _issue_body(events: list[dict], payload: dict, run_url: str, owner: str) -> 
     lines = [
         "## AMD CI agent-health alert",
         "",
-        f"**{len(nodes)} physical nodes have {len(events)} qualifying events containing {failure_count} logical failures.**",
+        f"**{len(nodes)} physical nodes have {failure_count} node-suspect logical failures.**",
+        "",
+        _attribution_summary(payload),
         "",
         "Signal rules:",
         "",
-        "- Live window: six hours ending at the collector timestamp.",
-        "- Signal: infra-suspect failures from CI Agent Health only.",
-        "- Scope: identified AMD MI GPU nodes from terminal ci/main executions in the published UTC build-creation cohort; canceled builds are excluded.",
-        "- Clustering: consecutive failures on one node with gaps no larger than three hours.",
-        "- Retry handling: one pipeline/build/test-group chain counts once.",
-        "- Alert threshold: at least three logical failures across at least two distinct groups in a cluster.",
+        "- Live window: the three days ending at the collector timestamp.",
+        "- Attribution: a failure is explained elsewhere when it is build-wide (failing steps on five or more nodes in one build), shared infrastructure (agents lost on three or more nodes within 30 minutes, or containers that never started), or the test's (its retry or its test group failed on another node within a day, or the group passed on no other node).",
+        "- Node evidence: the agent was lost mid-job on this node alone, or unexplained failures hit at least two test groups on the node within three days.",
+        "- Scope: identified AMD MI GPU nodes from every terminal ci/main attempt, including attempts superseded by a retry, in the published UTC build-creation cohort; canceled builds are excluded.",
+        "- Retry handling: one pipeline/build/test-group chain counts once per node.",
+        "- Alert threshold: at least two logical failures attributed to the node; its unexplained failures are listed alongside.",
         "",
         f"Collected at **{generated_at}**. [Open CI agent health]({_dashboard_url()}).",
         "",
-        "| node | hardware | window | failures / groups | hard / soft | pipelines |",
+        "| node | hardware | window | node-attributed / failures / groups | hard / soft | pipelines |",
         "|---|---|---|---:|---:|---|",
     ]
     for event in events[:MAX_ISSUE_EVENTS]:
         node_url = _dashboard_url(event["node"])
         window = (
-            f"{event['started_at'].strftime('%H:%M')} - "
-            f"{event['finished_at'].strftime('%H:%M')} UTC"
+            f"{event['started_at'].strftime('%m-%d %H:%M')} - "
+            f"{event['finished_at'].strftime('%m-%d %H:%M')} UTC"
         )
         lines.append(
             f"| [{_md(event['node'])}]({node_url}) | {_md(event['hardware'])} "
-            f"| {window} | {event['failure_count']} / {event['group_count']} "
+            f"| {window} | {event['node_attributed']} / {event['failure_count']} / {event['group_count']} "
             f"| {event['hard']} / {event['soft']} | {_md(', '.join(event['pipelines']))} |"
         )
 
@@ -385,15 +391,17 @@ def _issue_body(events: list[dict], payload: dict, run_url: str, owner: str) -> 
             build = run.get("build_number") or "?"
             label = f"{run['pipeline']} #{build}: {_md(run['group'])}"
             evidence = f"[{label}]({run['url']})" if run.get("url") else label
+            cause = REASON_TEXT.get(run["reason"], run["reason"])
+            retry = ", superseded by a retry" if run["retried"] else ""
             lines.append(
-                f"- {evidence} - {run['state']}, {_md(run['queue'])}, "
-                f"{run['started_at'].strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                f"- {evidence} - {run['state']}, {run['attribution']} ({cause}{retry}), "
+                f"{_md(run['queue'])}, {run['started_at'].strftime('%Y-%m-%d %H:%M:%S UTC')}"
             )
         if len(event["runs"]) > MAX_RUNS_PER_EVENT:
             lines.append(f"- {len(event['runs']) - MAX_RUNS_PER_EVENT} additional logical failures retained in state")
 
     if len(events) > MAX_ISSUE_EVENTS:
-        lines.extend(["", f"{len(events) - MAX_ISSUE_EVENTS} additional qualifying events are retained in watcher state."])
+        lines.extend(["", f"{len(events) - MAX_ISSUE_EVENTS} additional nodes are retained in watcher state."])
     lines.extend([
         "",
         f"GitHub assignee: {owner}.",
@@ -440,8 +448,8 @@ def run() -> int:
         body=_issue_body(events, payload, run_url, repo_owner(repo)),
         ownership_marker=OWNERSHIP_MARKER,
         recovery_body=(
-            "No identified AMD node currently meets the six-hour concentrated "
-            "infra-suspect failure rule. Closing this tracked umbrella issue.\n\n"
+            "No identified AMD node currently has two failures attributed to it "
+            "in the three-day window. Closing this tracked umbrella issue.\n\n"
             f"*{run_url}*"
         ),
         observed_at=observed_at,
@@ -452,9 +460,8 @@ def run() -> int:
     )
     _write_state(reconciled)
     log.info(
-        "Agent-health watcher evaluated %d qualifying events across %d nodes; issue=%s suppressed=%s",
+        "Agent-health watcher found %d nodes failing jobs themselves; issue=%s suppressed=%s",
         len(events),
-        len({event["node"] for event in events}),
         (reconciled.get("issue") or {}).get("number"),
         reconciled.get("suppressed"),
     )

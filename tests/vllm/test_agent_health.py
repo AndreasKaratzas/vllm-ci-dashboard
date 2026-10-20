@@ -4,7 +4,7 @@ Covers:
 - ``log_parser.extract_node`` / ``node_from_agent`` — physical-node extraction.
 - ``constants.amd_gpu_hardware`` — AMD GPU queue scoping.
 - ``collect_agent_health`` — all-builds observation scoping, state classification,
-  infra-suspect determination, and per-node/day rollups.
+  failure attribution, and per-node/day rollups.
 - ``build_operations_snapshot._amd_agent_health`` — pass-through of the assembled
   ``agent_health.json`` block.
 - The frontend co-failure clustering (ported to JS) via a quickjs parity check.
@@ -182,20 +182,20 @@ def test_observe_flags_superseded_build_failures():
     # Failure in a live build -> not flagged.
     row = ah._observe("amd-ci", _build(state="finished"), job, NIGHTLY_RE)
     assert row["build_canceled"] is False
-    assert ah._failing_row(dict(row, infra_suspect=True))["bc"] == 0
+    assert ah._failing_row(dict(row, node_suspect=True))["bc"] == 0
     # Same failure in a canceled/superseded build -> flagged for the toggle.
     row = ah._observe("amd-ci", _build(state="canceled"), job, NIGHTLY_RE)
     assert row["build_canceled"] is True
-    assert ah._failing_row(dict(row, infra_suspect=True))["bc"] == 1
+    assert ah._failing_row(dict(row, node_suspect=True))["bc"] == 1
 
 
-def test_failing_row_carries_infra_suspect_flag():
-    # The signal toggle relies on `i` (1=infra-suspect subset, 0=general failure).
+def test_failing_row_carries_node_suspect_flag():
+    # The signal toggle relies on `i` (1=node-suspect subset, 0=explained elsewhere).
     row = ah._observe("amd-ci", _build(state="finished"),
                       _job("j1", "G", "failed", "amd_mi300_1", "gpu9124",
                            "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"), NIGHTLY_RE)
-    assert ah._failing_row(dict(row, infra_suspect=True))["i"] == 1
-    assert ah._failing_row(dict(row, infra_suspect=False))["i"] == 0
+    assert ah._failing_row(dict(row, node_suspect=True))["i"] == 1
+    assert ah._failing_row(dict(row, node_suspect=False))["i"] == 0
     assert ah._failing_row(row)["i"] == 0  # missing flag defaults to general
 
 
@@ -213,30 +213,122 @@ def test_observe_nightly_flag_requires_main_and_pattern():
     assert row["nightly"] is False and row["is_main"] is False
 
 
-def test_mark_infra_suspect_isolates_anomalous_failures():
-    # "Healthy" group: passes on nodes A,B,C, fails once on D -> D's failure is infra-suspect.
-    obs = []
-    for i, node in enumerate(["A", "B", "C"]):
-        obs.append({"group": "G", "day": "2026-07-14", "node": node, "state": "pass"})
-    fail_d = {"group": "G", "day": "2026-07-14", "node": "D", "state": "hard"}
-    obs.append(fail_d)
-    # "Broken" group: fails everywhere -> not infra-suspect (code bug).
-    broken = [{"group": "B2", "day": "2026-07-14", "node": n, "state": "hard"} for n in ("A", "B", "C")]
-    obs.extend(broken)
-    ah._mark_infra_suspect(obs)
-    assert fail_d["infra_suspect"] is True
-    assert all(r.get("infra_suspect") is False for r in broken)
+def _attempt(job, node, group, build, state, hour, *, retry_of="", superseded=False, exit_status=1, signal_reason=None):
+    """One observation from a real job payload, started ``hour`` hours after NOW's day start."""
+    started = (NOW.replace(hour=0) + timedelta(hours=hour)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    finished = (NOW.replace(hour=0) + timedelta(hours=hour, minutes=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    payload = _job(job, group, state, "amd_mi300_1", node, started, finished)
+    payload.update(exit_status=exit_status if state != "passed" else 0, signal_reason=signal_reason)
+    if retry_of:
+        payload["retry_source"] = {"job_id": retry_of, "retry_type": "automatic"}
+    if superseded:
+        payload.update(retried=True, retried_in_job_id=f"{job}-retry")
+    return ah._observe("ci", _build(number=build), payload, None)
 
 
-def test_mark_infra_suspect_needs_pass_on_other_node():
-    # Group passes only on the SAME node that also failed -> not infra-suspect.
-    obs = [
-        {"group": "G", "day": "2026-07-14", "node": "A", "state": "pass"},
-        {"group": "G", "day": "2026-07-14", "node": "A", "state": "pass"},
-        {"group": "G", "day": "2026-07-14", "node": "A", "state": "hard"},
+def _attributed(rows):
+    ah._attribute_failures(rows)
+    return {row["job_id"]: (row["attribution"], row["confidence"], row["reason"]) for row in rows if row["state"] == "hard"}
+
+
+def _passes(group, nodes, hour=1, build=900):
+    return [_attempt(f"pass-{group}-{node}-{hour}", node, group, build, "passed", hour) for node in nodes]
+
+
+def test_observe_reads_retry_lineage_and_agent_loss():
+    row = _attempt("j2", "n1", "G", 1, "failed", 1, retry_of="j1", superseded=True, exit_status=-1)
+    assert (row["retry_of"], row["superseded"], row["agent_lost"], row["never_started"]) == ("j1", True, True, False)
+    started = _attempt("j3", "n1", "G", 1, "failed", 1, exit_status=-1, signal_reason="process_run_error")
+    assert (started["agent_lost"], started["never_started"]) == (False, True)
+    canceled = _attempt("j4", "n1", "G", 1, "failed", 1, exit_status=-1, signal_reason="cancel")
+    assert (canceled["agent_lost"], canceled["never_started"]) == (False, False)
+
+
+def test_attribution_blames_a_build_that_fails_on_five_nodes():
+    wide = [_attempt(f"w{i}", f"n{i}", f"G{i}", 1, "failed", 1) for i in range(5)]
+    narrow = [_attempt(f"x{i}", f"m{i}", f"H{i}", 2, "failed", 1) for i in range(4)]
+    rows = wide + narrow + [p for i in range(5) for p in _passes(f"G{i}", ["p"])] + [p for i in range(4) for p in _passes(f"H{i}", ["p"])]
+    verdicts = _attributed(rows)
+    assert {verdicts[f"w{i}"] for i in range(5)} == {("build", "high", "build_wide")}
+    assert {verdicts[f"x{i}"][0] for i in range(4)} == {"unknown"}
+
+
+def test_attribution_blames_the_test_when_it_fails_on_other_nodes():
+    rows = [
+        # The automatic retry failed on another node too.
+        _attempt("r1", "a", "Retry", 1, "failed", 1, superseded=True),
+        _attempt("r2", "b", "Retry", 1, "failed", 2, retry_of="r1"),
+        # The group failed on one, then two other nodes in other builds within a day.
+        _attempt("g1", "a", "Group", 2, "failed", 1),
+        _attempt("g2", "b", "Group", 3, "failed", 5),
+        _attempt("h1", "a", "Twice", 2, "failed", 1),
+        _attempt("h2", "b", "Twice", 3, "failed", 5),
+        _attempt("h3", "c", "Twice", 4, "failed", 9),
+        # A failure on another node more than a day away explains nothing.
+        _attempt("f1", "a", "Far", 2, "failed", 1),
+        _attempt("f2", "b", "Far", 9, "failed", 30),
+        # A group that passes on no other node has nothing to compare the node to.
+        _attempt("o1", "a", "Only", 2, "failed", 1),
+        *_passes("Only", ["a"]),
+        *_passes("Far", ["c"]),
+        *_passes("Far", ["c"], hour=30),
     ]
-    ah._mark_infra_suspect(obs)
-    assert obs[-1]["infra_suspect"] is False
+    verdicts = _attributed(rows)
+    assert verdicts["r1"] == verdicts["r2"] == ("test", "high", "failed_on_retry_elsewhere")
+    assert verdicts["g1"] == ("test", "medium", "group_fails_elsewhere")
+    assert verdicts["h1"] == ("test", "high", "group_fails_elsewhere")
+    assert verdicts["f1"] == verdicts["f2"] == ("unknown", "low", "isolated")
+    assert verdicts["o1"] == ("test", "medium", "group_not_passing_elsewhere")
+
+
+def test_attribution_blames_a_node_only_on_corroborated_evidence():
+    failures = [
+        # Two different groups fail only on node a within three days.
+        ("a1", "a", "G1", 1, 1), ("a2", "a", "G2", 2, 40),
+        # One flaky group failing twice on node b is not a node fault.
+        ("b1", "b", "G3", 3, 1), ("b2", "b", "G3", 4, 30),
+        # Three groups on node c are high confidence; a fourth beyond three days stays a one-off.
+        ("c1", "c", "G4", 5, 1), ("c2", "c", "G5", 6, 2), ("c3", "c", "G6", 7, 3), ("c4", "c", "G7", 8, 100),
+    ]
+    # Every group passes on another node when it fails, so no failure is explained elsewhere.
+    rows = [_attempt(job, node, group, build, "failed", hour) for job, node, group, build, hour in failures]
+    rows += [p for _job_id, _node, group, _build, hour in failures for p in _passes(group, ["p"], hour=hour)]
+    verdicts = _attributed(rows)
+    assert verdicts["a1"] == verdicts["a2"] == ("node", "medium", "node_repeats")
+    assert verdicts["b1"] == verdicts["b2"] == ("unknown", "low", "isolated")
+    assert {verdicts[f"c{i}"] for i in (1, 2, 3)} == {("node", "high", "node_repeats")}
+    assert verdicts["c4"] == ("unknown", "low", "isolated")
+    assert {row["job_id"] for row in rows if row.get("node_suspect")} == {job for job, *_ in failures}
+
+
+def test_attribution_separates_lost_agents_from_cluster_events():
+    rows = [
+        # One lost agent is the node's; a lost agent corroborates another failure on it.
+        _attempt("l1", "a", "Lost", 1, "failed", 1, exit_status=-1),
+        _attempt("l2", "a", "Other", 2, "failed", 20),
+        # Agents lost on three nodes within half an hour are a cluster event.
+        *[_attempt(f"z{i}", f"z{i}", f"Burst{i}", 3 + i, "failed", 10, exit_status=-1, signal_reason="agent_stop") for i in range(3)],
+        # Containers that never connected never ran a test.
+        _attempt("n1", "b", "Never", 9, "failed", 1, exit_status=-1, signal_reason="process_run_error"),
+        *_passes("Other", ["p"]),
+    ]
+    verdicts = _attributed(rows)
+    assert verdicts["l1"] == ("node", "medium", "agent_lost")
+    assert verdicts["l2"] == ("node", "medium", "node_repeats")
+    assert {verdicts[f"z{i}"] for i in range(3)} == {("infra", "high", "agent_loss_burst")}
+    assert verdicts["n1"] == ("infra", "medium", "job_never_started")
+    assert not any(row.get("node_suspect") for row in rows if row["job_id"] in {"z0", "z1", "z2", "n1"})
+
+
+def test_failing_row_and_accounting_carry_the_attribution():
+    row = _attempt("j1", "a", "G", 1, "failed", 1, superseded=True)
+    ah._attribute_failures([row])
+    compact = ah._failing_row(row)
+    assert {key: compact[key] for key in ("i", "a", "ac", "ar", "rt")} == {
+        "i": 0, "a": "test", "ac": "medium", "ar": "group_not_passing_elsewhere", "rt": 1,
+    }
+    accounting = ah._failure_accounting_rows([compact, {**compact, "j": "j2", "a": "node", "i": 1}])
+    assert sorted((entry["a"], entry["i"], entry["c"]) for entry in accounting) == [("node", 1, 1), ("test", 0, 1)]
 
 
 def test_rollup_rows_split_buckets():
@@ -325,6 +417,7 @@ def test_long_backfill_keeps_single_paginated_query(monkeypatch):
     assert calls == [{
         "per_page": 100,
         "exclude_pipeline": "true",
+        "include_retried_jobs": "true",
         "created_from": "2026-05-15T12:00:00+00:00",
     }]
 
@@ -430,6 +523,10 @@ def _retained_failure(day: str, index: int, *, padding: int = 0) -> dict:
         "s": "hard",
         "ng": False,
         "i": index % 2,
+        "a": "unknown" if index % 2 else "test",
+        "ac": "low" if index % 2 else "high",
+        "ar": "isolated" if index % 2 else "group_fails_elsewhere",
+        "rt": 0,
         "bc": 0,
         "b": 1000 + index,
         "j": f"job-{day}-{index}",
@@ -510,7 +607,7 @@ def _expected_job_scope():
         "exhaustive": True,
         "discovery_legs": {"created": True, "older_finished": True, "older_active": True},
         "active_build_states": ["creating", "scheduled", "running", "failing", "blocked", "canceling"],
-        "attempt_policy": "latest_attempt_per_step",
+        "attempt_policy": "every_executed_attempt",
         "terminal_time_policy": "finished_at_or_terminal_build_bound_for_canceled",
         "complete_window": False,
     }
@@ -1691,7 +1788,7 @@ def test_agent_health_generation_is_bounded_by_dropping_oldest_whole_days():
             "published": 40,
             "omitted": 0,
             "complete_relative_to_source": True,
-            "selection": "newest_then_infra_suspect_then_recency",
+            "selection": "newest_then_node_suspect_then_recency",
         },
         "failure_accounting": {
             "source": 40,
@@ -1775,6 +1872,23 @@ def test_agent_health_compacts_newest_day_links_but_preserves_exact_accounting()
     assert "operations-agent-health-accounting" in {
         finding.code for finding in invalid_audit.report.errors
     }
+
+
+def test_agent_health_audit_requires_an_attribution_consistent_with_the_node_suspect_flag():
+    day = "2026-07-14"
+    payload = ah._prepare_generation([_retained_node_day(day)], [_retained_failure(day, index) for index in range(4)], NOW)["payload"]
+
+    def errors(candidate):
+        audit = DashboardAudit(Path("."))
+        audit.audit_agent_health({"amd_agent_health": candidate}, "data/vllm/ci/operations_v2.json")
+        return {finding.code for finding in audit.report.errors}
+
+    assert not {"operations-agent-health-infra-flag", "operations-agent-health-accounting"} & errors(payload)
+    for key, field, value in (("failing_runs", "a", "bogus"), ("failing_runs", "i", 0), ("failure_accounting", "a", "bogus")):
+        broken = deepcopy(payload)
+        broken[key][1][field] = value
+        expected = "operations-agent-health-infra-flag" if key == "failing_runs" else "operations-agent-health-accounting"
+        assert expected in errors(broken), (key, field, value)
 
 
 def test_agent_health_generation_publication_writes_exact_bounded_files(tmp_path):
@@ -2255,7 +2369,7 @@ def test_agent_graphql_error_recovers_exact_cpu_scope_without_changing_created_c
         "eligible_completion": ah.CREATED_ELIGIBILITY, "day_basis": ah.CREATED_DAY_BASIS,
         "discovery_legs": {"created": True}, "collected_from": "2026-07-13T00:00:00Z",
         "collected_to": payload["generated_at"], "requested_days": 1, "exhaustive": True,
-        "attempt_policy": "latest_attempt_per_step", "terminal_time_policy": ah.TERMINAL_TIME_POLICY,
+        "attempt_policy": "every_executed_attempt", "terminal_time_policy": ah.TERMINAL_TIME_POLICY,
         "complete_window": False,
     }
     index = read_runtime_source_indexes(ah._SOURCE_SCOPE_CACHE_DIR)[SOURCE_COMMIT]
