@@ -93,7 +93,7 @@ export function buildEvidenceDetail(build: Rec, options: BuildEvidenceOptions = 
       id: 'queue',
       label: 'Queue',
       value: (row) => String(row.queue || ''),
-      cell: (row) => (row.queue ? { ...mono(row.queue), dot: hardwareColor(String(row.queue)) } : mono(row.queue)),
+      cell: (row) => (row.queue ? { ...mono(row.queue), dots: [hardwareColor(row.queue)] } : mono(row.queue)),
       class: 'whitespace-nowrap',
     },
   ]

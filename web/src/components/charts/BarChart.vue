@@ -19,6 +19,10 @@ const props = withDefaults(
     /** Series keys drawn below the baseline (e.g. regressions against improvements). */
     diverging?: string[]
     valueFormat?: (value: number) => string
+    /** Fixed value-axis domain; diverging charts default to one symmetric around zero. */
+    valueDomain?: [number, number]
+    /** Horizontal charts: category labels wrap at this width (px) instead of widening the axis. */
+    categoryWidth?: number
     /** Legend visibility; defaults to shown for more than one series (force it when one series' color encodes a state). */
     legend?: boolean
     hint?: string
@@ -60,8 +64,10 @@ const categoryLabel = (index: number) => {
   const row = props.rows[index]
   return row ? props.category(row) : ''
 }
-// The value axis ends on a round tick at or beyond the longest bar.
+// The value axis ends on a round tick at or beyond the longest bar; diverging charts share one
+// scale on both sides of zero so their lengths compare honestly.
 const valueTicks = computed(() => {
+  if (props.valueDomain) return niceTicks(props.valueDomain[0], props.valueDomain[1], 4)
   const totals = props.rows.map((row) => {
     const values = props.series.map((s) => (props.diverging.includes(s.key) ? -1 : 1) * seriesValue(row, s.key))
     const up = values.filter((v) => v > 0)
@@ -70,12 +76,19 @@ const valueTicks = computed(() => {
     return props.stacked ? [sum(down), sum(up)] : [Math.min(0, ...down), Math.max(0, ...up)]
   })
   const counts = props.rows.every((row) => props.series.every((s) => Number.isInteger(seriesValue(row, s.key))))
-  return niceTicks(Math.min(0, ...totals.map((t) => t[0]!)), Math.max(0, ...totals.map((t) => t[1]!)), 4, counts ? 1 : 0)
+  let lo = Math.min(0, ...totals.map((t) => t[0]!))
+  let hi = Math.max(0, ...totals.map((t) => t[1]!))
+  if (props.diverging.length) {
+    hi = Math.max(1, -lo, hi)
+    lo = -hi
+  }
+  return niceTicks(lo, hi, props.diverging.length && ticks.value <= 6 ? 2 : 4, counts ? 1 : 0)
 })
-const valueDomain = computed<[number, number]>(() => [valueTicks.value[0]!, valueTicks.value.at(-1)!])
+const domain = computed<[number, number]>(() => props.valueDomain ?? [valueTicks.value[0]!, valueTicks.value.at(-1)!])
 const inspectTop = computed(() => !!props.onSelect && props.inspectPlacement === 'top')
 const showLegend = computed(() => props.legend ?? props.series.length > 1)
-const height = computed(() => (horizontal.value ? `${Math.max(160, props.rows.length * 32 + 40)}px` : undefined))
+const ROW = computed(() => (props.categoryWidth ? 44 : 36))
+const height = computed(() => (horizontal.value ? `${props.rows.length * ROW.value + 36}px` : undefined))
 const barSelector = computed(() => (props.stacked ? StackedBar.selectors.bar : GroupedBar.selectors.bar))
 const events = computed(() => ({ [barSelector.value]: { click: (d: Indexed) => select(d.row) } }))
 // Stacked bars bind a stack record ({ datum, stackIndex, ... }) to each path; grouped bars bind the row itself.
@@ -84,23 +97,24 @@ const triggers = computed(() => ({ [barSelector.value]: (d: Indexed | { datum: I
 
 <template>
   <div class="flex min-w-0 flex-col gap-2" data-slot="bar-chart">
-    <div v-if="inspectTop" class="flex justify-end">
-      <ChartInspect :items="inspectItems(rows)" :label="label" @select="(i) => select(rows[i])" />
+    <div v-if="inspectTop || $slots.header" class="flex min-h-7 flex-wrap items-center justify-between gap-2">
+      <div class="min-w-0"><slot name="header" /></div>
+      <ChartInspect v-if="inspectTop" :items="inspectItems(rows)" :label="label" @select="(i) => select(rows[i])" />
     </div>
-        <div
+    <div
       ref="host"
       role="img"
       :aria-label="label"
       :data-clickable="onSelect ? '' : undefined"
       data-slot="bar-plot"
-      :class="onSelect && '[--vis-grouped-bar-cursor:pointer] [--vis-stacked-bar-cursor:pointer]'"
+      :class="onSelect && '[--vis-grouped-bar-cursor:pointer] [--vis-grouped-bar-hover-stroke-color:var(--foreground)] [--vis-grouped-bar-hover-stroke-width:1.5px] [--vis-stacked-bar-cursor:pointer] [--vis-stacked-bar-hover-stroke-color:var(--foreground)] [--vis-stacked-bar-hover-stroke-width:1.5px]'"
     >
       <ChartContainer :config="chartConfig(series)" :class="cn('aspect-auto w-full', !horizontal && 'h-[250px]', props.class)" :style="{ height }">
         <VisXYContainer
           :data="data"
           :margin="{ left: 4, right: 12, top: 8 }"
-          :x-domain="horizontal ? valueDomain : undefined"
-          :y-domain="horizontal ? undefined : valueDomain"
+          :x-domain="horizontal ? domain : undefined"
+          :y-domain="horizontal ? undefined : domain"
         >
           <VisStackedBar
             v-if="stacked"
@@ -108,8 +122,8 @@ const triggers = computed(() => ({ [barSelector.value]: (d: Indexed | { datum: I
             :y="accessors"
             :color="colors"
             :orientation="orientation"
-            :rounded-corners="4"
-            :bar-max-width="28"
+            :rounded-corners="horizontal ? 6 : 4"
+            :bar-max-width="horizontal ? 18 : 28"
             :bar-padding="0.2"
             :duration="300"
             :events="events"
@@ -134,8 +148,17 @@ const triggers = computed(() => ({ [barSelector.value]: (d: Indexed | { datum: I
             :tick-line="false"
             :domain-line="false"
             :grid-line="false"
+            :tick-text-width="horizontal ? categoryWidth : undefined"
+            :tick-text-fit-mode="categoryWidth ? 'wrap' : undefined"
+            :tick-text-separator="categoryWidth ? ['-', ' ', '/'] : undefined"
           />
-          <VisAxis :type="horizontal ? 'x' : 'y'" :tick-values="valueTicks" :tick-format="(v: number) => valueFormat(Math.abs(v))" :tick-line="false" :domain-line="false" />
+          <VisAxis
+            :type="horizontal ? 'x' : 'y'"
+            :tick-values="valueTicks"
+            :tick-format="(v: number) => valueFormat(Math.abs(v))"
+            :tick-line="false"
+            :domain-line="false"
+          />
           <VisTooltip :triggers="triggers" />
         </VisXYContainer>
       </ChartContainer>

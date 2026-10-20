@@ -120,7 +120,7 @@ function openFailures() {
       {
         rows: failures.value,
         columns: exactJobColumns(latestBuild.value),
-        rowDetail: (row: Rec) => exactJobDetail(row, latestBuild.value),
+        onRowClick: (row: Rec) => exactJobDetail(row, latestBuild.value),
         emptyText: 'No non-passing AMD job variants in the latest signal.',
       },
     ],

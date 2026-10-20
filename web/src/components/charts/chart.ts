@@ -42,7 +42,7 @@ export function niceTicks(min: number, max: number, count: number, minStep = 0):
   if (!(span > 0)) return [min, min + Math.max(1, minStep)]
   const raw = Math.max(span / Math.max(1, count), minStep)
   const power = 10 ** Math.floor(Math.log10(raw))
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * power).find((candidate) => candidate >= raw)!
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * power).find((candidate) => candidate >= raw && (minStep < 1 || Number.isInteger(candidate)))!
   const ticks: number[] = []
   for (let tick = Math.floor(min / step) * step; tick < max + step / 2; tick += step) ticks.push(Math.round(tick * 1e9) / 1e9)
   if (ticks.at(-1)! < max) ticks.push(Math.round((ticks.at(-1)! + step) * 1e9) / 1e9)

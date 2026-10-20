@@ -1,283 +1,384 @@
 <script setup lang="ts">
-import type { ColumnDef } from '@tanstack/vue-table'
-import { ArrowLeft } from '@lucide/vue'
-import { computed, h, ref, shallowRef } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import KpiCard from '@/components/ops/KpiCard.vue'
-import TableSheet from '@/components/ops/TableSheet.vue'
-import ViewState from '@/components/ops/ViewState.vue'
-import PerfDetailSheet from '@/components/perf/PerfDetailSheet.vue'
-import PerfHistorySheet, { type PerfHistoryTarget } from '@/components/perf/PerfHistorySheet.vue'
+import { ArrowLeft, DatabaseZap, ExternalLink, History, SearchX } from '@lucide/vue'
+import { computed } from 'vue'
+import SheetStack from '@/components/evidence/SheetStack.vue'
+import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
+import EmptyState from '@/components/feedback/EmptyState.vue'
+import PageHeader from '@/components/layout/PageHeader.vue'
+import SubNav from '@/components/layout/SubNav.vue'
+import type { Delta } from '@/components/stat/DeltaBadge.vue'
+import KpiCard, { type KpiAction } from '@/components/stat/KpiCard.vue'
+import StatGrid from '@/components/stat/StatGrid.vue'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { useClock } from '@/composables/useClock'
+import { useDataset } from '@/composables/useDataset'
 import { useOperations } from '@/composables/useOperations'
-import { clearDataCache, fetchJSON } from '@/data/client'
+import { useQueryState } from '@/composables/useQueryState'
+import { useSheetStack } from '@/composables/useSheetStack'
 import { age, integer, shortDate, type Rec } from '@/domain/format'
+import { areaFreshness, sourceFreshness } from '@/domain/freshness'
+import { freshnessChip } from '@/features/freshness/freshness'
 import {
-  PERF_SOURCE,
+  PERF_VIEWS,
   accuracyBlock,
-  filterPerfModels,
-  perfMetricDetail,
-  perfModelDetail,
-  perfModelFamilies,
+  accuracyRows,
+  perfAccuracyOnly,
+  perfChanges,
+  perfHardwareLabel,
+  perfHardwareRows,
+  perfLatestBuild,
   perfModelRows,
   perfModels,
+  perfNightlyActivity,
   perfPage,
   perfPipelineUrl,
-  perfPointDetail,
-  perfQuery,
-  perfState,
-  type PerfDetail,
-  type PerfState,
+  perfScopedModels,
+  perfShortModel,
+  type PerfChange,
   type PerfView as PerfViewId,
 } from '@/domain/perf'
+import { hardwareColor } from '@/lib/palette'
+import {
+  blockDelta,
+  changesDetail,
+  changeWhere,
+  familiesDetail,
+  hardwareDetail,
+  historyDetail,
+  isHistoryDetail,
+  modelDetail,
+  nightliesDetail,
+  pointDetail,
+  type PointContext,
+} from './perf/details'
 import PerfAccuracy from './perf/PerfAccuracy.vue'
-import PerfModelOverview from './perf/PerfModelOverview.vue'
-import PerfModelSections from './perf/PerfModelSections.vue'
+import PerfModel from './perf/PerfModel.vue'
+import PerfSeriesChart from './perf/PerfSeriesChart.vue'
+import PerfSummary from './perf/PerfSummary.vue'
 
-const route = useRoute()
-const router = useRouter()
+const view = useQueryState<PerfViewId>('view', { default: 'performance', allowed: PERF_VIEWS, history: 'push' })
+const model = useQueryState<string>('model', { default: 'all', history: 'push' })
+const device = useQueryState<string>('device', { default: 'all', history: 'push' })
+const state = computed(() => ({ view: view.value, model: model.value, device: device.value }))
+
+const dataset = useDataset('perf_eval')
+const perf = dataset.data
 const { ops } = useOperations()
-
-const state = computed(() => perfState(route.query))
-// classic: view and hardware segments push a history entry, model selection replaces it.
-function setState(next: Partial<PerfState>, push = false) {
-  const query = perfQuery({ ...state.value, ...next })
-  void (push ? router.push({ query }) : router.replace({ query }))
-}
-function selectModel(model: string, view?: PerfViewId) {
-  setState(view ? { model, view } : { model })
-}
-
-const perf = shallowRef<Rec | null>(null)
-const error = ref<string | null>(null)
-const loading = ref(true)
-async function load(force = false) {
-  if (force) clearDataCache()
-  loading.value = true
-  error.value = null
-  try {
-    perf.value = await fetchJSON<Rec>(PERF_SOURCE)
-  } catch (e) {
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    loading.value = false
-  }
-}
-void load()
+const now = useClock()
+const sheets = useSheetStack()
 
 const page = computed(() => (perf.value ? perfPage(perf.value, state.value) : null))
-const observedAt = computed(() => perf.value?.generated_at || ops.value?.generated_at)
+const ready = computed(() => (page.value && page.value.kind !== 'unavailable' ? page.value : null))
+const thresholds = computed<Rec>(() => perf.value?.thresholds ?? {})
+const allModels = computed(() => perfModels(perf.value))
+const filterActive = computed(() => state.value.model !== 'all' || state.value.device !== 'all')
+const inFilter = computed(() => (filterActive.value ? ' in filter' : ''))
+const accuracyView = computed(() => view.value === 'accuracy')
+
+// Everything below follows the model and hardware filters; the Accuracy view counts accuracy tasks only.
+const scoped = computed(() => perfScopedModels(allModels.value, state.value))
+const counted = computed(() => (accuracyView.value ? perfAccuracyOnly(scoped.value) : scoped.value))
+const modelRows = computed(() => perfModelRows(scoped.value))
+const changes = computed(() => perfChanges(counted.value))
+// Models with at least one counted metric.
+const measured = computed(() => counted.value.filter((m) => (m.perf_configs || []).length || (m.accuracy_tasks || []).length).length)
+const regressions = computed(() => changes.value.filter((change) => change.tone === 'hard'))
+const improvements = computed(() => changes.value.filter((change) => change.tone === 'pass'))
+const activity = computed(() => perfNightlyActivity(counted.value, thresholds.value))
+const recent = computed(() => activity.value.slice(-30))
+const hardware = computed(() => (perf.value ? perfHardwareRows(perf.value) : []))
+const latestBuild = computed(() => perfLatestBuild(allModels.value))
 const pipelineUrl = computed(() => (perf.value ? perfPipelineUrl(perf.value) : ''))
-// v2-only badges: count regressions/improvements over the models the filters select.
-const filtered = computed(() => state.value.model !== 'all' || state.value.device !== 'all')
-const totals = computed(() => {
-  const rows = perfModelRows(filterPerfModels(perfModels(perf.value), state.value))
-  return { regressions: rows.reduce((sum, row) => sum + row.regressions, 0), improvements: rows.reduce((sum, row) => sum + row.improvements, 0) }
-})
 
-const viewTab = computed<PerfViewId>({ get: () => state.value.view, set: (view) => setState({ view }, true) })
-const modelSelect = computed<string>({ get: () => state.value.model, set: (model) => selectModel(String(model || 'all')) })
-const deviceToggle = computed<string>({
-  get: () => state.value.device,
-  // A single toggle group clears its value when the active item is pressed again; classic keeps it.
-  set: (device) => device && setState({ device: String(device) }, true),
-})
-
-// Drill-downs
-const detail = ref<{ open: boolean; detail: PerfDetail | null }>({ open: false, detail: null })
-function openDetail(next: PerfDetail) {
-  detail.value = { open: true, detail: next }
-}
-const history = ref<{ open: boolean; target: PerfHistoryTarget | null }>({ open: false, target: null })
-function openHistory(model: Rec, config: Rec, metricName: string, block: Rec) {
-  history.value = { open: true, target: { model, config, metricName, block } }
-}
-function openAccuracy(row: { model: Rec; task: Rec }) {
-  openHistory(row.model, { label: 'Accuracy' }, row.task.metric, accuracyBlock(row.task))
-}
-
-type Family = ReturnType<typeof perfModelFamilies>[number]
-const families = ref({ open: false, rows: [] as Family[] })
-const familyColumns: ColumnDef<Family, unknown>[] = [
-  {
-    id: 'label',
-    header: 'Observation',
-    accessorFn: (row) => row.label,
-    cell: ({ row }) =>
-      row.original.url
-        ? h('a', { href: row.original.url, target: '_blank', rel: 'noopener', class: 'font-mono font-medium hover:underline' }, row.original.label)
-        : h('span', { class: 'font-mono' }, row.original.label),
-    enableHiding: false,
-  },
-  { id: 'observed', header: 'Observed', accessorFn: () => '-' },
-  { id: 'value', header: 'Value', accessorFn: (row) => row.valueSummary },
-  {
-    id: 'evidence',
-    header: 'Evidence',
-    accessorFn: (row) => row.url || '',
-    cell: ({ row }) =>
-      row.original.url
-        ? h('a', { href: row.original.url, target: '_blank', rel: 'noopener', class: 'hover:underline' }, 'Open source ↗')
-        : h('span', { class: 'text-muted-foreground' }, 'Open published source data'),
-    enableSorting: false,
-  },
+const VIEWS = [
+  { value: 'performance', label: 'Performance' },
+  { value: 'accuracy', label: 'Accuracy' },
 ]
+
+const freshness = computed(() => (perf.value ? freshnessChip(areaFreshness(sourceFreshness(ops.value, perf.value, now.value), 'perf'), now.value) : undefined))
+
+// KPI strings are integer()-formatted; '-' means the summary has no value.
+const count = (formatted: string) => (/\d/.test(formatted) ? Number(formatted.replace(/\D/g, '')) : null)
+const spark = (pick: (nightly: (typeof recent.value)[number]) => number) => recent.value.map(pick)
+function lastDelta(values: number[], goodWhen: 'up' | 'down'): Delta | undefined {
+  if (values.length < 2) return undefined
+  const value = values.at(-1)! - values.at(-2)!
+  return { value, text: `${value > 0 ? '+' : ''}${integer(value)}`, goodWhen, title: 'Change from the previous nightly' }
+}
+
+function selectModel(name: string) {
+  sheets.close()
+  model.value = name
+}
+function selectDevice(id: string) {
+  sheets.close()
+  device.value = id
+}
+const modelSelect = computed({ get: () => model.value, set: (value: string) => selectModel(String(value || 'all')) })
+// A single toggle group clears its value when the active item is pressed again; the filter stays.
+const deviceToggle = computed({ get: () => device.value, set: (value: string) => value && selectDevice(String(value)) })
+const deviceLabel = computed(() => ready.value?.devices.find((d) => d.id === device.value)?.label ?? 'All hardware')
+
+const openHistory = (owner: Rec, config: Rec, metricName: string, block: Rec) => sheets.open(historyDetail(owner, config, metricName, block, thresholds.value))
+const openPoint = (point: Rec, context: PointContext) => sheets.open(pointDetail(point, context, thresholds.value))
+const scopeLabel = computed(() => [accuracyView.value ? 'accuracy' : null, filterActive.value ? 'in filter' : null].filter(Boolean).join(', '))
+const openNightlies = () =>
+  sheets.open(nightliesDetail(activity.value, `${integer(activity.value.length)} retained nightlies${scopeLabel.value ? ` (${scopeLabel.value})` : ''}`))
+const openChanges = (tone: 'hard' | 'pass') =>
+  sheets.open(
+    changesDetail(
+      tone === 'hard' ? 'perf-regressions' : 'perf-improvements',
+      `${tone === 'hard' ? 'Regressed' : 'Improved'} ${accuracyView.value ? 'accuracy ' : ''}metrics`,
+      `${tone === 'hard' ? 'Worse' : 'Better'} than the previous nightly beyond the threshold${inFilter.value}`,
+      tone === 'hard' ? regressions.value : improvements.value,
+      thresholds.value,
+    ),
+  )
+const openHardware = () =>
+  sheets.open(hardwareDetail(hardware.value, ready.value?.kpis.hardware ?? '', perfChanges(allModels.value).filter((c) => c.kind === 'accuracy').length, selectDevice))
+
+interface Kpi {
+  id: string
+  label: string
+  value: number | string | null
+  spark?: number[]
+  delta?: Delta
+  headline?: string
+  footnote?: string
+  action?: KpiAction
+}
+
+function changeKpi(tone: 'hard' | 'pass'): Kpi {
+  const list = tone === 'hard' ? regressions.value : improvements.value
+  const largest: PerfChange | undefined = list[0]
+  const pick = tone === 'hard' ? (n: (typeof recent.value)[number]) => n.regressions : (n: (typeof recent.value)[number]) => n.improvements
+  return {
+    id: tone === 'hard' ? 'regressions' : 'improvements',
+    label: tone === 'hard' ? 'Regressions' : 'Improvements',
+    value: list.length,
+    spark: spark(pick),
+    delta: lastDelta(spark(pick), tone === 'hard' ? 'down' : 'up'),
+    headline: largest ? `Largest: ${largest.label}, ${perfShortModel(largest.model.model)}` : `None${inFilter.value} vs previous nightly`,
+    footnote: largest ? `${blockDelta(largest.block).text} · ${changeWhere(largest).split(' · ').slice(1).join(' · ')}` : `Across ${integer(measured.value)} models${inFilter.value}`,
+    action: { label: `Inspect ${tone === 'hard' ? 'regressed' : 'improved'} metrics`, onOpen: () => openChanges(tone) },
+  }
+}
+
+const nightliesKpi = computed<Kpi>(() => {
+  const points = activity.value.reduce((sum, n) => sum + n.points, 0)
+  const base = { id: 'nightlies', spark: spark((n) => n.points), action: { label: 'Inspect nightlies', onOpen: openNightlies } }
+  if (accuracyView.value) {
+    const latest = activity.value.at(-1)
+    return { ...base, label: 'Accuracy nightlies', value: activity.value.length, headline: `${integer(points)} accuracy points`, footnote: latest ? `Latest ${shortDate(latest.date)}` : undefined }
+  }
+  if (state.value.model !== 'all') {
+    const latest = scoped.value[0]?.latest || {}
+    return {
+      ...base,
+      label: 'Nightlies tracked',
+      value: scoped.value.reduce((sum, m) => sum + Number(m.nightly_count || 0), 0),
+      headline: latest.build_number ? `Latest build #${latest.build_number}` : `${integer(points)} metric points`,
+      footnote: `${integer(points)} metric points${latest.date ? ` · ${shortDate(latest.date)}` : ''}`,
+    }
+  }
+  const kpis = ready.value!.kpis
+  return {
+    ...base,
+    label: 'Nightlies tracked',
+    value: filterActive.value ? activity.value.length : count(kpis.nightlies),
+    headline: `${filterActive.value ? integer(points) : kpis.points} metric points`,
+    footnote: filterActive.value ? 'across retained series in filter' : `${kpis.pointsMeta} · across retained series`,
+  }
+})
+
+const scopeKpi = computed<Kpi>(() => {
+  if (accuracyView.value) {
+    const rows = accuracyRows(scoped.value)
+    const families = new Set(rows.map((row) => row.model.model)).size
+    return { id: 'accuracy', label: 'Accuracy metrics', value: rows.length, headline: `${integer(families)} ${families === 1 ? 'model' : 'models'} with lm-eval results`, footnote: 'higher is better' }
+  }
+  if (state.value.model !== 'all') {
+    const configs = scoped.value.flatMap((m) => m.perf_configs || [])
+    const metrics = configs.reduce((sum, config) => sum + Object.keys(config.metrics || {}).length, 0)
+    const target = scoped.value[0]
+    return {
+      id: 'configs',
+      label: 'Configurations',
+      value: configs.length,
+      headline: `${integer(metrics)} performance metrics`,
+      footnote: target ? `on ${perfHardwareLabel(target)}` : undefined,
+      action: target ? { label: 'Inspect model', onOpen: () => sheets.open(modelDetail(target)) } : undefined,
+    }
+  }
+  const latest = recent.value.at(-1)
+  return {
+    id: 'models',
+    label: 'AMD models',
+    value: filterActive.value ? scoped.value.length : count(ready.value!.kpis.models),
+    spark: spark((n) => n.models),
+    delta: lastDelta(spark((n) => n.models), 'up'),
+    headline: latest ? `${integer(latest.models)} in the latest nightly` : undefined,
+    footnote: 'nightly model families',
+    action: { label: 'Inspect model families', onOpen: () => perf.value && sheets.open(familiesDetail(perf.value, selectModel)) },
+  }
+})
+
+const kpis = computed<Kpi[]>(() => (ready.value ? [scopeKpi.value, nightliesKpi.value, changeKpi('hard'), changeKpi('pass')] : []))
 </script>
 
 <template>
-  <div class="flex flex-col gap-4 md:gap-6">
-    <div class="flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h2 class="text-2xl font-semibold tracking-tight">Performance &amp; Evaluation</h2>
-        <p class="max-w-3xl text-sm text-muted-foreground">
-          Artifact-backed AMD nightly throughput, latency, and accuracy with build and commit provenance.
-        </p>
-      </div>
-      <div v-if="page && page.kind !== 'unavailable'" class="flex items-center gap-3">
-        <span v-if="observedAt" class="text-xs text-muted-foreground" :title="observedAt" data-testid="perf-observed">
-          Observed {{ shortDate(observedAt) }} · {{ age(observedAt) }}
-        </span>
-        <Button variant="outline" size="sm" as="a" :href="pipelineUrl" target="_blank" rel="noopener">Open perf-eval pipeline ↗</Button>
-      </div>
-    </div>
+  <div class="flex min-w-0 flex-col gap-4 md:gap-6">
+    <PageHeader
+      title="Performance & Evaluation"
+      description="AMD nightly throughput, latency and accuracy from perf-eval artifacts, with build and commit provenance."
+      :freshness="freshness"
+    >
+      <template #about>
+        <p>Each metric compares its latest nightly with the previous one. A change counts as a regression or an improvement only past the threshold:
+          {{ thresholds.perf_rel !== undefined ? `${(thresholds.perf_rel * 100).toFixed(1)}% relative` : 'the relative band' }} for performance,
+          {{ thresholds.accuracy_abs !== undefined ? `${(thresholds.accuracy_abs * 100).toFixed(1)} points` : 'the absolute band' }} for accuracy.
+          The regression and improvement trends apply the same rule to every retained nightly.</p>
+        <p>Only AMD Instinct (ROCm) records are shown. If any record names a non-MI device or no GPU, the page withholds all data rather than mixing hardware.</p>
+        <p>The hardware filter keeps the configurations that ran on that GPU; accuracy tasks are not tied to a device.</p>
+      </template>
+      <template #actions>
+        <Button
+          v-if="latestBuild?.url"
+          variant="outline"
+          size="sm"
+          as="a"
+          :href="latestBuild.url"
+          target="_blank"
+          rel="noopener"
+          class="font-normal text-muted-foreground"
+          :title="latestBuild.date ? `Upstream activity: ${shortDate(latestBuild.date)}` : undefined"
+          data-testid="perf-latest-build"
+        >
+          <History /> Latest perf build #{{ latestBuild.number }}<template v-if="latestBuild.date"> · {{ age(latestBuild.date, now) }}</template>
+        </Button>
+        <Button v-if="pipelineUrl" variant="outline" size="sm" as="a" :href="pipelineUrl" target="_blank" rel="noopener">
+          Pipeline <ExternalLink />
+        </Button>
+      </template>
+    </PageHeader>
 
-    <ViewState :loading="loading && !perf" :error="error" @retry="load(true)">
-      <p
+    <SubNav :items="VIEWS" default-value="performance" label="Performance views" />
+
+    <AsyncBoundary
+      :loading="dataset.loading.value && !perf"
+      :error="perf ? null : dataset.error.value"
+      :refreshing="dataset.refreshing.value"
+      @retry="dataset.refresh()"
+    >
+      <EmptyState
         v-if="page?.kind === 'unavailable'"
-        class="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning"
+        :icon="DatabaseZap"
+        title="AMD MI performance data is unavailable."
+        description="Current MI GPU metric records are required."
         data-testid="perf-unavailable"
-      >
-        AMD MI performance data is unavailable. Current MI GPU metric records are required.
-      </p>
-      <template v-else-if="page">
-        <div class="grid grid-cols-1 gap-4 @xl/main:grid-cols-2 @5xl/main:grid-cols-4">
-          <KpiCard
-            data-testid="kpi-perf-models"
-            label="AMD models"
-            :value="page.kpis.models"
-            :badge="`${integer(totals.regressions)} regressed${filtered ? ' in filter' : ''}`"
-            :badge-tone="totals.regressions ? 'hard' : 'pass'"
-            headline="Inspect model families"
-            detail="nightly model families"
-            @open="families = { open: true, rows: perfModelFamilies(perf!) }"
-          />
-          <KpiCard
-            data-testid="kpi-perf-nightlies"
-            label="Nightlies tracked"
-            :value="page.kpis.nightlies"
-            :badge="`${integer(totals.improvements)} improved${filtered ? ' in filter' : ''}`"
-            :badge-tone="totals.improvements ? 'pass' : 'neutral'"
-            headline="Open perf-eval pipeline"
-            :href="pipelineUrl"
-            detail="across retained series"
-          />
-          <KpiCard
-            data-testid="kpi-perf-points"
-            label="Metric points"
-            :value="page.kpis.points"
-            badge="retained"
-            badge-tone="info"
-            headline="Inspect retained points"
-            :detail="page.kpis.pointsMeta"
-            @open="
-              openDetail(
-                perfMetricDetail({
-                  label: 'Retained metric points',
-                  value: page.kpis.pointsRaw,
-                  meta: 'Performance and accuracy points are inspectable from their model histories.',
-                  provenance: 'perf_eval.json',
-                }),
-              )
-            "
-          />
-          <KpiCard
-            data-testid="kpi-perf-hardware"
-            label="AMD hardware"
-            :value="page.kpis.hardware"
-            badge="ROCm"
-            badge-tone="info"
-            headline="Inspect hardware"
-            detail="ROCm only"
-            @open="
-              openDetail(
-                perfMetricDetail({
-                  label: 'AMD performance hardware',
-                  value: page.kpis.hardwareDetail,
-                  meta: 'Hardware declared by retained AMD workload records.',
-                }),
-              )
-            "
-          />
+      />
+      <template v-else-if="ready">
+        <div class="flex flex-wrap items-center gap-2" data-testid="perf-toolbar">
+          <Button v-if="ready.showBack" variant="outline" size="sm" aria-label="Back to all performance models" @click="selectModel('all')">
+            <ArrowLeft /> All models
+          </Button>
+          <Select v-model="modelSelect">
+            <SelectTrigger size="sm" class="w-full sm:w-72" data-testid="perf-model-select" aria-label="Model">
+              <SelectValue placeholder="Unknown model" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All models</SelectItem>
+              <SelectItem v-for="name in ready.modelNames" :key="name" :value="name">{{ name }}</SelectItem>
+            </SelectContent>
+          </Select>
+          <template v-if="ready.devices.length">
+            <ToggleGroup v-model="deviceToggle" type="single" variant="outline" size="sm" class="ml-auto hidden sm:flex" aria-label="Performance hardware filter">
+              <ToggleGroupItem value="all">All</ToggleGroupItem>
+              <ToggleGroupItem v-for="d in ready.devices" :key="d.id" :value="d.id" class="gap-1.5">
+                <span class="size-2 rounded-full" :style="{ backgroundColor: hardwareColor(d.id) }" aria-hidden="true" />{{ d.label }}
+              </ToggleGroupItem>
+            </ToggleGroup>
+            <Select v-model="deviceToggle">
+              <SelectTrigger size="sm" class="w-full sm:hidden" aria-label="Performance hardware filter">
+                <SelectValue>{{ deviceLabel }}</SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All hardware</SelectItem>
+                <SelectItem v-for="d in ready.devices" :key="d.id" :value="d.id">{{ d.label }}</SelectItem>
+              </SelectContent>
+            </Select>
+          </template>
         </div>
 
-        <Card class="py-3">
-          <CardContent class="flex flex-wrap items-center gap-3 px-3">
-            <Button v-if="page.showBack" variant="outline" size="sm" aria-label="Back to all performance models" @click="selectModel('all')">
-              <ArrowLeft /> All models
-            </Button>
-            <Tabs v-model="viewTab">
-              <TabsList aria-label="Performance and accuracy view">
-                <TabsTrigger value="performance">Performance</TabsTrigger>
-                <TabsTrigger value="accuracy">Accuracy</TabsTrigger>
-              </TabsList>
-            </Tabs>
-            <div class="ml-auto flex flex-wrap items-center gap-3">
-              <label class="flex items-center gap-2 text-sm text-muted-foreground">
-                Model
-                <Select v-model="modelSelect">
-                  <SelectTrigger size="sm" class="w-72" data-testid="perf-model-select" aria-label="Model">
-                    <SelectValue placeholder="Unknown model" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All models</SelectItem>
-                    <SelectItem v-for="name in page.modelNames" :key="name" :value="name">{{ name }}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </label>
-              <div v-if="page.devices.length" class="flex items-center gap-2 text-sm text-muted-foreground">
-                Hardware
-                <ToggleGroup v-model="deviceToggle" type="single" variant="outline" size="sm" aria-label="Performance hardware filter">
-                  <ToggleGroupItem value="all">All</ToggleGroupItem>
-                  <ToggleGroupItem v-for="device in page.devices" :key="device.id" :value="device.id">{{ device.label }}</ToggleGroupItem>
-                </ToggleGroup>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <StatGrid :cols="4">
+          <KpiCard
+            v-for="kpi in kpis"
+            :key="kpi.id"
+            :label="kpi.label"
+            :value="kpi.value"
+            :spark="kpi.spark"
+            :delta="kpi.delta"
+            :headline="kpi.headline"
+            :footnote="kpi.footnote"
+            :action="kpi.action"
+            :data-testid="`kpi-perf-${kpi.id}`"
+          />
+        </StatGrid>
 
-        <p v-if="page.kind === 'empty'" class="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground" data-testid="perf-empty">
-          No model matches the selected filters.
-        </p>
-        <template v-else-if="page.kind === 'summary'">
-          <p class="rounded-md border border-info/40 bg-info/10 p-3 text-sm">
-            <strong>Model summary.</strong> Choose one model to render its detailed metric histories; the dashboard does not create every chart at once.
-          </p>
-          <PerfModelOverview :rows="page.rows" @select="selectModel" />
-        </template>
-        <PerfAccuracy v-else-if="page.kind === 'accuracy'" :rows="page.rows" @history="openAccuracy" />
-        <PerfModelSections
-          v-else-if="page.kind === 'performance'"
-          :sections="page.sections"
-          @model="(model) => openDetail(perfModelDetail(model))"
-          @history="openHistory"
-          @point="(point, unit) => openDetail(perfPointDetail(point, unit))"
+        <EmptyState v-if="ready.kind === 'empty'" :icon="SearchX" title="No model matches the selected filters." data-testid="perf-empty">
+          <template #action>
+            <Button variant="outline" size="sm" @click="selectDevice('all')">Show all hardware</Button>
+          </template>
+        </EmptyState>
+        <PerfAccuracy
+          v-else-if="accuracyView"
+          :rows="accuracyRows(scoped)"
+          @history="(row) => openHistory(row.model, { label: 'Accuracy' }, row.task.metric, accuracyBlock(row.task))"
+          @point="openPoint"
         />
+        <PerfSummary
+          v-else-if="ready.kind === 'summary'"
+          :rows="modelRows"
+          :changes="changes"
+          :hardware="hardware"
+          :hardware-label="ready.kpis.hardware"
+          :device="device"
+          :thresholds="thresholds"
+          @select="selectModel"
+          @device="selectDevice"
+          @drill="sheets.open"
+          @hardware="openHardware"
+        />
+        <template v-else-if="ready.kind === 'performance'">
+          <PerfModel
+            v-for="section in ready.sections"
+            :key="section.model.model"
+            :section="section"
+            @model="(m) => sheets.open(modelDetail(m))"
+            @history="openHistory"
+            @point="openPoint"
+          />
+        </template>
       </template>
-    </ViewState>
+    </AsyncBoundary>
 
-    <TableSheet
-      v-model:open="families.open"
-      title="AMD model families"
-      :subtitle="`Select an observation to inspect its exact evidence · ${integer(families.rows.length)} source-backed observations`"
-      :columns="familyColumns"
-      :rows="families.rows"
-      search-placeholder="Filter model"
-    />
-    <PerfDetailSheet v-model:open="detail.open" :detail="detail.detail" />
-    <PerfHistorySheet v-model:open="history.open" :target="history.target" />
+    <SheetStack v-slot="{ detail }" :sheets="sheets">
+      <div v-if="isHistoryDetail(detail)" class="rounded-lg border p-3 sm:p-4">
+        <PerfSeriesChart
+          :series="detail.chart.series"
+          :unit="detail.chart.context.block.unit"
+          :label="detail.chart.label"
+          :color="detail.chart.color"
+          class="h-[240px]"
+          @select="(point) => sheets.push(pointDetail(point, detail.chart.context, thresholds))"
+        >
+          <template #header>
+            <span class="text-sm text-muted-foreground">{{ perfShortModel(detail.chart.context.model.model) }} · by nightly</span>
+          </template>
+        </PerfSeriesChart>
+      </div>
+    </SheetStack>
   </div>
 </template>

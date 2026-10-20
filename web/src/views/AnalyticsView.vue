@@ -6,7 +6,8 @@ import { useClock } from '@/composables/useClock'
 import { useOperations } from '@/composables/useOperations'
 import { useQueryState } from '@/composables/useQueryState'
 import { provideSubviewHeader } from '@/composables/useSubviewHeader'
-import { sourceChip, sourceFreshness } from '@/domain/freshness'
+import { freshnessOf, sourceFreshness } from '@/domain/freshness'
+import { freshnessChip } from '@/features/freshness/freshness'
 import AnalyticsAgentHealth from './analytics/AnalyticsAgentHealth.vue'
 import AnalyticsDns from './analytics/AnalyticsDns.vue'
 import AnalyticsGroups from './analytics/AnalyticsGroups.vue'
@@ -69,8 +70,7 @@ const { ops } = useOperations()
 const now = useClock()
 const freshness = computed<Freshness | undefined>(() => {
   if (subview.value?.freshness) return subview.value.freshness
-  const row = sourceFreshness(ops.value, null, now.value).find((source) => source.key === current.value.source)
-  return row && ops.value ? sourceChip(row, now.value) : undefined
+  return ops.value ? freshnessChip(freshnessOf(sourceFreshness(ops.value, null, now.value), [current.value.source]), now.value) : undefined
 })
 </script>
 

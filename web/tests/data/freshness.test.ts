@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { areaFreshness, coreFreshness, freshnessRows, queueFreshness, sourceChip, sourceFreshness, type SourceFreshness } from '@/domain/freshness'
+import { areaFreshness, coreFreshness, freshnessOf, freshnessRows, queueFreshness, sourceFreshness, type SourceFreshness } from '@/domain/freshness'
+import { freshnessChip } from '@/features/freshness/freshness'
 
 const CONFIG = JSON.parse(readFileSync(resolve(__dirname, '../../../config/data_freshness_targets.json'), 'utf8'))
 const MANIFEST = JSON.parse(readFileSync(resolve(__dirname, '../fixtures/operations_v2_manifest.json'), 'utf8'))
@@ -118,7 +119,7 @@ describe('data freshness sheet rows', () => {
   })
 })
 
-describe('source chip', () => {
+describe('page freshness chip', () => {
   const row = (over: Partial<SourceFreshness>): SourceFreshness => ({
     key: 'dns',
     label: 'DNS observations',
@@ -136,18 +137,16 @@ describe('source chip', () => {
   })
 
   it('states the age, the tone of the state, and the target the source is held to', () => {
-    const chip = sourceChip(row({}), NOW)
+    const chip = freshnessChip(freshnessOf([row({})], ['dns']), NOW)!
     expect(chip.tone).toBe('soft')
-    expect(chip.text).toMatch(/^Collected /)
-    expect(chip.detail).toContain('DNS observations was collected')
-    expect(chip.detail).toContain('Target within 60 minutes; stale after 180 minutes.')
-    expect(chip.detail).toContain('Source: data/vllm/ci/dns_failures.json.')
-    expect([sourceChip(row({ state: 'fresh' }), NOW).tone, sourceChip(row({ state: 'stale' }), NOW).tone]).toEqual(['pass', 'hard'])
+    expect(chip.text).toBe('Collected 1h ago')
+    expect(chip.detail).toBe('DNS observations 1h ago (target 1h / 3h).')
+    expect([freshnessChip(freshnessOf([row({ state: 'fresh' })], ['dns']), NOW)!.tone, freshnessChip(freshnessOf([row({ state: 'stale' })], ['dns']), NOW)!.tone]).toEqual(['pass', 'hard'])
   })
 
   it('names a single limit once and an unknown collection time plainly', () => {
-    const chip = sourceChip(row({ timestamp: null, state: 'stale', warnMinutes: 180, path: null }), NOW)
-    expect(chip.text).toBe('Collection time unknown')
-    expect(chip.detail).toBe('DNS observations was collected at an unknown time. Stale after 180 minutes.')
+    const chip = freshnessChip(freshnessOf([row({ timestamp: null, ageMs: null, state: 'stale', warnMinutes: 180, path: null })], ['dns']), NOW)!
+    expect(chip.text).toBe('Collected at an unknown time')
+    expect(chip.detail).toBe('DNS observations without a timestamp (target 3h).')
   })
 })

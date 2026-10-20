@@ -177,7 +177,7 @@ function activate(row: T, event: Event) {
               <Cell :cell="cellOf(column, row)" @drill="(d) => emit('drill', d)" />
             </TableCell>
             <TableCell v-if="onRowClick" class="w-8 pr-3 text-muted-foreground">
-              <ChevronRight class="size-4 opacity-0 transition-[opacity,transform] group-hover/row:translate-x-0.5 group-hover/row:opacity-100 group-focus-visible/row:opacity-100" aria-hidden="true" />
+              <ChevronRight class="size-4 opacity-50 transition-[opacity,transform] group-hover/row:translate-x-0.5 group-hover/row:text-foreground group-hover/row:opacity-100 group-focus-visible/row:opacity-100" aria-hidden="true" />
             </TableCell>
           </TableRow>
           <TableRow v-if="!pageRows.length" class="hover:bg-transparent">

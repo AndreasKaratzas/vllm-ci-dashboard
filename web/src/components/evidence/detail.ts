@@ -42,8 +42,8 @@ export interface DetailTable<T = unknown> {
   pageSize?: number | false
   filters?: FilterSpec<T>[]
   searchPlaceholder?: string
-  /** Makes whole rows open this drill-down. */
-  rowDetail?: (row: T) => Detail
+  /** Makes rows clickable; a returned Detail opens above the current sheet. */
+  onRowClick?: (row: T) => Detail | void
   /** Count rows as "shown of total" instead of "shown". */
   showTotal?: boolean
 }

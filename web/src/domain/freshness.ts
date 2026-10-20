@@ -1,6 +1,5 @@
 import targets from '@config/data_freshness_targets.json'
-import type { Tone } from '@/lib/tone'
-import { age, shortDate, type Rec } from './format'
+import type { Rec } from './format'
 
 export type FreshnessState = 'fresh' | 'warn' | 'stale'
 
@@ -130,36 +129,9 @@ export function areaFreshness(rows: SourceFreshness[], area: string): FreshnessS
   return summarize(rows.filter((row) => row.area === area && !row.informational))
 }
 
-/** The named sources of one view (e.g. the inputs of a sub-page), as old as the oldest of them. */
-export function sourcesFreshness(rows: SourceFreshness[], keys: readonly string[]): FreshnessSummary | null {
-  return summarize(pick(rows, keys))
-}
-
 /** Rows of the "Data freshness" sheet: worst state first, then by label. */
 export function freshnessRows(ops: Rec | null | undefined, perf: Rec | null | undefined, nowMs: number): SourceFreshness[] {
   return sourceFreshness(ops, perf, nowMs).sort(
     (left, right) => SEVERITY[right.state] - SEVERITY[left.state] || left.label.localeCompare(right.label),
   )
-}
-
-export interface FreshnessChip {
-  text: string
-  tone: Tone
-  detail: string
-}
-
-const CHIP_TONE: Record<FreshnessState, Tone> = { fresh: 'pass', warn: 'soft', stale: 'hard' }
-
-/** A page header chip for one collector source: its age, state, and the target it is held to. */
-export function sourceChip(row: SourceFreshness, nowMs: number): FreshnessChip {
-  const when = row.timestamp ? `${shortDate(row.timestamp)} (${age(row.timestamp, nowMs)})` : 'at an unknown time'
-  const limits =
-    row.warnMinutes === row.staleMinutes
-      ? `Stale after ${row.staleMinutes} minutes.`
-      : `Target within ${row.warnMinutes} minutes; stale after ${row.staleMinutes} minutes.`
-  return {
-    text: row.timestamp ? `Collected ${age(row.timestamp, nowMs)}` : 'Collection time unknown',
-    tone: CHIP_TONE[row.state],
-    detail: `${row.label} was collected ${when}. ${limits}${row.path ? ` Source: ${row.path}.` : ''}`,
-  }
 }

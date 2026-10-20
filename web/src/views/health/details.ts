@@ -128,7 +128,7 @@ export function parityInventoryDetail(id: string, title: string, rows: Rec[], so
       {
         rows,
         columns,
-        rowDetail: (row: Rec) => parityGroupDetail(row, source),
+        onRowClick: (row: Rec) => parityGroupDetail(row, source),
         searchText: (row: Rec) => [row.id, row.title, row.reviewed_title, row.area, row.cuda_variants, parityStateBadge(row.state).label, row.assessment].join(' '),
         searchPlaceholder: 'Filter test group, area, CUDA variant, status, or assessment',
         pageSize: 25,
@@ -221,7 +221,7 @@ export function matrixBrowserDetail(mode: MatrixBrowserMode, groups: Rec[], subt
         showTotal: true,
         searchText: matrixGroupSearchText,
         searchPlaceholder: 'Search group, reason, command, hardware, or queue',
-        rowDetail: open,
+        onRowClick: open,
         pageSize: 50,
         columns: [
           { id: 'title', label: 'Test group', value: (g: Rec) => String(g.title ?? ''), cell: (g: Rec) => drill(g.title, () => open(g)), hideable: false },
@@ -288,7 +288,7 @@ export function architectureDetail(health: ArchitectureHealth, rows: Rec[], ops:
       {
         rows: browser.rows,
         searchText: browser.searchText,
-        rowDetail: open,
+        onRowClick: open,
         pageSize: 50,
         columns: [
           { id: 'title', label: 'Test group', value: (row: Rec) => String(row.title ?? ''), cell: (row: Rec) => drill(row.title, () => open(row)) },

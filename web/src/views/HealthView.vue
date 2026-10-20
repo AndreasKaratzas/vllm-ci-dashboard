@@ -11,11 +11,11 @@ import { useClock } from '@/composables/useClock'
 import { useOperationSections } from '@/composables/useOperations'
 import { useQueryState } from '@/composables/useQueryState'
 import { useSheetStack } from '@/composables/useSheetStack'
-import { age, shortDate, type Rec } from '@/domain/format'
-import { sourceFreshness, sourcesFreshness, type FreshnessState } from '@/domain/freshness'
+import { shortDate, type Rec } from '@/domain/format'
+import { freshnessOf, sourceFreshness } from '@/domain/freshness'
 import { ciHealthPublicationRetentionMessage, latestAmd } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
-import type { Tone } from '@/lib/tone'
+import { freshnessChip } from '@/features/freshness/freshness'
 import HealthAbout from './health/HealthAbout.vue'
 import HealthHardware from './health/HealthHardware.vue'
 import HealthMirrors from './health/HealthMirrors.vue'
@@ -60,18 +60,11 @@ const header = computed<{ observedAt: unknown; action: { label: string; url: str
   return { observedAt: o.generated_at, action: null }
 })
 
-const STATE_TONE: Record<FreshnessState, Tone> = { fresh: 'pass', warn: 'soft', stale: 'hard' }
 const freshness = computed<Freshness | undefined>(() => {
   if (!ops.value) return undefined
-  const rows = sourceFreshness(ops.value, null, now.value)
-  const summary = sourcesFreshness(rows, current.value.sources)
-  if (!summary) return undefined
-  const sources = summary.sources.map((row) => `${row.label} ${row.timestamp ? age(row.timestamp, now.value) : 'has no timestamp'} (target ${row.warnMinutes} min)`)
-  return {
-    text: summary.timestamp ? `Updated ${age(summary.timestamp, now.value)}` : 'Update time unknown',
-    tone: STATE_TONE[summary.state],
-    detail: [header.value.observedAt ? `Observed ${shortDate(header.value.observedAt)}` : null, ...sources].filter(Boolean).join(' · '),
-  }
+  const chip = freshnessChip(freshnessOf(sourceFreshness(ops.value, null, now.value), current.value.sources), now.value)
+  if (!chip || !header.value.observedAt) return chip
+  return { ...chip, detail: `Observed ${shortDate(header.value.observedAt)} · ${chip.detail}` }
 })
 </script>
 

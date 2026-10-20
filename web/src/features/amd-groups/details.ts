@@ -189,7 +189,7 @@ export function logicalCatalogDetail(title: string, rows: Rec[], context: AmdGro
       {
         rows,
         columns: logicalCatalogColumns(context),
-        rowDetail: (row: Rec) => logicalGroupDetail(row, context),
+        onRowClick: (row: Rec) => logicalGroupDetail(row, context),
         searchPlaceholder: 'Filter logical test group, result, or hardware',
         emptyText: 'No logical test groups in this slice.',
         pageSize: 25,

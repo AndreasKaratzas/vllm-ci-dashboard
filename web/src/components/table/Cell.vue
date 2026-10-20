@@ -3,6 +3,7 @@ import { ExternalLink } from '@lucide/vue'
 import type { Detail } from '@/components/evidence/detail'
 import StatusBadge from '@/components/feedback/StatusBadge.vue'
 import { Badge } from '@/components/ui/badge'
+import Sparkline from '@/components/stat/Sparkline.vue'
 import type { CellSpec } from './columns'
 
 const props = defineProps<{ cell: CellSpec }>()
@@ -43,10 +44,14 @@ function open() {
       <Badge v-for="tag in cell.tags" :key="tag" variant="outline" class="font-normal text-muted-foreground">{{ tag }}</Badge>
       <span v-if="!cell.tags.length" class="text-muted-foreground">—</span>
     </span>
-    <span v-else-if="cell.dot" class="inline-flex items-center gap-1.5" :class="cell.mono && 'font-mono text-xs'">
-      <span class="size-2 shrink-0 rounded-full" :style="{ backgroundColor: cell.dot }" aria-hidden="true" />{{ cell.text }}
+    <span v-else-if="cell.dots?.length" class="inline-flex items-center gap-1.5" :class="[cell.mono && 'font-mono text-xs', cell.nowrap && 'sm:whitespace-nowrap']">
+      <span class="inline-flex shrink-0 -space-x-0.5" aria-hidden="true">
+        <span v-for="(color, index) in cell.dots" :key="index" class="size-2 rounded-full ring-2 ring-card" :style="{ backgroundColor: color }" />
+      </span>
+      {{ cell.text }}
     </span>
-    <span v-else :class="[cell.mono && 'font-mono text-xs', (cell.muted || cell.text === '—') && 'text-muted-foreground']">{{ cell.text }}</span>
+    <span v-else :class="[cell.mono && 'font-mono text-xs', (cell.muted || cell.text === '—') && 'text-muted-foreground', cell.nowrap && 'sm:whitespace-nowrap']">{{ cell.text }}</span>
+    <Sparkline v-if="cell.spark" :values="cell.spark.values" :label="cell.spark.label" :color="cell.spark.color" class="h-8! w-28" />
     <span v-if="cell.sub" class="text-xs text-muted-foreground">{{ cell.sub }}</span>
   </span>
 </template>

@@ -8,7 +8,7 @@ import DataTable from '@/components/table/DataTable.vue'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { TONE_ICON, TONE_LABEL, toneClasses } from '@/lib/palette'
-import type { Detail, DetailStat } from './detail'
+import type { Detail, DetailStat, DetailTable } from './detail'
 
 const props = withDefaults(defineProps<{ detail: Detail; depth?: number; minWidth?: Detail['width'] }>(), { depth: 0 })
 const open = defineModel<boolean>('open', { required: true })
@@ -31,6 +31,10 @@ const statBadge = (stat: DetailStat) => {
 }
 const fields = computed(() => (props.detail.fields ?? []).filter((f) => f.value !== null && f.value !== undefined && f.value !== ''))
 const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url))
+function openRow(table: DetailTable, row: unknown) {
+  const next = table.onRowClick?.(row)
+  if (next) emit('drill', next)
+}
 </script>
 
 <template>
@@ -112,10 +116,10 @@ const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url)
             :search-placeholder="table.searchPlaceholder"
             :filters="table.filters"
             :show-total="table.showTotal"
-            :on-row-click="table.rowDetail ? (row: unknown) => emit('drill', table.rowDetail!(row)) : undefined"
             :page-size="table.pageSize ?? 25"
             :empty-text="table.emptyText"
             :label="table.title"
+            :on-row-click="table.onRowClick && ((row: unknown) => openRow(table, row))"
             @drill="(d) => emit('drill', d)"
           />
         </section>

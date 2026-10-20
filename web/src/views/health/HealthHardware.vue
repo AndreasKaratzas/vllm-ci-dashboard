@@ -118,7 +118,7 @@ function openMatrix() {
         searchText: (row: Rec) => [row.title, row.area].join(' '),
         searchPlaceholder: 'Filter test group or area',
         showTotal: true,
-        rowDetail: (row: Rec) => groupHistoryDetail(row, props.ops),
+        onRowClick: (row: Rec) => groupHistoryDetail(row, props.ops),
         pageSize: 50,
       },
     ],

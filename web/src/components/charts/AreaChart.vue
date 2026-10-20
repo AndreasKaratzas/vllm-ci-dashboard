@@ -54,6 +54,8 @@ const gradientId = (key: string) => `${uid}-${key}`
 
 const visible = computed(() => (range.value > 0 ? props.rows.slice(-range.value) : props.rows))
 const xValue = (row: T) => Number(props.x(row))
+// Areas stack on their baseline, so a domain that excludes zero fills from its floor rather than from zero.
+const floor = computed(() => (props.yDomain && props.yDomain[0] > 0 ? props.yDomain[0] : 0))
 const titleOf = (row: T) => (props.rowLabel ? props.rowLabel(row) : props.xFormat(xValue(row)))
 const svgDefs = computed(() =>
   props.series
@@ -129,12 +131,14 @@ const barScale = computed(() =>
   integerTicks(0, Math.max(0, ...visible.value.map((row) => barAccessors.value.reduce((sum, accessor) => sum + accessor(row), 0))), 2),
 )
 const barEvents = { [StackedBar.selectors.bar]: { click: (row: T) => bar.select(row) } }
-const barTriggers = { [StackedBar.selectors.bar]: (row: T) => bar.tooltip(row) }
+// Stacked bars bind a stack record, not the row, to each path.
+const barTriggers = { [StackedBar.selectors.bar]: (d: { datum: T }) => bar.tooltip(d.datum) }
 </script>
 
 <template>
   <div class="flex min-w-0 flex-col gap-2" data-slot="area-chart">
-    <div v-if="ranges?.length || inspectTop" class="flex items-center justify-end gap-2">
+    <div v-if="ranges?.length || inspectTop || $slots.header" class="flex min-h-7 flex-wrap items-center justify-end gap-2">
+      <div v-if="$slots.header" class="mr-auto min-w-0"><slot name="header" /></div>
       <SegmentedSelect v-if="ranges?.length" v-model="rangeModel" :items="rangeItems" :label="`${label} range`" :show-label="false" class="w-36 sm:w-auto" />
       <ChartInspect v-if="inspectTop" :items="inspectItems(visible)" :label="label" @select="(i) => select(visible[i])" />
     </div>
@@ -152,7 +156,8 @@ const barTriggers = { [StackedBar.selectors.bar]: (row: T) => bar.tooltip(row) }
             v-for="s in series"
             :key="`area-${s.key}`"
             :x="(m: Mark) => m.x"
-            :y="(m: Mark) => seriesValue(m.row, s.key)"
+            :y="(m: Mark) => seriesValue(m.row, s.key) - floor"
+            :baseline="() => floor"
             :color="`url(#${gradientId(s.key)})`"
             curve-type="monotoneX"
             :duration="300"
@@ -168,11 +173,11 @@ const barTriggers = { [StackedBar.selectors.bar]: (row: T) => bar.tooltip(row) }
             :duration="300"
           />
           <VisAxis v-if="!bars" type="x" :tick-values="xTicks" :tick-format="xFormat" :tick-line="false" :domain-line="false" :grid-line="false" />
-          <VisAxis type="y" :num-ticks="4" :tick-values="yTicks" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
+          <VisAxis type="y" :num-ticks="yTicks ? undefined : 4" :tick-values="yTicks" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
           <ChartTooltip />
           <ChartCrosshair
             :template="(m: Mark) => tooltip(m.row)"
-            :on-crosshair-move="(x: number | Date | undefined, m: Mark | undefined) => track(x, m?.row)"
+            :onCrosshairMove="(x: number | Date | undefined, m: Mark | undefined) => track(x, m?.row)"
             :color="series.map((s) => s.color)"
           />
         </VisXYContainer>

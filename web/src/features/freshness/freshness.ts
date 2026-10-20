@@ -22,20 +22,6 @@ export function sourceAge(summary: Pick<FreshnessSummary, 'timestamp'> | null | 
   return summary?.timestamp ? age(summary.timestamp, nowMs) : 'unknown'
 }
 
-/** One line per source: "CI health 2h ago". */
-export function sourceLines(sources: SourceFreshness[], nowMs: number): string[] {
-  return sources.map((row) => `${row.label} ${row.timestamp ? age(row.timestamp, nowMs) : 'without a timestamp'}`)
-}
-
-/** The PageHeader chip for the sources a page shows: "<prefix> 2h ago" with the worst state's tone. */
-export function freshnessChip(summary: FreshnessSummary | null, nowMs: number, prefix = 'Collected'): Freshness | undefined {
-  if (!summary) return undefined
-  return {
-    text: `${prefix} ${sourceAge(summary, nowMs)}`,
-    tone: FRESHNESS_TONE[summary.state],
-    detail: `${sourceLines(summary.sources, nowMs).join(' · ')}. The age is the oldest of these collector sources.`,
-  }
-}
 
 /** 150 -> "2h 30m", 180 -> "3h", 2160 -> "36h". */
 function minutesText(minutes: number): string {
@@ -48,6 +34,22 @@ function minutesText(minutes: number): string {
 /** "2h 30m / 3h" (target / stale), or just the stale limit when both match. */
 function target(row: SourceFreshness): string {
   return row.warnMinutes === row.staleMinutes ? minutesText(row.staleMinutes) : `${minutesText(row.warnMinutes)} / ${minutesText(row.staleMinutes)}`
+}
+
+/** One line per source: "CI health 2h ago (target 2h 30m / 3h)". */
+export function sourceLines(sources: SourceFreshness[], nowMs: number): string[] {
+  return sources.map((row) => `${row.label} ${row.timestamp ? age(row.timestamp, nowMs) : 'without a timestamp'} (target ${target(row)})`)
+}
+
+/** The PageHeader chip for the sources a page shows: "<prefix> 2h ago" with the worst state's tone. */
+export function freshnessChip(summary: FreshnessSummary | null, nowMs: number, prefix = 'Collected'): Freshness | undefined {
+  if (!summary) return undefined
+  const oldest = summary.sources.length > 1 ? ' The age is the oldest of these collector sources.' : ''
+  return {
+    text: summary.timestamp ? `${prefix} ${sourceAge(summary, nowMs)}` : `${prefix} at an unknown time`,
+    tone: FRESHNESS_TONE[summary.state],
+    detail: `${sourceLines(summary.sources, nowMs).join(' · ')}.${oldest}`,
+  }
 }
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? '' : 's'}`
@@ -112,7 +114,15 @@ export function freshnessDetail(rows: SourceFreshness[], nowMs: number): Detail 
       },
     ],
     sources: [{ label: 'Freshness targets', url: TARGETS_URL }],
-    tables: [{ title: 'Sources', meta: plural(rows.length, 'source'), columns: COLUMNS(nowMs), rows, pageSize: false }],
+    tables: [
+      {
+        title: 'Sources',
+        meta: `${plural(collectors.length, 'collector source')}${rows.length > collectors.length ? ` · ${rows.length - collectors.length} upstream activity, not counted` : ''}`,
+        columns: COLUMNS(nowMs),
+        rows,
+        pageSize: false,
+      },
+    ],
     width: 'lg',
   }
 }

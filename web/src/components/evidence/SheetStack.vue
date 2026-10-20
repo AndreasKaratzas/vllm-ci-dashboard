@@ -51,5 +51,7 @@ function forget(key: string) {
     @update:open="(open: boolean) => !open && entry.open && sheets.closeFrom(entry.depth)"
     @drill="sheets.push"
     @closed="forget(entry.key)"
-  />
+  >
+    <slot :detail="entry.detail" :depth="entry.depth" />
+  </EvidenceSheet>
 </template>
