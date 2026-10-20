@@ -54,6 +54,31 @@ describe('EvidenceSheet', () => {
   })
 })
 
+describe('EvidenceSheet extras', () => {
+  it('draws a trend panel, explains muted fields, puts the footnote last, and opens whole rows', async () => {
+    const detail: Detail = {
+      id: 'queue',
+      title: 'amd_mi300_1',
+      fields: [{ label: 'Share', value: '—', hint: 'Needs complete coverage' }],
+      trend: { title: 'Mappings on this queue', meta: '7 days', values: [1, 4, 2], range: ['Oct 12', 'Oct 19'] },
+      footnote: 'Counts are exact inside the source window.',
+      tables: [{ columns: [{ id: 'job', label: 'Job', value: (r: { n: string }) => r.n }], rows: [{ n: 'Job 7' }], rowDetail: () => child }],
+    }
+    const wrapper = mount(EvidenceSheet, { props: { detail, open: true }, attachTo: document.body })
+    await settle()
+    const sheet = sheets()[0]!
+    expect(text(sheet.querySelector('[data-slot=evidence-trend]'))).toBe('Mappings on this queue 7 days Oct 12 Oct 19')
+    expect(sheet.querySelector('[data-slot=evidence-trend] [data-slot=sparkline]')).not.toBeNull()
+    const dd = sheet.querySelector('[data-slot=evidence-fields] dd')!
+    expect([dd.getAttribute('title'), dd.classList.contains('text-muted-foreground')]).toEqual(['Needs complete coverage', true])
+    const body = sheet.querySelector('[data-slot=evidence-footnote]')!
+    expect(body.previousElementSibling!.tagName).toBe('SECTION')
+    sheet.querySelector<HTMLElement>('tbody tr')!.click()
+    expect(wrapper.emitted('drill')).toEqual([[child]])
+    wrapper.unmount()
+  })
+})
+
 describe('SheetStack', () => {
   it('pushes drill-downs and goes Back to the previous sheet', async () => {
     const Host = defineComponent({

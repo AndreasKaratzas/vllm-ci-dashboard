@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import Callout from '@/components/feedback/Callout.vue'
 import EmptyState from '@/components/feedback/EmptyState.vue'
 import StatusBadge from '@/components/feedback/StatusBadge.vue'
+import Sparkline from '@/components/stat/Sparkline.vue'
 import DataTable from '@/components/table/DataTable.vue'
 import { Button } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -16,6 +17,10 @@ const emit = defineEmits<{ drill: [Detail]; closed: [] }>()
 const WIDTH = { md: 'sm:max-w-xl', lg: 'sm:max-w-3xl', xl: 'sm:max-w-5xl' } as const
 const width = computed(() => WIDTH[props.detail.width ?? 'lg'])
 const fields = computed(() => (props.detail.fields ?? []).filter((f) => f.value !== null && f.value !== undefined && f.value !== ''))
+function drillRow(rowDetail: (row: unknown) => Detail | undefined, row: unknown) {
+  const next = rowDetail(row)
+  if (next) emit('drill', next)
+}
 const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url))
 </script>
 
@@ -51,10 +56,21 @@ const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url)
           </div>
         </dl>
 
+        <section v-if="detail.trend && detail.trend.values.length > 1" class="flex flex-col gap-2 rounded-lg border p-4" data-slot="evidence-trend">
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 class="text-sm font-semibold">{{ detail.trend.title }}</h3>
+            <span v-if="detail.trend.meta" class="text-xs text-muted-foreground">{{ detail.trend.meta }}</span>
+          </div>
+          <Sparkline :values="detail.trend.values" :label="`${detail.trend.title}: ${detail.trend.values.length} points`" />
+          <div v-if="detail.trend.range" class="flex justify-between text-xs text-muted-foreground tabular-nums">
+            <span>{{ detail.trend.range[0] }}</span><span>{{ detail.trend.range[1] }}</span>
+          </div>
+        </section>
+
         <dl v-if="fields.length" data-slot="evidence-fields" class="grid grid-cols-1 gap-x-6 gap-y-2 rounded-lg border p-4 text-sm sm:grid-cols-[minmax(9rem,auto)_1fr]">
           <template v-for="field in fields" :key="field.label">
             <dt class="text-muted-foreground">{{ field.label }}</dt>
-            <dd class="font-medium break-words">{{ field.value }}</dd>
+            <dd class="font-medium break-words" :class="field.value === '—' && 'text-muted-foreground'" :title="field.hint">{{ field.value }}</dd>
           </template>
         </dl>
 
@@ -75,9 +91,12 @@ const sources = computed(() => (props.detail.sources ?? []).filter((s) => s.url)
             :page-size="table.pageSize ?? 25"
             :empty-text="table.emptyText"
             :label="table.title"
+            :on-row-click="table.rowDetail ? (row: unknown) => drillRow(table.rowDetail!, row) : undefined"
             @drill="(d) => emit('drill', d)"
           />
         </section>
+
+        <p v-if="detail.footnote" class="border-t pt-4 text-xs text-muted-foreground" data-slot="evidence-footnote">{{ detail.footnote }}</p>
       </div>
     </SheetContent>
   </Sheet>

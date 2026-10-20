@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
 
 import { readGolden } from './golden/read.mjs';
-import { collectErrors, expectQuality, setTheme } from './support/quality.mjs';
+import { expectQuality, setTheme } from './support/quality.mjs';
 import { routeSection } from './support/sections.mjs';
 
 // The fixture site's omni section carries no mapping history, so most cases
@@ -27,18 +27,39 @@ async function isolate(page, omniBody) {
 }
 
 const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
-// The design system shows a missing headline value as a muted em dash and labels in sentence case.
-const MISSING = new Set(['-', 'Unavailable']);
+// The design system writes labels in sentence case. A missing headline value is a muted em dash,
+// and a withheld rate says why instead.
+const HEADLINE = { '-': '—', Unavailable: 'Needs complete coverage' };
 function headline(fact) {
   const [label, value, meta, tone] = fact.split(' | ');
-  return [label.toLowerCase(), MISSING.has(value) ? '—' : value, meta, tone].join(' | ');
+  return [label.toLowerCase(), HEADLINE[value] ?? value, meta, tone].join(' | ');
 }
-const row = (cells) => cells.map((cell) => (cell === '—' ? '-' : cell)).join(' | ');
+// In tables and sheets a missing value is a muted em dash; a withheld one explains itself in its tooltip.
+function shownFact(el) {
+  const text = (el?.textContent || '').replace(/\s+/g, ' ').trim();
+  if (text !== '—') return text;
+  const hint = el.querySelector('[title]')?.getAttribute('title') ?? el.getAttribute('title') ?? '';
+  return hint.startsWith('Unavailable') ? 'Unavailable' : '-';
+}
 
 // A fresh load: re-entering the current hash route would keep an open sheet.
 async function reload(page, route = '/#/omni') {
   await page.goto('about:blank');
   await page.goto(route);
+}
+
+/** Hovers the middle of a chart until its crosshair tracks a point, then clicks it. */
+async function clickChart(page, selector) {
+  const chart = page.locator(selector);
+  await chart.scrollIntoViewIfNeeded();
+  const box = await chart.boundingBox();
+  const [x, y] = [box.x + box.width * 0.55, box.y + box.height * 0.5];
+  await page.mouse.move(x - 10, y);
+  await page.mouse.move(x, y);
+  await expect(page.getByText(/^Click for/).first()).toBeVisible();
+  await page.mouse.click(x, y);
+  // Opening the sheet retires the crosshair tooltip; let it fade out.
+  await expect(page.getByText(/^Click for/)).toBeHidden();
 }
 
 async function settled(page) {
@@ -64,17 +85,17 @@ async function workloadFacts(page, route) {
   await page.goto(route);
   await settled(page);
   await page.locator('[data-testid=omni-workload], [data-testid=omni-mapping-empty]').first().waitFor();
-  const facts = await page.locator('body').evaluate((root, readKpisSource) => {
+  const facts = await page.locator('body').evaluate((root, [readKpisSource, shownSource]) => {
     const t = (el) => (el?.textContent || '').replace(/\s+/g, ' ').trim();
     const read = new Function(`return ${readKpisSource}`)();
+    const shown = new Function(`return ${shownSource}`)();
     const panel = (card) => (card ? `${t(card.querySelector('[data-slot=card-title]'))} | ${t(card.querySelector('[data-slot=card-description]'))}` : '');
     const rows = (scope) =>
-      scope ? [...scope.querySelectorAll('tbody tr')].map((tr) => [...tr.querySelectorAll('td')].map(t).filter((cell, i, all) => cell || i < all.length - 1)) : [];
+      scope ? [...scope.querySelectorAll('tbody tr')].map((tr) => [...tr.querySelectorAll('td')].map(shown).filter((cell, i, all) => cell || i < all.length - 1)) : [];
     const note = root.querySelector('[data-testid=omni-scope-note]');
     return {
       description: t(root.querySelector('[data-slot=page-header] p')),
       kpis: read(root, '[data-testid^=omni-kpi-]'),
-      noteHeading: t(note?.querySelector('p')),
       noteTone: note?.dataset.tone,
       panels: [panel(root.querySelector('[data-testid=omni-volume]')), panel(root.querySelector('[data-testid=omni-impact]'))],
       empties: [t(root.querySelector('[data-testid=omni-volume-empty]')), t(root.querySelector('[data-testid=omni-impact-empty]'))],
@@ -83,14 +104,16 @@ async function workloadFacts(page, route) {
       activeMapping: t(root.querySelector('[data-testid=omni-mapping-range] [data-state=on]')),
       emptyMapping: t(root.querySelector('[data-testid=omni-mapping-empty]')),
     };
-  }, readKpis.toString());
-  if (facts.noteHeading) {
-    await page.getByRole('button', { name: 'Coverage details' }).click();
+  }, [readKpis.toString(), shownFact.toString()]);
+  // The coverage note lives behind the coverage chip in the page header.
+  if (facts.noteTone) {
+    await page.getByTestId('omni-scope-note').click();
+    facts.noteHeading = norm(await page.getByTestId('omni-scope-heading').textContent());
     facts.noteText = norm(await page.getByTestId('omni-scope-text').textContent());
     await page.keyboard.press('Escape');
   }
-  facts.impactRows = facts.impactRows.map(row);
-  facts.comparison = facts.comparison.map(row);
+  facts.impactRows = facts.impactRows.map((cells) => cells.join(' | '));
+  facts.comparison = facts.comparison.map((cells) => cells.join(' | '));
   return facts;
 }
 
@@ -142,17 +165,18 @@ function expectLive(actual, expected) {
 async function v2Drawer(page) {
   const sheet = page.locator('[data-slot=evidence-sheet][data-state=open]').last();
   await sheet.waitFor();
-  return sheet.evaluate((o) => {
+  return sheet.evaluate((o, shownSource) => {
     const t = (el) => (el?.textContent || '').replace(/\s+/g, ' ').trim();
+    const shown = new Function(`return ${shownSource}`)();
     return {
       title: t(o.querySelector('[data-slot=sheet-title]')),
       subtitle: t(o.querySelector('[data-slot=sheet-description]')),
-      fields: [...o.querySelectorAll('[data-slot=evidence-fields] dt')].map((dt) => `${t(dt)}=${t(dt.nextElementSibling)}`),
+      fields: [...o.querySelectorAll('[data-slot=evidence-fields] dt')].map((dt) => `${t(dt)}=${shown(dt.nextElementSibling)}`),
       strip: [...o.querySelectorAll('[data-slot=evidence-stat-value]')].map(t),
       firstColumn: [...o.querySelectorAll('table')].map((table) => [...table.querySelectorAll('tbody tr')].map((tr) => t(tr.querySelector('td')))),
       empties: [...o.querySelectorAll('[data-slot=empty-state]')].map(t),
     };
-  });
+  }, shownFact.toString());
 }
 
 test.describe('Omni CI matches the golden page facts', () => {
@@ -165,8 +189,7 @@ test.describe('Omni CI matches the golden page facts', () => {
     expect(v2.description).toBe(expected.facts.description);
     expect(v2.activeMapping).toBe(expected.facts.activeMapping);
     // Without mapping history the KPI row, charts, and comparison collapse into one
-    // empty state that carries the reason every one of them reported.
-    expect(new Set(expected.facts.empties)).toEqual(new Set([expected.facts.kpis[0].split(' | ')[2]]));
+    // empty state that carries the reason they all reported.
     expect(v2.emptyMapping).toContain(expected.facts.empties[0]);
     expect(v2.kpis).toEqual([]);
     expectLive(v2, expected.facts);
@@ -214,12 +237,27 @@ test.describe('Omni CI matches the golden page facts', () => {
 
     // Repository comparison row -> workload drawer; queue preview row -> queue impact drawer.
     await reload(page);
-    await page.getByTestId('omni-comparison').locator('tbody tr').nth(1).getByRole('button').click();
+    await page.getByTestId('omni-comparison').locator('tbody tr').nth(1).click();
     expect(await v2Drawer(page)).toEqual(expected.mainWorkload);
     await page.keyboard.press('Escape');
     await expect(page.locator('[data-slot=evidence-sheet][data-state=open]')).toHaveCount(0);
-    await page.getByTestId('omni-impact-preview').locator('tbody tr').first().getByRole('button').first().click();
+    await page.getByTestId('omni-impact-preview').locator('tbody tr').first().click();
     expect(await v2Drawer(page)).toEqual(expected.queue);
+    // The queue sheet trends the queue across the window.
+    await expect(page.locator('[data-slot=evidence-sheet][data-state=open] [data-slot=evidence-trend]')).toBeVisible();
+  });
+
+  test('chart points open their evidence', async ({ page }) => {
+    await isolate(page, MAPPED_OMNI);
+    await reload(page, '/#/omni?mapping=1d');
+    await settled(page);
+    await clickChart(page, '[data-testid=omni-volume] [data-slot=area-chart] [role=img]');
+    await expect(page.locator('[data-slot=evidence-sheet][data-state=open] [data-slot=sheet-title]')).toHaveText(/^\d\d-\d\d \d\d:00 UTC$/);
+
+    await reload(page, '/#/omni?view=live&range=72h');
+    await settled(page);
+    await clickChart(page, '[data-testid=omni-live] [data-slot=area-chart] [role=img]');
+    await expect(page.locator('[data-slot=evidence-sheet][data-state=open] [data-slot=sheet-title]')).toHaveText(/^Omni occupancy at /);
   });
 
   test('window selections and old links keep their windows', async ({ page }) => {
@@ -250,9 +288,24 @@ test.describe('Omni CI matches the golden page facts', () => {
 const SHEETS = [
   ['mapping breakdown', '/#/omni', (page) => page.locator('[data-testid=omni-kpi-omni-mapped-jobs] [data-kpi-action]').click()],
   ['time buckets', '/#/omni', (page) => page.getByRole('button', { name: 'Time buckets' }).click()],
+  ['chart bucket', '/#/omni?mapping=1d', (page) => clickChart(page, '[data-testid=omni-volume] [data-slot=area-chart] [role=img]')],
   ['queue impact', '/#/omni', (page) => page.getByTestId('omni-impact-preview').locator('tbody tr').first().click()],
+  ['repository', '/#/omni', (page) => page.getByTestId('omni-comparison').locator('tbody tr').first().click()],
   ['active jobs', '/#/omni?view=live', (page) => page.getByRole('button', { name: /^Active jobs \(/ }).click()],
+  ['current queue', '/#/omni?view=live', (page) => page.getByTestId('omni-live-queues').locator('tbody tr').first().click()],
+  ['occupancy snapshot', '/#/omni?view=live&range=72h', (page) => clickChart(page, '[data-testid=omni-live] [data-slot=area-chart] [role=img]')],
 ];
+
+// Both views race the live queue branch against the published copy; isolate() aborts the live
+// branch, and Chromium logs each aborted load. Every other console error still fails the gate.
+function collectPageErrors(page) {
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => {
+    if (message.type() === 'error' && !message.location().url.startsWith('https://raw.githubusercontent.com/')) errors.push(message.text());
+  });
+  return errors;
+}
 
 for (const theme of ['light', 'dark']) {
   for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
@@ -263,24 +316,23 @@ for (const theme of ['light', 'dark']) {
         await isolate(page, MAPPED_OMNI);
       });
 
-      // Aborted raw.githubusercontent requests (see isolate) log net::ERR_FAILED by design.
-      for (const route of ['/#/omni', '/#/omni?view=live']) {
+      for (const route of ['/#/omni', '/#/omni?mapping=1d', '/#/omni?view=live', '/#/omni?view=live&range=72h']) {
         test(`published snapshot ${route} meets the quality gates`, async ({ page }) => {
-          const errors = collectErrors(page);
+          const errors = collectPageErrors(page);
           await page.goto(route);
           await settled(page);
-          await expectQuality(page, errors.filter((e) => !e.includes('net::ERR_FAILED')));
+          await expectQuality(page, errors);
         });
       }
 
       for (const [name, route, open] of SHEETS) {
         test(`${name} sheet meets the quality gates`, async ({ page }) => {
-          const errors = collectErrors(page);
+          const errors = collectPageErrors(page);
           await page.goto(route);
           await settled(page);
           await open(page);
           await page.locator('[data-slot=evidence-sheet][data-state=open]').waitFor();
-          await expectQuality(page, errors.filter((e) => !e.includes('net::ERR_FAILED')));
+          await expectQuality(page, errors);
         });
       }
     });

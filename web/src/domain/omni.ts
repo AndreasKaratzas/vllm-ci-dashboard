@@ -390,6 +390,74 @@ export function omniMappingBuckets(windowInfo: MappingWindowView | null | undefi
     .sort((left, right) => left.start - right.start)
 }
 
+/** MI325 queues are being retired; Omni work landing there is exposure. */
+export function isRetiringQueue(name: string): boolean {
+  return name.startsWith('amd_mi325_')
+}
+
+function retiringMapped(byQueue: Record<string, Rec> | null | undefined): number {
+  return Object.entries(byQueue || {}).reduce((sum, [name, stats]) => sum + (isRetiringQueue(name) ? Number(stats.mapped_jobs || 0) : 0), 0)
+}
+
+export interface KpiTrend {
+  /** One value per bucket, oldest first; null when there is nothing to draw. */
+  series: number[] | null
+  /** The newer half of the closed buckets against the older half. */
+  change: { kind: 'percent' | 'points'; value: number } | null
+}
+
+const omniMapped = (b: MappingBucket) => Number(b.workloads.omni.mapped_jobs || 0)
+const mainMapped = (b: MappingBucket) => Number(b.workloads.main.mapped_jobs || 0)
+const omniSlots = (b: MappingBucket) => Number(b.workloads.omni.mapped_gpu_slots || 0)
+const omniRetiring = (b: MappingBucket) => retiringMapped(b.workloads.omni.by_queue)
+const allMapped = (b: MappingBucket) => omniMapped(b) + mainMapped(b)
+const round1 = (value: number) => Math.round(value * 10) / 10
+
+interface TrendMeasure {
+  part: (b: MappingBucket) => number
+  /** Present for shares: the per-bucket value is part / whole in percent. */
+  whole?: (b: MappingBucket) => number
+}
+const KPI_MEASURES: Record<string, TrendMeasure> = {
+  'omni-mapped-jobs': { part: omniMapped },
+  'omni-gpu-demand': { part: omniSlots },
+  'omni-mapped-share': { part: omniMapped, whole: allMapped },
+  'omni-retiring-share': { part: omniRetiring, whole: omniMapped },
+}
+
+/**
+ * Per-KPI trends over the selected buckets. Shares, like the KPI values, exist only when the
+ * selected coverage supports rates; counts trend regardless, as observed counts.
+ */
+export function omniKpiTrends(buckets: MappingBucket[], ratesAvailable: boolean): Record<string, KpiTrend> {
+  const sum = (rows: MappingBucket[], f: (b: MappingBucket) => number) => rows.reduce((total, b) => total + f(b), 0)
+  const closed = buckets.filter((b) => b.complete)
+  const half = Math.floor(closed.length / 2)
+  const newer = closed.slice(closed.length - half)
+  const older = closed.slice(0, half)
+  return Object.fromEntries(
+    Object.entries(KPI_MEASURES).map(([id, { part, whole }]) => {
+      if (whole && !ratesAvailable) return [id, { series: null, change: null }]
+      const values = whole ? buckets.filter((b) => whole(b) > 0).map((b) => (part(b) / whole(b)) * 100) : buckets.map(part)
+      const series = values.length > 1 && values.some((v) => v !== 0) ? values : null
+      let change: KpiTrend['change'] = null
+      if (ratesAvailable && half > 0) {
+        const [n, o] = [sum(newer, part), sum(older, part)]
+        if (!whole) change = o ? { kind: 'percent', value: round1(((n - o) / o) * 100) } : null
+        else if (n + o > 0 && sum(newer, whole) && sum(older, whole)) {
+          change = { kind: 'points', value: round1((n / sum(newer, whole)) * 100 - (o / sum(older, whole)) * 100) }
+        }
+      }
+      return [id, { series, change }]
+    }),
+  )
+}
+
+/** Omni mappings on one queue per bucket, oldest first. */
+export function omniQueueSeries(buckets: MappingBucket[], queue: string): number[] {
+  return buckets.map((b) => Number((b.workloads.omni.by_queue || {})[queue]?.mapped_jobs || 0))
+}
+
 export function omniMappingBucketLabel(bucket: { start: number }, resolution: string): string {
   const date = new Date(bucket.start)
   if (resolution === 'daily') return date.toISOString().slice(0, 10)
@@ -900,6 +968,15 @@ export interface ChartBar {
   open: () => OmniDetail
 }
 
+/** One chart bucket of Omni mappings on a time axis; `current` marks the still-open bucket. */
+export type VolumePoint = {
+  start: number
+  label: string
+  value: number
+  current: boolean
+  open: () => OmniDetail
+}
+
 export interface OmniView {
   available: true
   header: { title: string; description: string; observedAt: string | null; actionLabel: string; actionUrl: string }
@@ -910,7 +987,7 @@ export interface OmniView {
   scopeNote: { tone: Tone; heading: string; text: string; methodology: () => OmniDetail; excluded: (() => OmniDetail) | null }
   methodology: () => OmniDetail
   volume:
-    | { available: true; title: string; meta: string; bars: ChartBar[]; evidence: () => OmniDetail }
+    | { available: true; title: string; meta: string; bars: ChartBar[]; points: VolumePoint[]; evidence: () => OmniDetail }
     | { available: false; title: string; meta: string; empty: string }
   impact:
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -985,10 +1062,8 @@ export function omniView(ops: Rec, mappingRange: string, omniRange: string): Omn
     : jobRangeUnknown
       ? 'observed count · population coverage unknown'
       : selectedMappingLabel
-  const retiringSum = (byQueue: Record<string, Rec>) =>
-    Object.entries(byQueue || {}).reduce((sum, [name, stats]) => sum + (name.startsWith('amd_mi325_') ? Number(stats.mapped_jobs || 0) : 0), 0)
-  const omniRetiringMapped = retiringSum(omniTotal.by_queue)
-  const mainRetiringMapped = retiringSum(mainTotal.by_queue)
+  const omniRetiringMapped = retiringMapped(omniTotal.by_queue)
+  const mainRetiringMapped = retiringMapped(mainTotal.by_queue)
   const combinedMapped = Number(omniTotal.mapped_jobs || 0) + Number(mainTotal.mapped_jobs || 0)
   const queueSnapshots: Rec = ((ops.queue || {}).snapshot || {}).queues || {}
 
@@ -1184,7 +1259,7 @@ export function omniView(ops: Rec, mappingRange: string, omniRange: string): Omn
           label: 'Omni share on this queue',
           value: mappingRatesAvailable ? percent(row.omni.mapped_jobs, Number(row.omni.mapped_jobs || 0) + Number(row.main.mapped_jobs || 0)) : 'Unavailable',
         },
-        { label: 'Lifecycle', value: row.name.startsWith('amd_mi325_') ? 'retiring' : 'active' },
+        { label: 'Lifecycle', value: isRetiringQueue(row.name) ? 'retiring' : 'active' },
         { label: 'Scope', value: contextLabel || selectedMappingLabel },
       ],
       sources: [MAPPING_SOURCE, ...(queueSnapshot.queue_url ? [{ label: 'Open Buildkite queue', url: queueSnapshot.queue_url }] : [])],
@@ -1193,7 +1268,7 @@ export function omniView(ops: Rec, mappingRange: string, omniRange: string): Omn
   }
   function mi325ExposureDetail(): OmniDetail {
     const rows: QueueMappingRow[] = Object.entries(omniTotal.by_queue || {})
-      .filter(([name]) => name.startsWith('amd_mi325_'))
+      .filter(([name]) => isRetiringQueue(name))
       .map(([name, stats]) => ({ name, omni: stats || {}, main: (mainTotal.by_queue || {})[name] || {} }))
       .sort((left, right) => Number(right.omni.mapped_jobs || 0) - Number(left.omni.mapped_jobs || 0))
     return {
@@ -1428,6 +1503,13 @@ export function omniView(ops: Rec, mappingRange: string, omniRange: string): Omn
           color: 'omni' as const,
           open: () => inspectChartPoint(mappingEvidence(bucket), SOURCE_ASSETS.workloadMapping),
         })),
+        points: mappingBuckets.map((bucket) => ({
+          start: bucket.start,
+          label: bucketLabel(bucket) + ' UTC',
+          value: Number(bucket.workloads.omni.mapped_jobs || 0),
+          current: bucket.hasOpenBucket,
+          open: () => mappingBucketDetail(bucket),
+        })),
         evidence: () =>
           historyEvidence(
             OMNI_REPOSITORIES.omni + ' mapping buckets',
@@ -1454,7 +1536,7 @@ export function omniView(ops: Rec, mappingRange: string, omniRange: string): Omn
         bars: mappingQueueRows.map((row) => ({
           label: row.name,
           value: Number(row.omni.mapped_jobs || 0),
-          color: row.name.startsWith('amd_mi325_') ? ('retiring' as const) : ('omni' as const),
+          color: isRetiringQueue(row.name) ? ('retiring' as const) : ('omni' as const),
           open: () => queueMappingDetail(row),
         })),
         preview: {

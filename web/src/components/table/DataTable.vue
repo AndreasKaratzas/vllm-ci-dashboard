@@ -12,6 +12,7 @@ import Cell from './Cell.vue'
 import type { CellSpec, ColumnSpec, FilterSpec } from './columns'
 
 const ALL = '__all__'
+const MIN_WIDTH = { sm: 'hidden sm:table-cell', md: 'hidden md:table-cell', lg: 'hidden lg:table-cell' } as const
 
 const props = withDefaults(
   defineProps<{
@@ -137,7 +138,7 @@ function activate(row: T, event: Event) {
               v-for="column in visibleColumns"
               :key="column.id"
               :aria-sort="column.sortable === false ? undefined : ariaSort(column.id)"
-              :class="column.numeric && 'text-right'"
+              :class="cn(column.numeric && 'text-right', column.minWidth && MIN_WIDTH[column.minWidth])"
             >
               <button
                 v-if="column.sortable !== false"
@@ -166,7 +167,7 @@ function activate(row: T, event: Event) {
             @keydown.enter="(e: KeyboardEvent) => activate(row, e)"
             @keydown.space="(e: KeyboardEvent) => activate(row, e)"
           >
-            <TableCell v-for="column in visibleColumns" :key="column.id" :class="cn('whitespace-normal', column.numeric && 'text-right tabular-nums')">
+            <TableCell v-for="column in visibleColumns" :key="column.id" :class="cn('whitespace-normal', column.numeric && 'text-right tabular-nums', column.minWidth && MIN_WIDTH[column.minWidth])">
               <Cell :cell="cellOf(column, row)" @drill="(d) => emit('drill', d)" />
             </TableCell>
             <TableCell v-if="onRowClick" class="w-8 pr-3 text-muted-foreground">
@@ -181,7 +182,7 @@ function activate(row: T, event: Event) {
     </div>
 
     <div v-if="pageSize" class="flex items-center justify-between gap-2 text-sm text-muted-foreground">
-      <span class="tabular-nums">{{ sorted.length.toLocaleString('en-US') }} rows</span>
+      <span class="tabular-nums">{{ sorted.length.toLocaleString('en-US') }} {{ sorted.length === 1 ? 'row' : 'rows' }}</span>
       <div v-if="pageCount > 1" class="flex items-center gap-2">
         <span class="tabular-nums">Page {{ page + 1 }} of {{ pageCount }}</span>
         <Button variant="outline" size="icon-sm" :disabled="page === 0" aria-label="Previous page" @click="page--"><ChevronLeft /></Button>

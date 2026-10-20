@@ -1,4 +1,5 @@
 import type { Detail } from '@/components/evidence/detail'
+import type { PaletteColor } from '@/lib/palette'
 import type { Tone } from '@/lib/tone'
 
 export interface CellSpec {
@@ -11,6 +12,10 @@ export interface CellSpec {
   tone?: Tone
   mono?: boolean
   sub?: string
+  /** Tooltip on the cell text, e.g. why a value is shown as a muted dash. */
+  title?: string
+  /** An inline magnitude bar before the text, `value` of `max`. */
+  bar?: { value: number; max: number; color: PaletteColor }
 }
 
 export interface ColumnSpec<T> {
@@ -22,6 +27,8 @@ export interface ColumnSpec<T> {
   numeric?: boolean
   sortable?: boolean
   hideable?: boolean
+  /** Hide the column below this viewport breakpoint (low-value columns on phones). */
+  minWidth?: 'sm' | 'md' | 'lg'
 }
 
 export interface FilterSpec<T> {

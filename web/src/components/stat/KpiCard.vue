@@ -32,6 +32,10 @@ const props = withDefaults(
     action?: KpiAction
     variant?: 'default' | 'ring'
     ratio?: { current: number; total: number }
+    /** Shown muted in place of the dash when there is no value, e.g. why it is withheld. */
+    emptyLabel?: string
+    /** 'inline' puts the delta and status beside the value, keeping long labels on one row. */
+    badges?: 'header' | 'inline'
   }>(),
   { variant: 'default', format: (value: number) => Math.round(value).toLocaleString('en-US') },
 )
@@ -48,6 +52,7 @@ const display = computed(() => {
   return Number.isFinite(props.value) ? props.format(tweened.value) : '—'
 })
 const missing = computed(() => display.value === '—')
+const quiet = computed(() => missing.value || props.value === 0)
 
 const RADIUS = 42
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS
@@ -87,15 +92,28 @@ const actionAttrs = computed(() => {
         </component>
         <template v-else>{{ label }}</template>
       </CardDescription>
-      <CardTitle
-        v-if="variant === 'default'"
-        class="font-semibold tabular-nums"
-        :class="[missing && 'text-muted-foreground', display.length > 10 ? 'text-xl @[250px]/card:text-2xl' : 'text-2xl @[250px]/card:text-3xl']"
-        data-slot="kpi-value"
-      >
-        {{ display }}<span v-if="unit && !missing" class="ml-1 text-base font-medium text-muted-foreground">{{ unit }}</span>
-      </CardTitle>
-      <CardAction v-if="delta || status" class="@max-[15rem]/card:col-start-1 @max-[15rem]/card:row-span-1 @max-[15rem]/card:row-start-3 @max-[15rem]/card:justify-self-start flex flex-wrap items-center justify-end gap-1.5">
+      <div v-if="variant === 'default'" class="flex flex-wrap items-center gap-x-2 gap-y-1">
+        <CardTitle
+          v-if="missing && emptyLabel"
+          class="text-base font-medium text-muted-foreground @[250px]/card:text-lg"
+          data-slot="kpi-value"
+        >
+          {{ emptyLabel }}
+        </CardTitle>
+        <CardTitle
+          v-else
+          class="font-semibold tabular-nums"
+          :class="[quiet && 'text-muted-foreground', display.length > 10 ? 'text-xl @[250px]/card:text-2xl' : 'text-2xl @[250px]/card:text-3xl']"
+          data-slot="kpi-value"
+        >
+          {{ display }}<span v-if="unit && !missing" class="ml-1 text-base font-medium text-muted-foreground">{{ unit }}</span>
+        </CardTitle>
+        <template v-if="badges === 'inline'">
+          <StatusBadge v-if="status" :tone="status.tone" :label="status.label" />
+          <DeltaBadge v-if="delta" :delta="delta" />
+        </template>
+      </div>
+      <CardAction v-if="badges !== 'inline' && (delta || status)" class="@max-[15rem]/card:col-start-1 @max-[15rem]/card:row-span-1 @max-[15rem]/card:row-start-3 @max-[15rem]/card:justify-self-start flex flex-wrap items-center justify-end gap-1.5">
         <StatusBadge v-if="status" :tone="status.tone" :label="status.label" />
         <DeltaBadge v-if="delta" :delta="delta" />
       </CardAction>
@@ -144,7 +162,7 @@ const actionAttrs = computed(() => {
           aria-hidden="true"
         />
       </div>
-      <p v-if="footnote" class="hidden text-muted-foreground @[15rem]/card:block">{{ footnote }}</p>
+      <p v-if="footnote" class="hidden text-muted-foreground @[15rem]/card:line-clamp-2" :title="footnote">{{ footnote }}</p>
     </CardFooter>
   </Card>
 </template>

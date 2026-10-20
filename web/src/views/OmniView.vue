@@ -15,6 +15,7 @@ import { useQueryState } from '@/composables/useQueryState'
 import { useSheetStack } from '@/composables/useSheetStack'
 import type { Rec } from '@/domain/format'
 import { OMNI_MAPPING_WINDOWS, OMNI_RANGE_WINDOWS, OMNI_REPOSITORIES, OMNI_ROUTE_DEFAULTS, omniView } from '@/domain/omni'
+import CoverageChip from './omni/CoverageChip.vue'
 import OmniLive from './omni/OmniLive.vue'
 import OmniWorkload from './omni/OmniWorkload.vue'
 import { toDetail } from './omni/present'
@@ -61,6 +62,7 @@ const show = (detail: Detail) => sheets.open(detail)
         </div>
       </template>
       <template #actions>
+        <CoverageChip v-if="view === 'workload' && model?.mappingView.available" :view="model" @open="(detail) => show(toDetail(detail))" />
         <WindowToggle v-if="view === 'workload'" v-model="mapping" :options="MAPPING_OPTIONS" label="Mapping window" data-testid="omni-mapping-range" />
         <WindowToggle v-else v-model="range" :options="RANGE_OPTIONS" label="Live queue window" data-testid="omni-range" />
       </template>
