@@ -4,7 +4,7 @@
 // the DOM the classic renderer produces (with a recording Chart stub).
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import * as v2 from '@/domain/analytics'
-import { amdLatestState, amdStateLabel } from '@/domain/ciHealth'
+import { amdLatestState, amdStateLabel, movementBuilds } from '@/domain/ciHealth'
 import { integer, shortDate, toneForState, value, type Rec } from '@/domain/format'
 import { currentAmdHealth } from '@/domain/health'
 import { latestAmd } from '@/domain/nightly'
@@ -646,9 +646,6 @@ async function compareNightlies(ops: Rec, label: string) {
   parity('nightlyDisplayName', v2.nightlyDisplayName(nightly), classic.nightlyDisplayName!(nightly))
   const model = v2.nightliesModel(nightly)
   const host = await classicNightlies(ops)
-  parity('nightliesStrip', v2Strip(model.strip), stripOf(host), label)
-  const note = host.querySelector('.ops-evidence-note')!
-  parity('movementNoteTone', model.latestMovement ? 'info' : 'soft', tone(note))
   const panelTitles = [...host.querySelectorAll('.ops-panel-title')].map(text)
   expect(panelTitles).toContain(model.name + ' nightly failure movement')
   const trs = [...host.querySelectorAll('table.ops-table tbody tr')]
@@ -661,17 +658,19 @@ async function compareNightlies(ops: Rec, label: string) {
     const badge = cells[1]!.querySelector('.ops-badge')!
     parity('nightlyStateTone', toneForState(row.state), tone(badge))
   })
+  // The movement chart draws movementBuilds oldest first.
+  const chartBuilds = movementBuilds(model.rows).reverse()
   const movement = chart('analytics-trend')!.config
-  parity('movementChartLabels', model.chartBuilds.map((b) => '#' + b.number), movement.data.labels)
-  if (model.chartBuilds.length) {
+  parity('movementChartLabels', chartBuilds.map((b) => '#' + b.number), movement.data.labels)
+  if (chartBuilds.length) {
     const evidence = chartEvidence(host, 'analytics-trend')
     parity(
       'movementChartEvidence',
-      model.chartBuilds.slice().reverse().map((b) => ['#' + b.number, v2.nightlyMovementSummary(b)]),
+      chartBuilds.slice().reverse().map((b) => ['#' + b.number, v2.nightlyMovementSummary(b)]),
       evidence.rows.map((r) => [r[0], r[2]]),
     )
   }
-  return model
+  return { model, chartBuilds }
 }
 
 function nightlyOps(builds: Rec[], extra: Rec = {}): Rec {
@@ -681,14 +680,14 @@ function nightlyOps(builds: Rec[], extra: Rec = {}): Rec {
 
 describe('AMD nightlies match the classic renderer', () => {
   it('renders the real snapshot identically', async () => {
-    const model = await compareNightlies(fixture, 'fixture')
-    await expectGoldenFile('analytics', 'nightlies', { strip: v2Strip(model.strip), rows: model.rows.map(nightlyCells) })
+    const { model, chartBuilds } = await compareNightlies(fixture, 'fixture')
+    await expectGoldenFile('analytics', 'nightlies', { rows: model.rows.map(nightlyCells) })
     expect(model.rows.length).toBeGreaterThan(5)
-    expect(model.chartBuilds.length).toBeGreaterThan(5)
+    expect(chartBuilds.length).toBeGreaterThan(5)
     expect(model.rows.some((row) => v2.nightlyCountLabel(row, 'new') === '-')).toBe(true)
     // Drop the no-signal head so the latest build carries movement.
     const withMovement = await compareNightlies(nightlyOps(fixture.nightly.pipelines[0].builds.slice(1)), 'from second')
-    expect(withMovement.latestMovement).not.toBeNull()
+    expect(withMovement.chartBuilds.at(-1)).toBe(withMovement.model.latest)
   })
 
   it('agrees on generated nightly histories', async () => {
@@ -740,7 +739,7 @@ describe('AMD nightlies match the classic renderer', () => {
 
   it('falls back to the empty cohort exactly as classic does', async () => {
     const two = { nightly: { pipelines: [fixture.nightly.pipelines[0], fixture.nightly.pipelines[0]] }, generated_at: 'x' }
-    const model = await compareNightlies(two, 'two cohorts')
+    const { model } = await compareNightlies(two, 'two cohorts')
     expect(model.rows).toEqual([])
     await compareNightlies({ nightly: { canonical_history: fixture.nightly.pipelines[0] } }, 'canonical history')
   })

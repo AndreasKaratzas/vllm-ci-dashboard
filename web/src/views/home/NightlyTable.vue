@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { link, text, type CellSpec, type ColumnSpec } from '@/components/table/columns'
+import { link, rateCell, text, type CellSpec, type ColumnSpec } from '@/components/table/columns'
 import DataTable from '@/components/table/DataTable.vue'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { integer, shortDate, type Rec } from '@/domain/format'
@@ -54,7 +54,7 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
       const missing = noSignalLabel(build)
       if (missing) return { text: missing, tone: nightlyResultTone(build) }
       const counts = nightlyCounts(build)!
-      return { text: `${(counts.passRate * 100).toFixed(1)}%`, sub: `${integer(counts.passed)} / ${integer(counts.total)}` }
+      return rateCell(counts.passRate * 100, `${integer(counts.passed)} / ${integer(counts.total)}`)
     },
     class: 'whitespace-nowrap',
   },

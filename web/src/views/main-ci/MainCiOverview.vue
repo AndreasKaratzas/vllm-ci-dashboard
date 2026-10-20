@@ -4,9 +4,23 @@ import { RouterLink } from 'vue-router'
 import DataTable from '@/components/table/DataTable.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { useClock } from '@/composables/useClock'
 import type { SheetStack } from '@/composables/useSheetStack'
-import { integer } from '@/domain/format'
-import { buildsBetween, flakinessThresholds, flakyGroups, retryGroups, type FlakyGroup, type MainBuild, type MainIncident, type RetryGroup, type TrendPoint } from '@/domain/mainCi'
+import { counted, integer } from '@/domain/format'
+import {
+  buildsBetween,
+  flakinessThresholds,
+  flakyGroups,
+  isNewIncident,
+  lastDayPoint,
+  retryGroups,
+  suspectRanges,
+  type FlakyGroup,
+  type MainBuild,
+  type MainIncident,
+  type RetryGroup,
+  type TrendPoint,
+} from '@/domain/mainCi'
 import BuildStrip from '@/features/main-ci/BuildStrip.vue'
 import {
   buildColumns,
@@ -24,22 +38,29 @@ import MainCiTrendCard from '@/features/main-ci/MainCiTrendCard.vue'
 import type { MainCi } from '@/features/main-ci/useMainCi'
 
 const props = defineProps<{ mainCi: MainCi; sheets: SheetStack }>()
+const now = useClock()
 const summary = computed(() => props.mainCi.summary.value!)
 const ctx = computed(() => props.mainCi.ctx.value)
 const builds = computed(() => props.mainCi.builds.value)
 const incidents = computed(() => props.mainCi.incidents.value)
-const windowDays = computed(() => flakinessThresholds(ctx.value.record)?.windowDays ?? null)
+const thresholds = computed(() => flakinessThresholds(ctx.value.record))
+const windowDays = computed(() => thresholds.value?.windowDays ?? null)
 
 const openBuild = (build: MainBuild) => props.sheets.open(mainBuildDetail(build, ctx.value))
 const openPoint = (point: TrendPoint, label: string) => props.sheets.open(trendPointDetail(point, buildsBetween(builds.value, point.from, point.to), label, ctx.value))
-// The 24 hours the headline rate covers end at the cohort's collection time.
-function openLastDay() {
-  const day = summary.value.last24h
-  const end = Date.parse(summary.value.collectedAt ?? '')
-  if (!day || !Number.isFinite(end)) return
-  const point: TrendPoint = { from: end - 86_400_000, to: end + 1, ...day }
-  openPoint(point, 'last 24 hours')
-}
+const lastDay = computed(() => lastDayPoint(summary.value))
+const openIncident = (row: MainIncident) => props.sheets.open(incidentDetail(row, ctx.value, incidents.value.issue, now.value))
+const fresh = computed(() => incidents.value.active.filter((row) => isNewIncident(row, now.value)).length)
+const sharedRanges = computed(() => suspectRanges(incidents.value.active))
+const incidentNote = computed(() => {
+  const active = incidents.value.active.length
+  if (!active) return 'No confirmed failure on main'
+  const parts = [`${counted(active, 'confirmed failure')}, newest first`]
+  if (fresh.value) parts.push(`${integer(fresh.value)} new in 24 hours`)
+  const shared = sharedRanges.value[0]
+  if (shared) parts.push(`${integer(shared.incidents.length)} first failed at one commit`)
+  return parts.join(' · ')
+})
 
 const alerting = <T extends { alerting: boolean }>(rows: T[]) => rows.filter((row) => row.alerting)
 const flaky = computed(() => alerting(flakyGroups(ctx.value.record)))
@@ -48,7 +69,7 @@ const retry = computed(() => alerting(retryGroups(ctx.value.record)))
 // height of the two flaky lists beside it.
 const PANEL_ROWS = 5
 const INCIDENT_ROWS = 10
-const incidentCols = computed(() => incidentColumns(ctx.value).filter((column) => ['group', 'severity', 'since'].includes(column.id)))
+const incidentCols = computed(() => incidentColumns(ctx.value, incidents.value.active, now.value).filter((column) => ['group', 'severity', 'opened', 'since'].includes(column.id)))
 const flakyCols = computed(() => flakyColumns(ctx.value).filter((column) => ['group', 'flips', 'rate'].includes(column.id)))
 const retryCols = computed(() => retryColumns(ctx.value).filter((column) => ['group', 'recovered'].includes(column.id)))
 </script>
@@ -60,7 +81,7 @@ const retryCols = computed(() => retryColumns(ctx.value).filter((column) => ['gr
     :builds="builds"
     :actions="{
       latest: builds[0] ? { label: 'Open build evidence', onOpen: () => openBuild(builds[0]!) } : undefined,
-      rate: summary.last24h ? { label: 'Open the last 24 hours', onOpen: openLastDay } : undefined,
+      rate: lastDay ? { label: 'Open the last 24 hours', onOpen: () => openPoint(lastDay!, 'last 24 hours') } : undefined,
       incidents: { label: 'Open incidents', to: { name: 'main', query: { view: 'incidents' } } },
       flaky: { label: 'Open flaky groups', to: { name: 'main', query: { view: 'flaky' } } },
     }"
@@ -84,6 +105,7 @@ const retryCols = computed(() => retryColumns(ctx.value).filter((column) => ['gr
         label="Main builds"
         empty-text="No completed main build in the cohort."
         :on-row-click="openBuild"
+        @drill="sheets.open"
       />
     </CardContent>
   </Card>
@@ -92,7 +114,7 @@ const retryCols = computed(() => retryColumns(ctx.value).filter((column) => ['gr
     <Card class="gap-4" data-testid="main-incidents-panel">
       <CardHeader>
         <CardTitle class="text-base">Active incidents</CardTitle>
-        <CardDescription>{{ incidents.active.length ? `${integer(incidents.active.length)} confirmed failures on main, hard first` : 'No confirmed failure on main' }}</CardDescription>
+        <CardDescription>{{ incidentNote }}</CardDescription>
         <CardAction v-if="incidents.active.length > INCIDENT_ROWS">
           <Button variant="ghost" size="sm" as-child><RouterLink :to="{ name: 'main', query: { view: 'incidents' } }">All {{ integer(incidents.active.length) }}</RouterLink></Button>
         </CardAction>
@@ -106,21 +128,25 @@ const retryCols = computed(() => retryColumns(ctx.value).filter((column) => ['gr
           :column-menu="false"
           label="Active main incidents"
           empty-text="Every AMD group that ran on main is passing or resolved."
-          :on-row-click="(row: MainIncident) => sheets.open(incidentDetail(row, ctx, incidents.issue))"
+          :on-row-click="openIncident"
+          @drill="sheets.open"
         />
+        <p v-if="incidents.active.length" class="mt-3 text-xs text-muted-foreground">An incident stays open until its group passes again, so a passing latest build can still have open incidents.</p>
       </CardContent>
     </Card>
     <Card class="gap-4" data-testid="main-flaky-panel">
       <CardHeader>
         <CardTitle class="text-base">Flaky and retry alerts</CardTitle>
-        <CardDescription>Groups over the watcher threshold{{ windowDays ? ` in the last ${windowDays} days` : '' }}</CardDescription>
+        <CardDescription>Groups over their alert threshold{{ windowDays ? ` in the last ${windowDays} days` : '' }}</CardDescription>
         <CardAction v-if="flaky.length + retry.length > 0">
           <Button variant="ghost" size="sm" as-child><RouterLink :to="{ name: 'main', query: { view: 'flaky' } }">All groups</RouterLink></Button>
         </CardAction>
       </CardHeader>
       <CardContent class="flex flex-col gap-5 px-4 sm:px-6">
         <section class="flex flex-col gap-2">
-          <h3 class="text-sm font-medium">Outcome flips <span class="font-normal text-muted-foreground">· {{ integer(flaky.length) }} alerting</span></h3>
+          <h3 class="text-sm font-medium">
+            Outcome flips <span class="font-normal text-muted-foreground">· {{ integer(summary.alertingFlaky ?? flaky.length) }} alerting<template v-if="thresholds"> at {{ thresholds.minFlips }} flips</template></span>
+          </h3>
           <DataTable
             :columns="flakyCols"
             :rows="flaky.slice(0, PANEL_ROWS)"
@@ -129,11 +155,15 @@ const retryCols = computed(() => retryColumns(ctx.value).filter((column) => ['gr
             :column-menu="false"
             label="Alerting flaky groups"
             empty-text="No group flips often enough to alert."
-            :on-row-click="(row: FlakyGroup) => sheets.open(groupStatsDetail(row, ctx, windowDays))"
+            :on-row-click="(row: FlakyGroup) => sheets.open(groupStatsDetail(row, ctx, thresholds))"
+            @drill="sheets.open"
           />
         </section>
         <section class="flex flex-col gap-2">
-          <h3 class="text-sm font-medium">Passes after a retry <span class="font-normal text-muted-foreground">· {{ integer(retry.length) }} alerting</span></h3>
+          <h3 class="text-sm font-medium">
+            Passes after a retry
+            <span class="font-normal text-muted-foreground">· {{ integer(summary.alertingRetry ?? retry.length) }} alerting<template v-if="thresholds"> at {{ thresholds.minRecoveries }} recoveries</template></span>
+          </h3>
           <DataTable
             :columns="retryCols"
             :rows="retry.slice(0, PANEL_ROWS)"
@@ -142,7 +172,8 @@ const retryCols = computed(() => retryColumns(ctx.value).filter((column) => ['gr
             :column-menu="false"
             label="Alerting retry groups"
             empty-text="No group recovers on retry often enough to alert."
-            :on-row-click="(row: RetryGroup) => sheets.open(groupStatsDetail(row, ctx, windowDays))"
+            :on-row-click="(row: RetryGroup) => sheets.open(groupStatsDetail(row, ctx, thresholds))"
+            @drill="sheets.open"
           />
         </section>
       </CardContent>

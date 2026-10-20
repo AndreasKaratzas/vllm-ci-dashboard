@@ -1,6 +1,6 @@
 import { markRaw } from 'vue'
-import type { Detail } from '@/components/evidence/detail'
-import { badge, dotted, drill, link, num, text, type CellSpec, type ColumnSpec, type FilterSpec } from '@/components/table/columns'
+import { rateStat, type Detail } from '@/components/evidence/detail'
+import { badge, dotted, drill, link, num, rateCell, text, type CellSpec, type ColumnSpec, type FilterSpec } from '@/components/table/columns'
 import {
   amdGroupObservations,
   amdGroupPassRate,
@@ -67,11 +67,7 @@ export function exactJobDetail(row: Rec, latestBuild: unknown): Detail {
         toneLabel: amdStateLabel(latest),
         meta: row.latest_build_number ? `#${row.latest_build_number} · ${shortDate(row.latest_observed_at)}` : 'No retained latest result',
       },
-      {
-        label: 'Retained-run pass rate',
-        value: passRate === null ? '—' : `${passRate.toFixed(1)}%`,
-        meta: `${integer(row.passed)} passed · ${integer(row.soft_failed)} soft fail · ${integer(row.hard_failed)} hard fail`,
-      },
+      rateStat('Retained-run pass rate', passRate, `${integer(row.passed)} passed · ${integer(row.soft_failed)} soft fail · ${integer(row.hard_failed)} hard fail`),
       { label: 'Current pass streak', value: integer(row.current_pass_streak), meta: `of ${integer(row.runs)} retained AMD ${Number(row.runs) === 1 ? 'nightly' : 'nightlies'}` },
       {
         label: 'Non-passing runs',
@@ -237,7 +233,7 @@ export function exactJobCatalogColumns(latestBuild: unknown): ColumnSpec<Rec>[] 
       label: 'Retained-run pass rate',
       numeric: true,
       value: (row) => amdGroupPassRate(row) ?? -1,
-      cell: (row) => num(amdGroupPassRate(row), (rate) => `${rate.toFixed(1)}%`),
+      cell: (row) => rateCell(amdGroupPassRate(row)),
       class: 'hidden sm:table-cell',
     },
     { id: 'runs', label: 'Runs', numeric: true, hideable: true, value: (row) => Number(row.runs || 0), cell: (row) => num(Number(row.runs || 0)), class: 'hidden md:table-cell' },

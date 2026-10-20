@@ -277,6 +277,43 @@ export function amdNightlyPresentation(
   }
 }
 
+/** A nightly with parsed test results: the nightlies every count and rate comes from. */
+export function hasTestSignal(build: Rec | null | undefined): boolean {
+  return !!build && build.has_test_results !== false && Number(build.total_groups || 0) > 0
+}
+
+/** The newest nightly with test results, which every page counts from while a newer one runs. */
+export function signalNightly(builds: Rec[] | null | undefined): Rec | undefined {
+  return (builds || []).find(hasTestSignal)
+}
+
+/** Buildkite is still running the build ('failing' is a running build with a failed job). */
+export function nightlyRunning(build: Rec | null | undefined): boolean {
+  const state = String(build?.state || '').toLowerCase()
+  return state === 'failing' || IN_PROGRESS_STATES.includes(state)
+}
+
+/** The newest nightly when it has no test results yet, with the failures already observed in it. */
+export interface PendingNightly {
+  latest: Rec
+  signal: Rec | undefined
+  running: boolean
+  hard: number
+  soft: number
+}
+
+export function pendingNightly(builds: Rec[] | null | undefined): PendingNightly | null {
+  const latest = (builds || [])[0]
+  if (!latest || !Number(latest.number) || hasTestSignal(latest)) return null
+  return {
+    latest,
+    signal: signalNightly(builds),
+    running: nightlyRunning(latest),
+    hard: Array.isArray(latest.failed_groups) ? latest.failed_groups.length : 0,
+    soft: Array.isArray(latest.soft_failed_groups) ? latest.soft_failed_groups.length : 0,
+  }
+}
+
 export type EvidenceScope = 'hard' | 'soft' | 'new' | 'recurring' | 'fixed' | 'movement'
 
 const EVIDENCE_LABELS: Record<string, string> = {

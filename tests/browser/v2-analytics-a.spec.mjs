@@ -154,7 +154,9 @@ test.describe('CI Analytics matches the golden page facts', () => {
     await page.goto('/#/analytics?view=nightlies');
     const view = page.getByTestId('analytics-nightlies');
     const cards = await kpis(view.getByTestId('nightlies-kpis'));
-    expect(cards.map((card) => [card[1], card[3].toLowerCase()])).toEqual(strip.map((item) => [item[1], item[2].toLowerCase()]));
+    // The job-variant count names the nightly it comes from where classic said "the latest completed nightly".
+    const facts = strip.map((item, index) => [item[1], index === 1 ? `exact jobs in ${strip[0][1]}` : item[2].toLowerCase()]);
+    expect(cards.map((card) => [card[1], card[3].toLowerCase()])).toEqual(facts);
     await expect(view.getByTestId('nightlies-note')).toHaveCount(0);
     await page.getByRole('button', { name: 'About this view' }).click();
     await expect(page.getByRole('dialog')).toContainText(note.split('. ').at(-2));
@@ -218,23 +220,39 @@ test.describe('CI Analytics AMD tabs behave consistently', () => {
     }
   });
 
-  test('a nightly without test results leaves the counts to the newest nightly with results', async ({ page }) => {
+  test('every page counts from the newest nightly with results and lists the running one\'s failures so far', async ({ page }) => {
     const body = await (await page.request.get('/data/vllm/ci/operations_v2/nightly.json')).json();
     const cohort = body.nightly.pipelines[0];
     const previous = cohort.builds[0];
-    const { failure_movement: _movement, failed_groups: _failed, soft_failed_groups: _soft, ...base } = previous;
-    cohort.builds.unshift({ ...base, number: previous.number + 1, state: 'failing', has_test_results: false, total_groups: 0 });
+    const { failure_movement: _movement, failed_groups: failed, soft_failed_groups: _soft, ...base } = previous;
+    const running = previous.number + 1;
+    const early = { ...failed[0], build_number: running, url: failed[0].url.replace(`/builds/${previous.number}/`, `/builds/${running}/`) };
+    cohort.builds.unshift({ ...base, number: running, state: 'failing', has_test_results: false, total_groups: 0, failed_groups: [early], soft_failed_groups: [] });
     await routeSection(page, 'nightly', body);
+    const callout = `Nightly #${running} has no test results yet`;
+    const source = `Counts come from #${previous.number}, the newest nightly with test results.`;
 
+    // Every page counts from the newest nightly with results and says so the same way.
     await page.goto('/#/');
-    const homeStatus = clean(await page.getByTestId('kpi-nightly').innerText());
-    expect(homeStatus).toContain('No test signal');
+    await expect(page.getByTestId('pending-nightly')).toContainText(callout);
+    await expect(page.getByTestId('pending-nightly')).toContainText(source);
+    await expect(page.getByTestId('kpi-nightly')).toContainText(`#${previous.number}`);
+    await expect(page.getByTestId('kpi-pass-rate')).toContainText(`in #${previous.number}`);
+    await page.getByTestId('pending-nightly').getByRole('button', { name: 'Failures so far' }).click();
+    const earlySheet = page.getByRole('dialog');
+    await expect(earlySheet).toContainText('Provisional');
+    await expect(earlySheet.locator('tbody tr')).toHaveCount(1);
+    await expect(earlySheet.locator('tbody tr').getByRole('link')).toHaveAttribute('href', early.url);
+    await closeSheets(page);
+    await page.goto('/#/health');
+    await expect(page.getByTestId('pending-nightly')).toContainText(source);
+    await expect(page.getByRole('link', { name: `Open AMD nightly #${previous.number}` })).toBeVisible();
     await page.goto('/#/analytics?view=nightlies');
     const view = page.getByTestId('analytics-nightlies');
+    await expect(view.getByTestId('pending-nightly')).toContainText(source);
     const latest = view.getByTestId('kpi-nightly-latest');
-    await expect(latest.locator('[data-slot="kpi-value"]')).toHaveText(`#${previous.number + 1}`);
+    await expect(latest.locator('[data-slot="kpi-value"]')).toHaveText(`#${running}`);
     await expect(latest).toContainText('No test signal');
-    await expect(latest.locator('[data-slot="kpi-headline"]')).toHaveText(`Counts from #${previous.number}, the newest with test results`);
     await expect(view.getByTestId('nightlies-note')).toHaveCount(0);
     const variants = view.getByTestId('kpi-nightly-variants');
     await expect(variants.locator('[data-slot="kpi-value"]')).toHaveText(String(previous.total_groups));

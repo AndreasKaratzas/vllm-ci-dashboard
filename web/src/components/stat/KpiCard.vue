@@ -100,8 +100,8 @@ const actionAttrs = computed(() => {
       </CardTitle>
       <div v-else-if="variant === 'default'" class="col-span-full flex flex-wrap items-center gap-x-2 gap-y-1">
         <CardTitle
-          class="font-semibold tabular-nums"
-          :class="[muted && 'text-muted-foreground', display.length > 10 ? 'text-xl @[250px]/card:text-2xl' : 'text-2xl @[250px]/card:text-3xl']"
+          class="tabular-nums"
+          :class="[muted ? 'font-normal text-muted-foreground' : 'font-semibold', display.length > 10 ? 'text-xl @[250px]/card:text-2xl' : 'text-2xl @[250px]/card:text-3xl']"
           data-slot="kpi-value"
         >
           {{ display }}<span v-if="unit && !missing" class="ml-1 text-base font-medium text-muted-foreground">{{ unit }}</span>

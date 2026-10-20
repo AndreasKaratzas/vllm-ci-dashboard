@@ -34,6 +34,15 @@ const DAY_TIME = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeri
 export const shortDayTime = (value: number | Date) => DAY_TIME.format(new Date(value))
 
 export const plainNumber = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 1 })
+/** Pass-rate axis labels and tooltips: one decimal at most ("99.5%", "100%"). */
+export const ratePercent = (value: number) => `${Number(value.toFixed(1))}%`
+
+/**
+ * Classes that give every mark of a clickable chart a pointer. Unovis sets each component's cursor
+ * from a --vis-*-cursor variable in CSS outside any cascade layer, which beats Tailwind's cursor utilities.
+ */
+export const CLICKABLE_MARKS =
+  'cursor-pointer [--vis-area-cursor:pointer] [--vis-line-cursor:pointer] [--vis-plotband-cursor:pointer] [--vis-stacked-bar-cursor:pointer] [--vis-grouped-bar-cursor:pointer] [--vis-scatter-cursor:pointer]'
 
 /**
  * Round ticks from at or below `min` to at or beyond `max`: about `count` steps of 1, 2, 2.5 or 5

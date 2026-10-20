@@ -43,13 +43,25 @@ test.describe('Main CI', () => {
     const sheet = page.getByRole('dialog');
     await expect(sheet).toContainText('Main build #31026');
     await expect(sheet.getByRole('link', { name: 'Open Buildkite build' })).toHaveAttribute('href', 'https://buildkite.com/vllm/ci/builds/31026');
-    const failing = sheet.getByTestId('main-build-failing-groups').locator('tbody tr');
+    const failing = sheet.locator('[data-slot=evidence-table]').filter({ has: page.getByRole('heading', { name: 'Failing AMD groups' }) }).locator('tbody tr');
     await expect(failing).toHaveCount(3);
     await expect(failing.nth(0)).toContainText('Broken Group');
     await expect(failing.nth(1)).toContainText('Routed Beta');
     await expect(failing.nth(2)).toContainText('Soft fail');
     await expect(failing.nth(0).getByRole('link')).toHaveAttribute('href', /^https:\/\/buildkite\.com\/vllm\/ci\/builds\/31026\/steps\/canvas\?jid=/);
     expect(errors).toEqual([]);
+  });
+
+  test('compares the 24-hour rate with the 24 hours before and opens the builds behind it', async ({ page }) => {
+    await page.goto('/#/main');
+    const rate = page.getByTestId('kpi-main-rate');
+    await expect(rate.locator('[data-slot=kpi-value]')).toHaveText('66.7%');
+    await expect(rate).toContainText('Below 95%');
+    await expect(rate).toContainText('-4.2 pts');
+    await rate.locator('[data-kpi-action]').click();
+    const sheet = page.getByRole('dialog');
+    await expect(sheet).toContainText('Main builds · last 24 hours');
+    await expect(sheet.locator('[data-slot=evidence-stat-value]').first()).toHaveText('66.7%');
   });
 
   test('switches the trend window and opens the builds behind a point', async ({ page }) => {
@@ -88,10 +100,61 @@ test.describe('Main CI', () => {
     await expect(page).toHaveURL(/view=incidents/);
   });
 
-  test('ranks flaky and retry-recovering groups', async ({ page }) => {
+  test('dates incidents, marks new ones and rolls up a shared first bad commit', async ({ page }) => {
+    const section = await (await page.request.get('/data/vllm/ci/operations_v2/main_ci.json')).json();
+    const active = section.main_ci.incidents.active;
+    const routed = active.find((row) => row.name.endsWith('Routed Beta'));
+    const broken = active.find((row) => row.name.endsWith('Broken Group'));
+    Object.assign(broken, { bad_commit: routed.bad_commit, bad_build_number: routed.bad_build_number, good_commit: 'a'.repeat(40), good_build_number: 1, commit_range_status: 'candidate', compare_url: `https://github.com/vllm-project/vllm/compare/${'a'.repeat(40)}...${routed.bad_commit}` });
+    await routeMainCi(page, { shell: () => {}, section });
+    await page.goto('/#/main?view=incidents');
+    const incidents = page.getByTestId('main-incidents');
+    await expect(incidents.locator('thead')).toContainText('Opened');
+    await expect(incidents.locator('thead')).not.toContainText('Severity');
+    const ranges = page.getByTestId('main-suspect-ranges');
+    await expect(ranges).toContainText(`2 incidents first failed at 1 commit`);
+    await expect(ranges.locator('tbody tr')).toHaveCount(1);
+    await ranges.locator('tbody tr td').nth(1).click();
+    const sheet = page.getByRole('dialog');
+    await expect(sheet).toContainText(`2 incidents first failed at #${routed.bad_build_number}`);
+    await expect(sheet.getByRole('link', { name: 'Compare commits' })).toHaveAttribute('href', routed.compare_url);
+    await sheet.locator('tbody tr').first().click();
+    await expect(page.getByRole('dialog').last()).toContainText('incident on main');
+  });
+
+  test('marks an incident opened in the last 24 hours as new', async ({ page }) => {
+    const section = await (await page.request.get('/data/vllm/ci/operations_v2/main_ci.json')).json();
+    // New means opened in the last 24 hours of wall-clock time, so a stale snapshot shows nothing new.
+    const opened = new Date(Date.now() - 3 * 3_600_000).toISOString();
+    const routed = section.main_ci.incidents.active.find((row) => row.name.endsWith('Routed Beta'));
+    section.main_ci.timeline.unshift({ event: 'opened', group_id: routed.group_id, name: routed.name, build_number: routed.bad_build_number, at: opened, severity: 'hard' });
+    await routeMainCi(page, { shell: () => {}, section });
+    await page.goto('/#/main?view=incidents');
+    await expect(page.getByTestId('main-incident-summary')).toContainText('1 new in the last 24 hours');
+    const row = page.getByTestId('main-incidents').locator('tbody tr').first();
+    await expect(row).toContainText('Routed Beta');
+    await expect(row).toContainText('New · 3h ago');
+    await expect(page.getByTestId('main-incidents').locator('tbody tr').nth(1)).not.toContainText('New');
+  });
+
+  test('says when the build list is partial', async ({ page }) => {
+    const section = await (await page.request.get('/data/vllm/ci/operations_v2/main_ci.json')).json();
+    section.main_ci.cohort.build_count = 40;
+    section.main_ci.publication_retention = { builds: { source: 40, published: 33, omitted: 7 } };
+    await routeMainCi(page, { shell: () => {}, section });
+    await page.goto('/#/main');
+    await expect(page.getByText('The section keeps the newest 33 of 40 builds')).toBeVisible();
+  });
+
+  test('ranks flaky and retry-recovering groups, each alerting on its own criterion', async ({ page }) => {
     await page.goto('/#/main?view=flaky');
     await expect(page.getByTestId('main-flaky').locator('tbody tr').first()).toContainText('Attention Kernels Shard 2');
     await expect(page.getByTestId('main-flaky').locator('tbody tr').first()).toContainText('Alerting');
+    await expect(page.getByTestId('main-flaky')).toContainText('1 alerting at 3 flips');
+    // One flip is below the flips threshold whatever the group's retries do.
+    await expect(page.getByTestId('main-flaky').locator('tbody tr').filter({ hasText: 'Attention Kernels Shard 1' })).toContainText('Below threshold');
+    await expect(page.getByTestId('main-retry')).toContainText('1 alerting at 3 recoveries');
+    await expect(page.getByTestId('main-retry').locator('tbody tr').first()).toContainText('Alerting');
     await expect(page.getByTestId('main-retry').locator('tbody tr').first()).toContainText('Basic Models (Other)');
     await page.getByTestId('main-retry').locator('tbody tr').first().click();
     await expect(page.getByRole('dialog')).toContainText('Passes only after a retry on main');
@@ -107,6 +170,25 @@ test.describe('Main CI', () => {
     expect(mainTop).toBeLessThan(nightlyTop);
     await main.getByTestId('kpi-main-incidents').getByRole('link').click();
     await expect(page).toHaveURL(/#\/main\?view=incidents$/);
+  });
+
+  test('Home keeps main CI when the nightly section fails', async ({ page }) => {
+    await page.route('**/operations_v2/nightly.json*', (route) => route.fulfill({ status: 500, body: 'down' }));
+    await page.goto('/');
+    await expect(page.getByTestId('home-main').getByTestId('kpi-main-latest')).toContainText('#31027');
+    await expect(page.getByTestId('main-trend')).toBeVisible();
+    await expect(page.locator('[data-slot=async-error]')).toBeVisible();
+    await expect(page.getByTestId('kpi-nightly')).toHaveCount(0);
+  });
+
+  test('CI Health leads with the main CI headline and links to it', async ({ page }) => {
+    await page.goto('/#/health');
+    const signal = page.getByTestId('main-ci-signal');
+    await expect(signal).toContainText('66.7%');
+    await expect(signal).toContainText('Below 95%');
+    await expect(signal).toContainText('#31027');
+    await signal.getByRole('link', { name: /Open Main CI/ }).click();
+    await expect(page).toHaveURL(/#\/main$/);
   });
 
   test('the command palette opens main builds and incidents', async ({ page }) => {

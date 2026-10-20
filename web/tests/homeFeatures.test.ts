@@ -4,7 +4,7 @@ import { rateAxis } from '@/components/charts/chart'
 import { attentionTone, nightlyResultTone, noSignalLabel, nightlySeries, type NightlyCounts } from '@/domain/home'
 import { sourceFreshness } from '@/domain/freshness'
 import { freshnessChip, freshnessDetail } from '@/features/freshness/freshness'
-import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
+import { buildEvidenceDetail, pendingEvidenceDetail } from '@/features/nightly/buildEvidence'
 
 const URL = 'https://buildkite.com/vllm/ci/builds/30005'
 const job = (name: string, state: string, extra = {}) => ({
@@ -74,8 +74,29 @@ describe('build evidence detail', () => {
     const blocked = buildEvidenceDetail({ ...build, has_test_results: false, test_jobs_blocked: 4, failure_movement: undefined })
     expect(blocked.notes?.[0]).toMatchObject({ tone: 'hard' })
     expect(blocked.notes?.[0]?.text).toContain('4 test jobs were dependency-blocked')
-    expect(blocked.stats?.map((s) => s.label)).toEqual(['Job variants observed'])
+    expect(blocked.stats).toEqual([])
     expect(blocked.fields?.find((f) => f.label === 'Test signal')?.value).toBe('Unavailable')
+  })
+
+  it('lists the jobs a running nightly already failed as provisional', () => {
+    const running = { ...build, state: 'failing', has_test_results: false, total_groups: 0, failure_movement: { ...build.failure_movement, available: false } }
+    const detail = buildEvidenceDetail(running, { scope: 'hard' })
+    expect(detail.notes).toEqual([expect.objectContaining({ tone: 'neutral', title: 'Provisional' })])
+    expect(detail.notes![0]!.text).toContain('still running')
+    expect(detail.stats?.map((s) => [s.label, s.value])).toEqual([
+      ['Hard failures', '2'],
+      ['Soft failures', '0'],
+    ])
+    expect(detail.tables![0]!.rows).toEqual(buildEvidenceDetail(build, { scope: 'hard' }).tables![0]!.rows)
+    // Movement stays unavailable until the nightly has results.
+    expect(buildEvidenceDetail(running).tables).toEqual([])
+    const sofar = pendingEvidenceDetail({ latest: running, signal: undefined, running: true, hard: 2, soft: 0 })
+    expect(sofar).toMatchObject({ title: 'Nightly #30005 failures so far', id: 'build-30005-hard' })
+    expect(pendingEvidenceDetail({ latest: running, signal: undefined, running: true, hard: 0, soft: 1 }).id).toBe('build-30005-soft')
+  })
+
+  it('says why its counts differ from the per-group counts of main CI', () => {
+    expect(buildEvidenceDetail(build).footnote).toContain('one final Buildkite attempt per AMD MI test group')
   })
 })
 

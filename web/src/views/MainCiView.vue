@@ -55,7 +55,7 @@ watch(
     if (row) return sheets.open(mainBuildDetail(row, ctx.value))
     const all = [...incidents.value.active, ...incidents.value.pending]
     const match = incident ? all.find((i) => i.groupId === incident) : undefined
-    if (match) sheets.open(incidentDetail(match, ctx.value, incidents.value.issue))
+    if (match) sheets.open(incidentDetail(match, ctx.value, incidents.value.issue, now.value))
   },
   { immediate: true },
 )

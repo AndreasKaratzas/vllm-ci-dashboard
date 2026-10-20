@@ -166,12 +166,16 @@ def group_rows(reliability: dict, now: datetime, window_days: int) -> list[dict]
     return rows
 
 
+def flips_alert(row: dict, thresholds: dict[str, int]) -> bool:
+    return row["current"]["flips"] >= thresholds["min_outcome_flips"]
+
+
+def recoveries_alert(row: dict, thresholds: dict[str, int]) -> bool:
+    return row["current"]["recovered"] >= thresholds["min_failed_then_passed"]
+
+
 def crosses(row: dict, thresholds: dict[str, int]) -> bool:
-    current = row["current"]
-    return (
-        current["flips"] >= thresholds["min_outcome_flips"]
-        or current["recovered"] >= thresholds["min_failed_then_passed"]
-    )
+    return flips_alert(row, thresholds) or recoveries_alert(row, thresholds)
 
 
 def alerting_rows(reliability: dict, now: datetime, thresholds: dict[str, int]) -> list[dict]:

@@ -208,7 +208,7 @@ def watcher_state(reliability: dict, nightlies: list[dict], mains: list[dict]) -
             "observed_at": latest["finished_at"],
             "good_commit": good["commit"] if good else "", "good_build_number": good["number"] if good else None,
             "bad_commit": bad["commit"], "bad_build_number": bad["number"],
-            "commit_range_status": "candidate" if good else "no_good_build_in_window",
+            "commit_range_status": "candidate" if good else "missing_good",
             "compare_url": f"https://github.com/vllm-project/vllm/compare/{good['commit']}...{bad['commit']}" if good else "",
             "bisect_command": f"git bisect start {bad['commit']} {good['commit']}" if good else "",
         }

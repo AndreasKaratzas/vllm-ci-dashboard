@@ -58,7 +58,7 @@ test('phone tables show every visible column without sideways scrolling', async 
   for (const [route, ids] of [
     ['/#/', ['nightly-table']],
     ['/#/main', ['main-builds', 'main-incidents-panel', 'main-flaky-panel']],
-    ['/#/main?view=incidents', ['main-incidents', 'main-pending']],
+    ['/#/main?view=incidents', ['main-incidents', 'main-pending', 'main-timeline']],
     ['/#/main?view=flaky', ['main-flaky', 'main-retry']],
     ['/#/analytics', ['priority']],
     ['/#/analytics?view=latency', ['latency-table']],

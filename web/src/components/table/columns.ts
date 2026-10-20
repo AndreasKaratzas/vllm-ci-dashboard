@@ -1,5 +1,6 @@
 import type { Detail } from '@/components/evidence/detail'
-import { hardwareColor, hardwareFamily, type PaletteColor } from '@/lib/palette'
+import { rateText } from '@/domain/format'
+import { hardwareColor, hardwareFamily, rateStatus, type PaletteColor } from '@/lib/palette'
 import type { Tone } from '@/lib/tone'
 
 export interface CellSpec {
@@ -70,3 +71,5 @@ export function hardwareCell(hardware: string, queue?: string): CellSpec {
   return { text: family ?? (hardware.toUpperCase() || '—'), dots: [hardwareColor(family ?? hardware)], nowrap: true }
 }
 export const drill = (value: unknown, detail: () => Detail): CellSpec => ({ text: show(value), detail })
+/** A pass rate in percent: quiet at a pass, a status badge naming the band otherwise. */
+export const rateCell = (percent: number | null | undefined, sub?: string): CellSpec => ({ text: rateText(percent), tone: rateStatus(percent)?.tone, sub, nowrap: true })

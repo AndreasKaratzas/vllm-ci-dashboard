@@ -26,7 +26,7 @@ const width = computed(() => {
 const STAT_COLS = { 1: 'lg:grid-cols-1', 2: 'lg:grid-cols-2', 3: 'lg:grid-cols-3' } as Record<number, string>
 const statCols = computed(() => STAT_COLS[props.detail.stats?.length ?? 0] ?? 'lg:grid-cols-4')
 const statBadge = (stat: DetailStat) => {
-  if (!stat.tone || stat.tone === 'pass') return null
+  if (!stat.tone || stat.tone === 'pass' || stat.tint) return null
   const label = stat.toneLabel ?? TONE_LABEL[stat.tone]
   return label.toLowerCase() === stat.value.toLowerCase() ? null : label
 }

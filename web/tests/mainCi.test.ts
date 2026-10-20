@@ -1,17 +1,27 @@
 import { describe, expect, it } from 'vitest'
+import { sentence } from '@/domain/format'
 import {
-  buildFailingGroups,
   buildOutcome,
   buildsBetween,
   buildTone,
+  dayRateChange,
   eventTone,
+  failingGroups,
+  flakinessThresholds,
+  flakyGroups,
   groupLabel,
+  isNewIncident,
+  lastDayPoint,
   mainBuilds,
   mainCiSummary,
+  mainCohort,
   mainIncidents,
   mainTimeline,
   passRate,
-  previousDayRate,
+  rangeText,
+  recentOutcomes,
+  retryGroups,
+  suspectRanges,
   trendPoints,
 } from '@/domain/mainCi'
 
@@ -70,6 +80,22 @@ describe('main CI summary', () => {
     expect(mainCiSummary(merged)).toMatchObject({ buildCount: 2, flakyGroups: 252, pendingSoft: 1 })
   })
 
+  it('reads the 24 hours before the latest 24 and the point change between them', () => {
+    const summary = mainCiSummary({ ...shell, previous_24h: { ...shell.last_24h, pass_rate: 99.75 } })!
+    expect(summary.previous24h).toMatchObject({ builds: 61, passRate: 99.75 })
+    expect(dayRateChange(summary)).toBe(-6.4)
+    expect(dayRateChange({ ...summary, previous24h: null })).toBeNull()
+    expect(dayRateChange({ ...summary, last24h: { ...summary.last24h!, passRate: null } })).toBeNull()
+  })
+
+  it('opens the last 24 hours as a point ending at the collection', () => {
+    const summary = mainCiSummary(shell)!
+    const end = Date.parse('2026-10-20T10:12:19Z')
+    expect(lastDayPoint(summary)).toMatchObject({ from: end - 86_400_000, to: end, builds: 61, hard: 369, passRate: 93.36 })
+    expect(lastDayPoint({ ...summary, collectedAt: null })).toBeNull()
+    expect(lastDayPoint({ ...summary, last24h: null })).toBeNull()
+  })
+
   it('names why a section is unavailable', () => {
     expect(mainCiSummary({ available: false, unavailable_reason: 'strict_all_main_reliability_unavailable' })).toMatchObject({
       available: false,
@@ -102,6 +128,35 @@ describe('main builds', () => {
     expect(passRate({ passed: 0, hard: 0, soft: 0 })).toBeNull()
   })
 
+  it('tallies how the newest builds ended', () => {
+    const rows = mainBuilds({ builds: [build(4, '4', amd(9, 1)), build(3, '3', amd(9, 0, 1)), build(2, '2'), build(1, '1', null)] })
+    expect(recentOutcomes(rows, 3)).toEqual({ builds: 3, pass: 1, soft: 1, hard: 1, neutral: 0 })
+    expect(recentOutcomes(rows, 30)).toEqual({ builds: 4, pass: 1, soft: 1, hard: 1, neutral: 1 })
+  })
+
+  it('names the failing groups of a build from the group catalog, or says the snapshot has none', () => {
+    const record = {
+      group_catalog: { g1: { name: ':amd: (MI355) Kernels', hardware: 'mi355', queue: 'amd_mi355_1' } },
+      builds: [
+        build(2, '2026-10-20T00:00:00Z', amd(9, 1, 1), {
+          failing: [
+            { group_id: 'g1', severity: 'hard', job_url: 'https://buildkite.com/vllm/ci/builds/2/steps/canvas?jid=j' },
+            { group_id: 'g2', severity: 'soft' },
+            { severity: 'hard' },
+          ],
+        }),
+        build(1, '2026-10-19T00:00:00Z', amd(9, 1)),
+      ],
+    }
+    const [latest, older] = mainBuilds(record)
+    expect(failingGroups(latest!, record)).toEqual([
+      { groupId: 'g1', severity: 'hard', jobUrl: 'https://buildkite.com/vllm/ci/builds/2/steps/canvas?jid=j', name: ':amd: (MI355) Kernels', hardware: 'mi355', queue: 'amd_mi355_1' },
+      { groupId: 'g2', severity: 'soft', jobUrl: '', name: 'g2', hardware: '', queue: '' },
+    ])
+    expect(older!.failing).toBeNull()
+    expect(failingGroups(older!, record)).toBeNull()
+  })
+
   it('selects the builds of one interval', () => {
     const rows = mainBuilds({ builds: [build(1, '2026-10-20T00:59:59Z'), build(2, '2026-10-20T01:00:00Z'), build(3, '2026-10-20T02:00:00Z')] })
     const from = Date.parse('2026-10-20T01:00:00Z')
@@ -125,14 +180,12 @@ describe('pass-rate trend', () => {
     expect(month.map((point) => point.passRate)).toEqual([90, null])
   })
 
-  it('cuts blocks from the newest bucket so only the oldest can be partial', () => {
-    const points = trendPoints({ series: { hourly: hourly.slice(0, 10) } }, '7d')
-    expect(points.map((point) => point.builds)).toEqual([4, 6])
-  })
-
-  it('compares the latest 24 hours with the 24 before', () => {
-    expect(previousDayRate({ series: { hourly: Array.from({ length: 48 }, (_, i) => hour(i, i < 24 ? 9 : 10, i < 24 ? 1 : 0)) } })).toBe(90)
-    expect(previousDayRate({ series: { hourly: hourly.slice(0, 30) } })).toBeNull()
+  it('starts six-hour blocks on round UTC hours, so only the oldest and newest are partial', () => {
+    // 03:00 to 12:59 UTC: 03-05, 06-11, 12.
+    const points = trendPoints({ series: { hourly: Array.from({ length: 10 }, (_, index) => hour(index + 3, 10)) } }, '7d')
+    expect(points.map((point) => point.builds)).toEqual([3, 6, 1])
+    expect(points.map((point) => new Date(point.from).toISOString().slice(11, 16))).toEqual(['03:00', '06:00', '12:00'])
+    expect(points.map((point) => new Date(point.to).toISOString().slice(11, 16))).toEqual(['06:00', '12:00', '13:00'])
   })
 })
 
@@ -167,6 +220,55 @@ describe('incidents and events', () => {
     ],
   }
 
+  it('dates an incident by its opening event, else by its first bad build, newest first', () => {
+    const at = (hours: number) => new Date(Date.UTC(2026, 9, 20) + hours * 3_600_000).toISOString()
+    const row = (group_id: string, bad: number) => ({ group_id, name: group_id, severity: 'hard', bad_build_number: bad })
+    const incidents = mainIncidents({
+      builds: [build(5, at(5)), build(7, at(7))],
+      incidents: { available: true, active: [row('old', 5), row('new', 7), row('evented', 1)], pending_soft: [] },
+      timeline: [
+        { event: 'opened', group_id: 'evented', build_number: 1, at: at(9) },
+        { event: 'opened', group_id: 'evented', build_number: 0, at: at(1) },
+      ],
+    })
+    expect(incidents.active.map((incident) => [incident.groupId, incident.openedAt])).toEqual([
+      ['evented', at(9)],
+      ['new', at(7)],
+      ['old', at(5)],
+    ])
+    const now = Date.parse(at(30))
+    expect(isNewIncident(incidents.active[1]!, now)).toBe(true)
+    expect(isNewIncident(incidents.active[2]!, now)).toBe(false)
+    expect(isNewIncident({ openedAt: '' }, now)).toBe(false)
+  })
+
+  it('rolls up incidents that first failed at one commit, from the newest good commit among them', () => {
+    const incident = (groupId: string, good: string, goodBuild: number, bad: string, openedAt: string) =>
+      ({ ...mainIncidents(record).active[0]!, groupId, good: { commit: good, build: goodBuild }, bad: { commit: bad, build: 9 }, openedAt, compareUrl: `${good}...${bad}` })
+    const ranges = suspectRanges([
+      incident('a', 'g1', 5, 'b1', '2026-10-20T03:00:00Z'),
+      incident('b', 'g0', 3, 'b1', '2026-10-20T01:00:00Z'),
+      incident('c', 'g2', 5, 'b2', '2026-10-20T04:00:00Z'),
+      incident('d', 'g3', 5, 'b3', '2026-10-20T05:00:00Z'),
+      incident('e', 'g3', 5, 'b3', '2026-10-20T06:00:00Z'),
+      incident('f', 'g3', 5, 'b3', '2026-10-20T07:00:00Z'),
+      incident('g', '', 0, 'b4', ''),
+      incident('h', '', 0, 'b4', ''),
+    ])
+    expect(ranges.map((range) => [range.bad.commit, range.good.commit, range.compareUrl, range.incidents.map((row) => row.groupId), range.openedAt])).toEqual([
+      ['b3', 'g3', 'g3...b3', ['d', 'e', 'f'], '2026-10-20T05:00:00Z'],
+      ['b1', 'g1', 'g1...b1', ['a', 'b'], '2026-10-20T01:00:00Z'],
+    ])
+  })
+
+  it('explains each commit-range status', () => {
+    expect(rangeText('candidate').short).toBe('Bisectable')
+    expect(rangeText('missing_good').long).toContain('No passing build')
+    expect(rangeText('same_commit').short).toBe('Same commit')
+    expect(rangeText('some_new_status')).toEqual({ short: 'Some new status', long: 'Some new status' })
+    expect(rangeText('').short).toBe('Unknown')
+  })
+
   it('reads incidents with their good and bad builds and the managed issue', () => {
     const incidents = mainIncidents(record)
     expect(incidents).toMatchObject({ available: true, issue: { number: 737 }, suppressed: false })
@@ -181,32 +283,54 @@ describe('incidents and events', () => {
     expect(opened!.build).toBeNull()
   })
 
+  it('labels published event names as phrases', () => {
+    expect([sentence('opened'), sentence('soft_confirmed'), sentence('')]).toEqual(['Opened', 'Soft confirmed', ''])
+  })
+
   it('drops the AMD prefixes from group names', () => {
     expect(groupLabel('AMD: :amd: (MI355) DeepSeek')).toBe('(MI355) DeepSeek')
     expect(groupLabel(':amd: (MI300) LoRA')).toBe('(MI300) LoRA')
   })
 })
 
-describe('failing groups of a build', () => {
-  const observation = (build_number: number, state: string, observed_at: string, extra = {}) => ({ build_number, state, observed_at, queue: 'amd_mi355_1', job_url: `job-${observed_at}`, ...extra })
-  const reliability = {
-    group_catalog: [
-      // Failed, retried, failed again: failing with two attempts.
-      { id: 'a', name: 'B group', hardware: 'mi355', observations: [observation(7, 'hard', '2', {}), observation(7, 'hard', '1', { retry_evidence: { retried: true } })] },
-      // Failed, then passed on retry: not failing.
-      { id: 'b', name: 'Recovered', hardware: 'mi300', observations: [observation(7, 'passed', '2'), observation(7, 'hard', '1', { retry_evidence: { retried: true } })] },
-      { id: 'c', name: 'A soft', hardware: 'mi250', observations: [observation(7, 'soft', '1')] },
-      { id: 'd', name: 'Other build', hardware: 'mi250', observations: [observation(6, 'hard', '1')] },
+describe('flaky and retry groups', () => {
+  const record = {
+    thresholds: { window_days: 7, min_outcome_flips: 3, min_failed_then_passed: 3, max_issue_rows: 50 },
+    // One group in both lists: it alerts on recoveries, not on its single flip.
+    top_flaky: [
+      { group_id: 'g', name: 'Mixed', hardware: 'mi300', queue: 'q', trend: 'rising', alerting: false, flips_window: 1, flips_previous_window: 0, flips_30d: 2, runs_30d: 9, hard_30d: 1, soft_30d: 0, pass_rate_window: 83.3, pass_rate_30d: 88.9, last_failure: { build_number: 7, at: '2026-10-20T00:00:00Z', url: 'u7' } },
+      { group_id: 'h', name: 'Bare' },
+    ],
+    retry_hotspots: [
+      { group_id: 'g', name: 'Mixed', hardware: 'mi300', queue: 'q', alerting: true, recovered_window: 3, recovered_previous_window: 1, recovered_30d: 4, runs_30d: 9, last_recovery: { build_number: 8, at: '2026-10-20T01:00:00Z', url: 'u8' } },
     ],
   }
 
-  it('keeps the final attempt per group, hard first', () => {
-    const { rows, retained } = buildFailingGroups(reliability, 7)
-    expect(retained).toBe(3)
-    expect(rows.map((row) => [row.groupId, row.severity, row.attempts, row.jobUrl])).toEqual([
-      ['a', 'hard', 2, 'job-2'],
-      ['c', 'soft', 1, 'job-1'],
+  it('keeps each list’s own alert', () => {
+    const [mixed, bare] = flakyGroups(record)
+    expect(mixed).toMatchObject({ alerting: false, flips: 1, previousFlips: 0, flips30d: 2, passRate: 83.3, trend: 'rising', lastFailure: { number: 7, url: 'u7' } })
+    expect(bare).toMatchObject({ alerting: false, flips: 0, passRate: null, trend: 'steady', lastFailure: null })
+    expect(retryGroups(record)).toEqual([
+      { groupId: 'g', name: 'Mixed', hardware: 'mi300', queue: 'q', trend: 'steady', alerting: true, recovered: 3, previousRecovered: 1, recovered30d: 4, runs30d: 9, lastRecovery: { number: 8, at: '2026-10-20T01:00:00Z', url: 'u8' } },
     ])
-    expect(buildFailingGroups(null, 7)).toEqual({ rows: [], retained: 0 })
+    expect(flakyGroups(null)).toEqual([])
+    expect(retryGroups({})).toEqual([])
+  })
+
+  it('reads the thresholds only when all three are set', () => {
+    expect(flakinessThresholds(record)).toEqual({ windowDays: 7, minFlips: 3, minRecoveries: 3 })
+    expect(flakinessThresholds({ thresholds: { window_days: 7, min_outcome_flips: 3 } })).toBeNull()
+    expect(flakinessThresholds(null)).toBeNull()
+  })
+})
+
+describe('the main cohort', () => {
+  it('reads the cohort and how many build rows the byte budget dropped', () => {
+    const record = {
+      cohort: { window_days: 30, observed_from: 'a', observed_to: 'b', build_count: 1776, canonical_nightly_build_count: 29, exhaustive: true },
+      publication_retention: { builds: { source: 1776, published: 1500, omitted: 276 } },
+    }
+    expect(mainCohort(record)).toEqual({ windowDays: 30, from: 'a', to: 'b', builds: 1776, nightlies: 29, exhaustive: true, published: 1500, omitted: 276 })
+    expect(mainCohort(null)).toEqual({ windowDays: null, from: '', to: '', builds: null, nightlies: null, exhaustive: false, published: null, omitted: 0 })
   })
 })

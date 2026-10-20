@@ -17,10 +17,11 @@ import { analyticsObservedAt, nightliesModel } from '@/domain/analytics'
 import { movementBuilds } from '@/domain/ciHealth'
 import { integer, shortDate, toneForState, value, type Rec } from '@/domain/format'
 import { currentAmdHealth } from '@/domain/health'
-import { amdNightlyPresentation, latestAmd, nightlyCountLabel, nightlyFailureCount } from '@/domain/nightly'
+import { amdNightlyPresentation, hasTestSignal, latestAmd, nightlyCountLabel, nightlyFailureCount, pendingNightly, signalNightly } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
-import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
+import { buildEvidenceDetail, pendingEvidenceDetail } from '@/features/nightly/buildEvidence'
+import PendingNightlyCallout from '@/features/nightly/PendingNightlyCallout.vue'
 import AnalyticsAbout from './AnalyticsAbout.vue'
 
 type Movement = 'new' | 'recurring' | 'fixed'
@@ -33,7 +34,8 @@ const model = computed(() => nightliesModel(amd.value))
 const latest = computed(() => model.value.latest)
 const movement = computed(() => movementBuilds(model.value.rows))
 // The latest nightly may still be running; counts come from the newest nightly with test results.
-const signal = computed<Rec | undefined>(() => movement.value[0])
+const signal = computed<Rec | undefined>(() => signalNightly(model.value.rows))
+const pending = computed(() => pendingNightly(model.value.rows))
 const now = useClock()
 const presentation = computed(() =>
   amdNightlyPresentation(latest.value, currentAmdHealth(ops.value?.amd_test_health).summary || {}, ops.value?.generated_at, now.value),
@@ -45,22 +47,16 @@ useSubviewHeader(() => ({
   about: () => h(AnalyticsAbout, { view: 'nightlies' }),
 }))
 
-// Oldest first, for the sparklines; only nightlies with comparable movement count.
-const oldestFirst = computed(() => [...movement.value].reverse())
-const trend = (key: Movement, goodWhen: 'up' | 'down') => kpiTrend(oldestFirst.value.map((b) => nightlyFailureCount(b, key)), goodWhen)
-const variantsTrend = computed(() => kpiTrend(
-    [...model.value.rows]
-      .filter((b) => b.has_test_results !== false)
-      .reverse()
-      .map((b) => (b.total_groups === undefined ? null : Number(b.total_groups))),
-  ))
+// Oldest first, for the sparklines: the nightlies with test results, so each ends at the signal nightly.
+const signalHistory = computed(() => model.value.rows.filter(hasTestSignal).reverse())
+const trend = (key: Movement, goodWhen: 'up' | 'down') => kpiTrend(signalHistory.value.map((b) => nightlyFailureCount(b, key)), goodWhen)
+const variantsTrend = computed(() => kpiTrend(signalHistory.value.map((b) => Number(b.total_groups))))
 const MOVEMENT: { key: Movement; label: string; column: string; goodWhen: 'up' | 'down'; meta: string }[] = [
   { key: 'new', label: 'New failures', column: 'New', goodWhen: 'down', meta: 'Not failing in the preceding observed nightly' },
   { key: 'recurring', label: 'Recurring failures', column: 'Recurring', goodWhen: 'down', meta: 'Failed in the preceding observed nightly too' },
   { key: 'fixed', label: 'Fixed', column: 'Fixed', goodWhen: 'up', meta: 'Failed previously and passed now' },
 ]
 const latestCount = (key: Movement) => (signal.value ? nightlyFailureCount(signal.value, key) : null)
-const signalNote = computed(() => (signal.value && signal.value !== latest.value ? `Counts from #${value(signal.value.number)}, the newest with test results` : undefined))
 const stateLabel = (state: unknown) => {
   const text = value(state, 'unknown')
   return text.charAt(0).toUpperCase() + text.slice(1)
@@ -104,16 +100,16 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
 <template>
   <AsyncBoundary :loading="loading && !ops" :error="error" @retry="retry">
     <div class="flex flex-col gap-4 md:gap-6" data-testid="analytics-nightlies">
-      <Callout v-if="!signal" tone="soft" title="Failure movement unavailable" data-testid="nightlies-note">
+      <Callout v-if="!movement.length" tone="soft" title="Failure movement unavailable" data-testid="nightlies-note">
         No retained nightly publishes failure movement; refresh the operations snapshot to publish observed-failure-movement-v1 data.
       </Callout>
+      <PendingNightlyCallout v-if="pending" :pending="pending" :on-open="() => sheets.open(pendingEvidenceDetail(pending!))" />
 
       <StatGrid :cols="5" data-testid="nightlies-kpis">
         <KpiCard
           label="Latest nightly"
           :value="latest.number ? `#${latest.number}` : null"
           :status="latest.number ? { tone: presentation.tone, label: presentation.label } : undefined"
-          :headline="signalNote"
           :footnote="latest.created_at ? shortDate(latest.created_at) : 'No completed nightly'"
           :action="latest.number ? { label: 'Inspect nightly evidence', onOpen: () => open(latest) } : undefined"
           data-testid="kpi-nightly-latest"
@@ -123,7 +119,7 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
           :value="signal?.total_groups === undefined ? null : Number(signal.total_groups)"
           :spark="variantsTrend.spark"
           :delta="variantsTrend.delta"
-          footnote="Exact jobs in the latest completed nightly"
+          :footnote="signal ? `Exact jobs in #${value(signal.number)}` : 'No nightly with test results'"
           data-testid="kpi-nightly-variants"
         />
         <KpiCard
@@ -133,7 +129,7 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
           :value="latestCount(m.key)"
           :spark="trend(m.key, m.goodWhen).spark"
           :delta="trend(m.key, m.goodWhen).delta"
-          :footnote="signal ? m.meta : 'Unavailable in this snapshot'"
+          :footnote="latestCount(m.key) === null ? (signal ? `No failure movement for #${value(signal.number)}` : 'Unavailable in this snapshot') : m.meta"
           :action="signal && latestCount(m.key) ? { label: `Inspect ${m.label.toLowerCase()}`, onOpen: () => open(signal!, m.key) } : undefined"
           :data-testid="`kpi-nightly-${m.key}`"
         />

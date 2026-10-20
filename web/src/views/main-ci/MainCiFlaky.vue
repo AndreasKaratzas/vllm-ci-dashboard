@@ -19,7 +19,7 @@ const thresholds = computed(() => flakinessThresholds(ctx.value.record))
 const windowLabel = computed(() => (thresholds.value ? `${thresholds.value.windowDays} days` : 'window'))
 const flaky = computed(() => flakyGroups(ctx.value.record))
 const retry = computed(() => retryGroups(ctx.value.record))
-const open = (row: FlakyGroup | RetryGroup) => props.sheets.open(groupStatsDetail(row, ctx.value, thresholds.value?.windowDays ?? null))
+const open = (row: FlakyGroup | RetryGroup) => props.sheets.open(groupStatsDetail(row, ctx.value, thresholds.value))
 
 // The groups flipping most in the current window, against the window before: a count, so series colors.
 const TOP = 10
@@ -80,7 +80,7 @@ const alertFilter = <T extends { alerting: boolean }>(): FilterSpec<T>[] => [
     <CardHeader>
       <CardTitle class="text-base">Flaky groups</CardTitle>
       <CardDescription>
-        {{ integer(summary.alertingFlaky ?? 0) }} alerting of {{ integer(summary.flakyGroups ?? flaky.length) }} groups that flipped in 30 days<template v-if="(summary.flakyGroups ?? 0) > flaky.length">
+        {{ integer(summary.alertingFlaky ?? 0) }} alerting<template v-if="thresholds"> at {{ thresholds.minFlips }} flips</template> of {{ integer(summary.flakyGroups ?? flaky.length) }} groups that flipped in 30 days<template v-if="(summary.flakyGroups ?? 0) > flaky.length">
           · the {{ integer(flaky.length) }} most active are listed</template>
       </CardDescription>
     </CardHeader>
@@ -94,6 +94,7 @@ const alertFilter = <T extends { alerting: boolean }>(): FilterSpec<T>[] => [
         label="Flaky groups"
         empty-text="No group flipped between pass and fail on main."
         :on-row-click="open"
+        @drill="sheets.open"
       />
     </CardContent>
   </Card>
@@ -102,7 +103,7 @@ const alertFilter = <T extends { alerting: boolean }>(): FilterSpec<T>[] => [
     <CardHeader>
       <CardTitle class="text-base">Passes after a retry</CardTitle>
       <CardDescription>
-        {{ integer(summary.alertingRetry ?? 0) }} alerting · hard-failed attempts that Buildkite retried and that then passed<template v-if="summary.recoveries !== null">
+        {{ integer(summary.alertingRetry ?? 0) }} alerting<template v-if="thresholds"> at {{ thresholds.minRecoveries }} recoveries</template> · hard-failed attempts that Buildkite retried and that then passed<template v-if="summary.recoveries !== null">
           · {{ integer(summary.recoveries) }} recoveries of {{ integer(summary.retryAttempts) }} retries in 30 days</template>
       </CardDescription>
     </CardHeader>
@@ -116,6 +117,7 @@ const alertFilter = <T extends { alerting: boolean }>(): FilterSpec<T>[] => [
         label="Groups that pass after a retry"
         empty-text="No group passed only after a retry on main."
         :on-row-click="open"
+        @drill="sheets.open"
       />
     </CardContent>
   </Card>

@@ -16,18 +16,19 @@ import { useClock } from '@/composables/useClock'
 import { useOperationSections } from '@/composables/useOperations'
 import { useQueryState } from '@/composables/useQueryState'
 import { useSheetStack } from '@/composables/useSheetStack'
-import { integer, reasonText, toneForState, type Rec } from '@/domain/format'
+import { integer, rateText, reasonText, toneForState, type Rec } from '@/domain/format'
 import { areaSources } from '@/domain/freshness'
 import { HOME_EXCLUDED_ATTENTION, attentionLabel, currentAmdHealth, currentTestGroupParity } from '@/domain/health'
 import { attentionTone, nightlySeries, passRateTrend } from '@/domain/home'
 import { movementBuilds } from '@/domain/ciHealth'
 import { buildsBetween, type TrendPoint } from '@/domain/mainCi'
-import { amdNightlyPresentation, ciHealthPublicationRetentionMessage, latestAmd, nightlyCountLabel } from '@/domain/nightly'
+import { amdNightlyPresentation, ciHealthPublicationRetentionMessage, latestAmd, nightlyCountLabel, pendingNightly, signalNightly } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
 import { useFreshness } from '@/features/freshness/useFreshness'
 import { statusVar } from '@/lib/palette'
-import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
+import { buildEvidenceDetail, pendingEvidenceDetail } from '@/features/nightly/buildEvidence'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
+import PendingNightlyCallout from '@/features/nightly/PendingNightlyCallout.vue'
 import { trendPointDetail } from '@/features/main-ci/details'
 import MainCiKpis from '@/features/main-ci/MainCiKpis.vue'
 import MainCiTrendCard from '@/features/main-ci/MainCiTrendCard.vue'
@@ -55,8 +56,12 @@ const amd = computed(() => latestAmd(ops.value))
 const builds = computed<Rec[]>(() => amd.value.builds || [])
 const latestBuild = computed<Rec>(() => builds.value[0] || {})
 const latestUrl = computed(() => exactPipelineBuildUrl(latestBuild.value, 'ci'))
+// While the newest nightly has no test results, every count comes from the newest one that has.
+const pending = computed(() => pendingNightly(builds.value))
+const signalBuild = computed<Rec>(() => signalNightly(builds.value) || latestBuild.value)
+const signalUrl = computed(() => exactPipelineBuildUrl(signalBuild.value, 'ci'))
 const nightly = computed(() =>
-  amdNightlyPresentation(latestBuild.value, currentAmdHealth(ops.value?.amd_test_health).summary || {}, ops.value?.generated_at, now.value),
+  amdNightlyPresentation(signalBuild.value, currentAmdHealth(ops.value?.amd_test_health).summary || {}, ops.value?.generated_at, now.value),
 )
 const series = computed(() => nightlySeries(builds.value))
 const passRate = computed(() => passRateTrend(builds.value))
@@ -156,30 +161,31 @@ watch(sheets.stack, (stack) => {
       </template>
     </PageHeader>
 
+    <section class="flex flex-col gap-4 md:gap-6" aria-labelledby="home-main-heading" data-testid="home-main">
+      <h2 id="home-main-heading" class="sr-only">Main CI</h2>
+      <AsyncBoundary v-if="!mainCi.ops.value" :loading="!mainCi.shellError.value" :error="mainCi.shellError.value" skeleton="cards" @retry="mainCi.shellRetry" />
+      <template v-else-if="mainSummary">
+        <MainCiKpis
+          :summary="mainSummary"
+          :record="mainCi.ctx.value.record ?? mainCi.record.value"
+          :builds="mainCi.builds.value"
+          :actions="{
+            latest: latestMain ? { label: 'Open build evidence', to: { name: 'main', query: { build: String(latestMain.number) } } } : undefined,
+            rate: { label: 'Open main CI', to: { name: 'main' } },
+            incidents: { label: 'Open incidents', to: { name: 'main', query: { view: 'incidents' } } },
+            flaky: { label: 'Open flaky groups', to: { name: 'main', query: { view: 'flaky' } } },
+          }"
+        />
+        <MainCiTrendCard v-if="mainCi.loaded.value" :record="mainCi.ctx.value.record" @select="openMainPoint" />
+        <AsyncBoundary v-else :loading="!mainCi.error.value" :error="mainCi.error.value" skeleton="chart" @retry="mainCi.retry" />
+      </template>
+      <Callout v-else-if="mainCi.summary.value && !mainCi.summary.value.available" tone="soft" title="Main CI data is unavailable" data-testid="home-main-unavailable">
+        {{ reasonText(mainCi.summary.value.reason) }}. Nightly signals below remain current.
+      </Callout>
+    </section>
+
     <AsyncBoundary :loading="loading && !ops" :error="error" @retry="retry">
       <div class="flex flex-col gap-4 md:gap-6">
-        <section class="flex flex-col gap-4 md:gap-6" aria-labelledby="home-main-heading" data-testid="home-main">
-          <h2 id="home-main-heading" class="sr-only">Main CI</h2>
-          <template v-if="mainSummary">
-            <MainCiKpis
-              :summary="mainSummary"
-              :record="mainCi.ctx.value.record ?? mainCi.record.value"
-              :builds="mainCi.builds.value"
-              :actions="{
-                latest: latestMain ? { label: 'Open build evidence', to: { name: 'main', query: { build: String(latestMain.number) } } } : undefined,
-                rate: { label: 'Open main CI', to: { name: 'main' } },
-                incidents: { label: 'Open incidents', to: { name: 'main', query: { view: 'incidents' } } },
-                flaky: { label: 'Open flaky groups', to: { name: 'main', query: { view: 'flaky' } } },
-              }"
-            />
-            <MainCiTrendCard v-if="mainCi.loaded.value" :record="mainCi.ctx.value.record" @select="openMainPoint" />
-            <AsyncBoundary v-else :loading="!mainCi.error.value" :error="mainCi.error.value" skeleton="chart" @retry="mainCi.retry" />
-          </template>
-          <Callout v-else-if="mainCi.summary.value && !mainCi.summary.value.available" tone="soft" title="Main CI data is unavailable" data-testid="home-main-unavailable">
-            {{ reasonText(mainCi.summary.value.reason) }}. Nightly signals below remain current.
-          </Callout>
-        </section>
-
         <div class="flex flex-wrap items-end justify-between gap-2 pt-2" data-testid="home-nightly-heading">
           <div class="flex flex-col gap-1">
             <h2 class="text-lg font-semibold tracking-tight">AMD nightly</h2>
@@ -190,6 +196,7 @@ watch(sheets.stack, (stack) => {
           </Button>
         </div>
         <Callout v-if="retentionMessage" tone="soft" title="Partial history">{{ retentionMessage }}</Callout>
+        <PendingNightlyCallout v-if="pending" :pending="pending" :on-open="() => sheets.open(pendingEvidenceDetail(pending!))" />
 
         <StatGrid>
           <KpiCard
@@ -201,14 +208,14 @@ watch(sheets.stack, (stack) => {
             :spark="series.map((row) => row.hard + row.soft)"
             :headline="nightly.label"
             :footnote="nightlyFootnote"
-            :action="latestUrl ? { label: `Open #${latestBuild.number} on Buildkite`, href: latestUrl } : undefined"
+            :action="signalUrl ? { label: `Open #${signalBuild.number} on Buildkite`, href: signalUrl } : undefined"
             data-testid="kpi-nightly"
           />
           <KpiCard
             v-if="passRate"
             label="Latest pass rate"
             :value="passRate.latest.passRate * 100"
-            :format="(value: number) => `${value.toFixed(1)}%`"
+            :format="rateText"
             :delta="passRate.deltaPoints !== null ? { value: Number(passRate.deltaPoints.toFixed(1)), goodWhen: 'up', text: pointsText(passRate.deltaPoints) } : undefined"
             :spark="series.map((row) => row.passRate * 100)"
             headline="Open nightly evidence"
@@ -216,12 +223,12 @@ watch(sheets.stack, (stack) => {
             :action="{ label: 'Open nightly evidence', onOpen: () => openBuildNumber(passRate!.latest.number) }"
             data-testid="kpi-pass-rate"
           />
-          <EmptyState v-else title="No pass rate yet" description="The latest nightly has no parsed test groups." class="py-6" data-testid="kpi-pass-rate" />
+          <EmptyState v-else title="No pass rate yet" description="No retained nightly has parsed test groups." class="py-6" data-testid="kpi-pass-rate" />
           <KpiCard
             v-if="parityAvailable"
             label="Upstream test-group parity"
             :value="parityRate"
-            :format="(value: number) => `${value.toFixed(1)}%`"
+            :format="rateText"
             :status="{ tone: Number(parity.action_groups) ? 'soft' : 'pass', label: `${integer(parityMissing)} missing` }"
             headline="Open upstream parity"
             :footnote="`${integer(parity.main_complete_groups)} / ${integer(parity.applicable_groups)} upstream test groups covered on main`"

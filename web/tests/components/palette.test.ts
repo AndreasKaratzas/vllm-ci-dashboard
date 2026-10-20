@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { HEAT_LEVELS, SERIES, TONE_ICON, TONE_LABEL, hardwareColor, hardwareFamily, heatColor, heatLegend, heatLevel, rateTone, statusVar, toneClasses, type TonePart } from '@/lib/palette'
+import { HEAT_LEVELS, SERIES, TONE_ICON, TONE_LABEL, hardwareColor, hardwareFamily, heatColor, heatLegend, heatLevel, RATE_THRESHOLDS, rateStatus, rateTone, statusVar, toneClasses, type TonePart } from '@/lib/palette'
 import type { Tone } from '@/lib/tone'
 
 const TONES: Tone[] = ['pass', 'hard', 'soft', 'info', 'neutral', 'not-targeted']
@@ -32,6 +32,14 @@ describe('palette', () => {
     expect(rateTone(94.9)).toBe('hard')
     expect(rateTone(null)).toBe('neutral')
     expect(rateTone(Number.NaN)).toBe('neutral')
+  })
+
+  it('names the band of a non-passing rate from the same thresholds', () => {
+    expect(RATE_THRESHOLDS).toEqual({ pass: 99, soft: 95 })
+    expect(rateStatus(99)).toBeUndefined()
+    expect(rateStatus(98.9)).toEqual({ tone: 'soft', label: 'Below 99%' })
+    expect(rateStatus(93.3)).toEqual({ tone: 'hard', label: 'Below 95%' })
+    expect(rateStatus(null)).toBeUndefined()
   })
 
   it('resolves every status to a theme token', () => {

@@ -73,7 +73,8 @@ const setTip = (key: string, open: boolean) => {
             </li>
             <li class="hidden text-muted-foreground sm:block" aria-hidden="true"><ChevronRight class="size-3.5" /></li>
           </template>
-          <li class="min-w-0 truncate font-medium" aria-current="page">{{ subView?.label ?? tab?.label ?? 'Dashboard' }}</li>
+          <li v-if="tab && subView" class="min-w-0 truncate font-medium sm:hidden" aria-current="page">{{ tab.label }}</li>
+          <li class="min-w-0 truncate font-medium" :class="tab && subView && 'hidden sm:block'" aria-current="page">{{ subView?.label ?? tab?.label ?? 'Dashboard' }}</li>
         </ol>
       </nav>
       <div class="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import AreaChart, { type CompanionBars } from '@/components/charts/AreaChart.vue'
-import { rateAxis, shortDay, type SeriesSpec } from '@/components/charts/chart'
+import { rateAxis, ratePercent, shortDay, type SeriesSpec } from '@/components/charts/chart'
 import EmptyState from '@/components/feedback/EmptyState.vue'
 import SegmentedSelect, { type SegmentedItem } from '@/components/layout/SegmentedSelect.vue'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -35,10 +35,10 @@ const rows = computed<Row[]>(() =>
 
 const PASS_RATE: SeriesSpec[] = [{ key: 'passRate', label: 'Pass rate', color: SERIES.primary }]
 const FAILURES: CompanionBars = {
-  label: 'Hard and soft failures per nightly',
+  label: 'Hard- and soft-failed job variants per nightly',
   series: [
-    { key: 'hard', label: 'Hard failures', color: statusVar('hard') },
-    { key: 'soft', label: 'Soft failures', color: statusVar('soft') },
+    { key: 'hard', label: 'Hard-failed variants', color: statusVar('hard') },
+    { key: 'soft', label: 'Soft-failed variants', color: statusVar('soft') },
   ],
 }
 
@@ -56,7 +56,6 @@ const range = computed({
 const shown = computed(() => (range.value ? Math.min(range.value, rows.value.length) : rows.value.length))
 const axis = computed(() => rateAxis(props.series.map((row) => row.passRate * 100)))
 
-const percent = (value: number) => `${Number(value.toFixed(1))}%`
 const dayOf = (index: number) => {
   const row = rows.value[Math.round(index)]
   return row ? shortDay(Date.parse(row.createdAt)) : ''
@@ -93,7 +92,7 @@ const rowLabel = (row: Row) => `Nightly #${row.number} · ${dayOf(row.index)}`
         :bars="FAILURES"
         :y-domain="axis.domain"
         :y-ticks="axis.ticks"
-        :y-format="percent"
+        :y-format="ratePercent"
         inspect-placement="legend"
         label="AMD nightly pass rate"
         hint="Click for build evidence"

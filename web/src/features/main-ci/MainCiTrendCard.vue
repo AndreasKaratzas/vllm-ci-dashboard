@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import AreaChart, { type CompanionBars } from '@/components/charts/AreaChart.vue'
-import { rateAxis, shortDay, shortDayTime, type SeriesSpec } from '@/components/charts/chart'
+import { rateAxis, ratePercent, shortDay, shortDayTime, type SeriesSpec } from '@/components/charts/chart'
 import EmptyState from '@/components/feedback/EmptyState.vue'
 import SegmentedSelect from '@/components/layout/SegmentedSelect.vue'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -30,7 +30,8 @@ const points = computed(() => trendPoints(props.record, range.value))
 const rows = computed<Row[]>(() =>
   points.value.flatMap((point) => (point.passRate === null ? [] : [{ point, at: point.from, passRate: point.passRate, hard: point.hard, soft: point.soft }])),
 )
-const step = computed(() => (points.value[0] ? points.value[0].to - points.value[0].from : 1))
+// The widest point is a whole step; the oldest and newest blocks can be partial.
+const step = computed(() => Math.max(1, ...points.value.map((point) => point.to - point.from)))
 const axis = computed(() => rateAxis(rows.value.map((row) => row.passRate)))
 const totals = computed(() => points.value.reduce((sum, point) => ({ builds: sum.builds + point.builds, hard: sum.hard + point.hard }), { builds: 0, hard: 0 }))
 
@@ -38,8 +39,8 @@ const PASS_RATE: SeriesSpec[] = [{ key: 'passRate', label: 'AMD pass rate', colo
 const FAILURES: CompanionBars = {
   label: 'Hard and soft AMD job failures per interval',
   series: [
-    { key: 'hard', label: 'Hard failures', color: statusVar('hard') },
-    { key: 'soft', label: 'Soft failures', color: statusVar('soft') },
+    { key: 'hard', label: 'Hard job failures', color: statusVar('hard') },
+    { key: 'soft', label: 'Soft job failures', color: statusVar('soft') },
   ],
 }
 
@@ -48,7 +49,6 @@ function intervalLabel(point: TrendPoint): string {
   const end = new Date(point.to).toISOString().slice(11, 16)
   return `${shortDayTime(point.from)}–${end === '00:00' ? '24:00' : end} UTC`
 }
-const percent = (value: number) => `${Number(value.toFixed(1))}%`
 const rowLabel = (row: Row) => `${intervalLabel(row.point)} · ${integer(row.point.builds)} builds`
 </script>
 
@@ -75,7 +75,7 @@ const rowLabel = (row: Row) => `${intervalLabel(row.point)} · ${integer(row.poi
         :bars="FAILURES"
         :y-domain="axis.domain"
         :y-ticks="axis.ticks"
-        :y-format="percent"
+        :y-format="ratePercent"
         :max-gap="step * 1.5"
         time-axis
         inspect-placement="legend"

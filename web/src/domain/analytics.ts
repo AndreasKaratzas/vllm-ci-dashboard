@@ -729,79 +729,15 @@ export function nightlyDisplayName(nightly: Rec): string {
   return nightly.display_name || 'AMD MI main CI'
 }
 
-/** A strip item whose drill-down is the build detail sheet in ``scope``. */
-export interface NightlyStripItem extends StripItem {
-  scope?: 'new' | 'recurring' | 'fixed'
-  opensBuild?: boolean
-}
-
 export interface NightliesModel {
   name: string
   latest: Rec
-  latestMovement: Rec | null
-  strip: NightlyStripItem[]
-  chartBuilds: Rec[]
   rows: Rec[]
 }
 
 export function nightliesModel(nightly: Rec): NightliesModel {
   const builds: Rec[] = nightly.builds || []
-  const name = nightlyDisplayName(nightly)
-  const latest = builds[0] || {}
-  const published = nightlyFailureMovement(latest)
-  const latestMovement = published && published.available !== false ? published : null
-  const movementBuilds = builds.filter((row) => {
-    const movement = nightlyFailureMovement(row)
-    return row.has_test_results !== false && Boolean(movement) && movement!.available !== false
-  })
-  const countTone = (count: number, active: Tone): Tone => (latestMovement && count ? active : latestMovement ? 'pass' : 'neutral')
-  return {
-    name,
-    latest,
-    latestMovement,
-    strip: [
-      {
-        label: 'LATEST ' + name.toUpperCase() + ' NIGHTLY',
-        value: latest.number ? '#' + latest.number : '-',
-        meta: latest.created_at ? shortDate(latest.created_at) : 'No completed nightly',
-        tone: toneForState(latest.state),
-        url: latest.number ? exactPipelineBuildUrl(latest, 'ci') : null,
-      },
-      {
-        label: 'JOB VARIANTS OBSERVED',
-        value: integer(latest.total_groups),
-        meta: 'exact jobs in the latest completed nightly',
-        tone: '',
-        opensBuild: true,
-      },
-      {
-        label: 'NEW FAILURES',
-        value: latestMovement ? integer(latestMovement.new.length) : '-',
-        meta: latestMovement ? 'not failing in the preceding observed nightly' : 'unavailable in this snapshot',
-        tone: countTone(latestMovement ? latestMovement.new.length : 0, 'hard'),
-        opensBuild: true,
-        scope: 'new',
-      },
-      {
-        label: 'RECURRING FAILURES',
-        value: latestMovement ? integer(latestMovement.recurring.length) : '-',
-        meta: latestMovement ? 'failed in the preceding observed nightly too' : 'unavailable in this snapshot',
-        tone: countTone(latestMovement ? latestMovement.recurring.length : 0, 'soft'),
-        opensBuild: true,
-        scope: 'recurring',
-      },
-      {
-        label: 'FIXED',
-        value: latestMovement ? integer(latestMovement.fixed.length) : '-',
-        meta: latestMovement ? 'failed previously and passed now' : 'unavailable in this snapshot',
-        tone: latestMovement && latestMovement.fixed.length ? 'pass' : 'neutral',
-        opensBuild: true,
-        scope: 'fixed',
-      },
-    ],
-    chartBuilds: movementBuilds.slice().reverse(),
-    rows: builds,
-  }
+  return { name: nightlyDisplayName(nightly), latest: builds[0] || {}, rows: builds }
 }
 
 export function nightlyCountLabel(build: Rec, key: 'new' | 'recurring' | 'fixed'): string {

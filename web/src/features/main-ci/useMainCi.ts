@@ -8,7 +8,7 @@ import type { MainCiContext } from './details'
  * manifest without a main_ci entry (bundle v3) is "unpublished", not an error.
  */
 export function useMainCi() {
-  const { ops } = useOperations()
+  const { ops, error: shellError, retry: shellRetry } = useOperations()
   const section = useOperationSections(['main_ci'])
   const published = computed(() => !!ops.value && !!mainCiRecord(ops.value))
   const record = computed(() => mainCiRecord(section.data.value) ?? mainCiRecord(ops.value))
@@ -19,7 +19,7 @@ export function useMainCi() {
   /** The full section (series, builds, incidents) has loaded; until then only the headline is known. */
   const loaded = computed(() => !!section.data.value?.main_ci)
   const error = computed(() => (published.value ? section.error.value : null))
-  return { ops, published, record, summary, builds, incidents, ctx, loaded, loading: section.loading, error, retry: section.retry }
+  return { ops, shellError, shellRetry, published, record, summary, builds, incidents, ctx, loaded, loading: section.loading, error, retry: section.retry }
 }
 
 export type MainCi = ReturnType<typeof useMainCi>

@@ -1,5 +1,5 @@
 import { toneForState, type Rec, type Tone } from './format'
-import { nightlyFailureCount } from './nightly'
+import { hasTestSignal, nightlyFailureCount } from './nightly'
 
 export interface NightlyCounts {
   number: number
@@ -14,9 +14,8 @@ export interface NightlyCounts {
 
 /** Pass/hard/soft counts for a nightly with test signal, by the classic fallback rule. */
 export function nightlyCounts(build: Rec | null | undefined): NightlyCounts | null {
-  if (!build || build.has_test_results === false) return null
-  const total = Number(build.total_groups || 0)
-  if (!(total > 0)) return null
+  if (!build || !hasTestSignal(build)) return null
+  const total = Number(build.total_groups)
   const hard = Array.isArray(build.failed_groups) ? build.failed_groups.length : 0
   const soft = Array.isArray(build.soft_failed_groups) ? build.soft_failed_groups.length : 0
   const passed = Math.max(0, total - hard - soft)
@@ -40,11 +39,11 @@ export function nightlySeries(builds: Rec[]): NightlyCounts[] {
     .reverse()
 }
 
-/** Latest pass rate and its change in percentage points versus the previous signal-bearing nightly. */
+/** The newest nightly's pass rate and its change in points versus the nightly with results before it. */
 export function passRateTrend(builds: Rec[]): { latest: NightlyCounts; deltaPoints: number | null } | null {
   const series = nightlySeries(builds)
   const latest = series.at(-1)
-  if (!latest || Number(builds[0]?.number) !== latest.number) return null
+  if (!latest) return null
   const previous = series.at(-2)
   return { latest, deltaPoints: previous ? (latest.passRate - previous.passRate) * 100 : null }
 }
