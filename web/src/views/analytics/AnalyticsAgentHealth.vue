@@ -1,97 +1,95 @@
 <script setup lang="ts">
-import type { ColumnDef } from '@tanstack/vue-table'
-import { computed, h, nextTick, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import AgentTimelineChart from '@/components/analytics/agent-health/AgentTimelineChart.vue'
+import { ChevronDown, Search, ServerCrash, SlidersHorizontal } from '@lucide/vue'
+import { refDebounced, useMediaQuery } from '@vueuse/core'
+import { computed, h, ref, watch } from 'vue'
+import AgentAbout from '@/components/analytics/agent-health/AgentAbout.vue'
 import CofailureCard from '@/components/analytics/agent-health/CofailureCard.vue'
-import SegmentField from '@/components/analytics/agent-health/SegmentField.vue'
-import DataTable from '@/components/ops/DataTable.vue'
-import KpiCard from '@/components/ops/KpiCard.vue'
-import TableSheet from '@/components/ops/TableSheet.vue'
-import ViewState from '@/components/ops/ViewState.vue'
+import { dayDetail, eventDetail, failingNodesDetail, nodeDayDetail, nodeDetail, nodeOfDetail } from '@/components/analytics/agent-health/details'
+import FleetVerdict from '@/components/analytics/agent-health/FleetVerdict.vue'
+import LoadChart from '@/components/analytics/agent-health/LoadChart.vue'
+import { shortDay } from '@/components/charts/chart'
+import Heatmap, { type HeatmapColumn, type HeatmapRow } from '@/components/charts/Heatmap.vue'
+import SheetStack from '@/components/evidence/SheetStack.vue'
+import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
+import Callout from '@/components/feedback/Callout.vue'
+import EmptyState from '@/components/feedback/EmptyState.vue'
+import InfoPopover from '@/components/feedback/InfoPopover.vue'
+import SegmentedSelect from '@/components/layout/SegmentedSelect.vue'
+import KpiCard, { type KpiAction } from '@/components/stat/KpiCard.vue'
+import StatGrid from '@/components/stat/StatGrid.vue'
+import { kpiTrend, type KpiTrend } from '@/components/stat/trend'
+import DataTable from '@/components/table/DataTable.vue'
+import type { ColumnSpec } from '@/components/table/columns'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useOperationSections } from '@/composables/useOperations'
+import { useQueryState } from '@/composables/useQueryState'
+import { useSheetStack } from '@/composables/useSheetStack'
+import { useSubviewHeader } from '@/composables/useSubviewHeader'
 import {
   AGENT_UNAVAILABLE_TEXT,
-  AMD_AGENT_HEALTH_ASSET,
   agentCells,
   agentCofailLabel,
+  agentDailySeries,
   agentEmptyText,
+  agentFleetVerdict,
   agentHealthModel,
   agentHealthScopeValid,
   agentKpis,
+  agentLoadBy,
+  agentNodeDayMatrix,
   agentOptions,
   agentTableDescription,
-  agentTimeline,
-  clampTimelineRange,
   computeAgentView,
-  effectiveAgentSort,
   eventKey,
   eventsSection,
-  eventTimelineRange,
-  nextAgentSort,
-  nodeEvidence,
-  nodeOptionLabel,
-  resolveSelectedNode,
   signalCaption,
   signalColumnLabel,
+  signalNoun,
   signalTerm,
-  sortedAgents,
-  timelineAgents,
-  zoomTimeline,
+  type AgentDay,
+  type AgentNodeHistory,
   type AgentRow,
-  type AgentSort,
   type CofailEvent,
-  type TimelineRange,
 } from '@/domain/agentHealth'
-import { age, shortDate, value, type Rec } from '@/domain/format'
+import { integer, value, type Rec } from '@/domain/format'
+import { SERIES, hardwareColor } from '@/lib/palette'
 
-const route = useRoute()
-const router = useRouter()
 const { data: ops, error, loading, retry } = useOperationSections(['amd_agent_health'])
+const sheets = useSheetStack()
 
 const health = computed<Rec>(() => (ops.value || {}).amd_agent_health || {})
 const valid = computed(() => agentHealthScopeValid(health.value))
 const model = computed(() => (valid.value ? agentHealthModel(health.value) : null))
 
-// Route state mirrors classic ?ops_agent_*; defaults stay out of the URL.
-const DEFAULTS: Record<string, string> = {
-  agent_window: '7d',
-  agent_gpu: 'all',
-  agent_node: '',
-  agent_cofail: '180',
-  agent_excl_cancel: '1',
-  agent_nightly: '0',
-  agent_signal: 'infra',
+// The domain validates every raw value; defaults stay out of the URL.
+const query = {
+  window: useQueryState<string>('agent_window', { default: '7d' }),
+  gpu: useQueryState<string>('agent_gpu', { default: 'all' }),
+  node: useQueryState<string>('agent_node', { default: '' }),
+  cofail: useQueryState<string>('agent_cofail', { default: '180' }),
+  exclCancel: useQueryState<string>('agent_excl_cancel', { default: '1' }),
+  nightly: useQueryState<string>('agent_nightly', { default: '0' }),
+  signal: useQueryState<string>('agent_signal', { default: 'infra' }),
 }
-const q = (key: string) => (typeof route.query[key] === 'string' ? (route.query[key] as string) : null)
-function setQuery(key: string, next: string) {
-  void router.replace({ query: { ...route.query, [key]: next === DEFAULTS[key] || next === '' ? undefined : next } })
-}
-
 const searchInput = ref('')
-const search = ref('')
-let searchTimer: ReturnType<typeof setTimeout> | null = null
-watch(searchInput, (next) => {
-  if (searchTimer) clearTimeout(searchTimer)
-  searchTimer = setTimeout(() => (search.value = next.trim()), 200)
-})
+const search = refDebounced(computed(() => searchInput.value.trim()), 200)
 
 const options = computed(() =>
   model.value
     ? agentOptions(
         model.value,
         {
-          window: q('agent_window'),
-          gpu: q('agent_gpu'),
-          node: q('agent_node'),
-          cofail: q('agent_cofail'),
-          exclCancel: q('agent_excl_cancel'),
-          nightly: q('agent_nightly'),
-          signal: q('agent_signal'),
+          window: query.window.value,
+          gpu: query.gpu.value,
+          node: query.node.value,
+          cofail: query.cofail.value,
+          exclCancel: query.exclCancel.value,
+          nightly: query.nightly.value,
+          signal: query.signal.value,
         },
         search.value,
       )
@@ -99,410 +97,478 @@ const options = computed(() =>
 )
 const view = computed(() => (model.value && options.value ? computeAgentView(model.value, options.value) : null))
 
-const signal = computed({ get: () => options.value?.signal ?? 'infra', set: (v: string) => setQuery('agent_signal', v) })
-const windowId = computed({ get: () => options.value?.windowId ?? '7d', set: (v: string) => setQuery('agent_window', v) })
-const gpu = computed({ get: () => options.value?.gpu ?? 'all', set: (v: string) => setQuery('agent_gpu', v) })
-const nightly = computed({ get: () => (options.value?.nightlyOnly ? '1' : '0'), set: (v: string) => setQuery('agent_nightly', v) })
-const cancelled = computed({ get: () => (options.value?.excludeCancelled ? '1' : '0'), set: (v: string) => setQuery('agent_excl_cancel', v) })
-const cofail = computed({ get: () => String(options.value?.cofailMins ?? 180), set: (v: string) => setQuery('agent_cofail', v) })
+const signal = computed({ get: () => options.value?.signal ?? 'infra', set: (v: string) => (query.signal.value = v) })
+const windowId = computed({ get: () => options.value?.windowId ?? '7d', set: (v: string) => (query.window.value = v) })
+const gpu = computed({ get: () => options.value?.gpu ?? 'all', set: (v: string) => (query.gpu.value = v) })
+const nightly = computed({ get: () => (options.value?.nightlyOnly ? '1' : '0'), set: (v: string) => (query.nightly.value = v) })
+const cancelled = computed({ get: () => (options.value?.excludeCancelled ? '1' : '0'), set: (v: string) => (query.exclCancel.value = v) })
+const cofail = computed({ get: () => String(options.value?.cofailMins ?? 180), set: (v: string) => (query.cofail.value = v) })
 
-const windowItems = computed(() => (model.value?.windowOptions ?? []).map((d) => ({ id: d + 'd', label: d + 'd' })))
-const gpuItems = computed(() => [{ id: 'all', label: 'All GPUs' }, ...(model.value?.hardwareTypes ?? []).map((hw) => ({ id: hw, label: hw }))])
-const cofailItems = computed(() => (model.value?.cofailOptions ?? []).map((m) => ({ id: String(m), label: agentCofailLabel(m) })))
+const SIGNALS = [
+  { value: 'infra', label: 'Infra-suspect' },
+  { value: 'hard', label: 'Hard' },
+  { value: 'all', label: 'All', title: 'All (hard + soft)' },
+]
+const SCOPES = [
+  { value: '0', label: 'All main builds' },
+  { value: '1', label: 'Nightlies' },
+]
+const CANCELLED = [
+  { value: '1', label: 'Exclude', title: 'Exclude cancelled builds' },
+  { value: '0', label: 'Include', title: 'Include cancelled builds' },
+]
+const windowItems = computed(() => (model.value?.windowOptions ?? []).map((d) => ({ value: `${d}d`, label: `${d}d`, title: `Last ${d} days` })))
+const gpuItems = computed(() => [{ value: 'all', label: 'All GPUs' }, ...(model.value?.hardwareTypes ?? []).map((hw) => ({ value: hw, label: hw }))])
+const cofailItems = computed(() => (model.value?.cofailOptions ?? []).map((m) => ({ value: String(m), label: agentCofailLabel(m) })))
+// GPU, build scope, cancelled builds and co-failure window live behind one Filters button.
+const activeFilters = computed(() => [gpu.value !== 'all', nightly.value !== '0', cancelled.value !== '1', cofail.value !== '180'].filter(Boolean).length)
 
-const kpis = computed(() => (model.value && view.value && options.value ? agentKpis(model.value, view.value, options.value) : []))
-const KPI_TITLES: Record<string, string> = {
+useSubviewHeader(() => {
+  const current = model.value
+  return current ? { about: () => h(AgentAbout, { model: current }) } : {}
+})
+
+// ---- Per-day and per-node-day accounting ----
+const days = computed<AgentDay[]>(() => (model.value && view.value && options.value ? agentDailySeries(model.value, view.value, options.value) : []))
+const matrix = computed(() => (model.value && view.value && options.value ? agentNodeDayMatrix(model.value, view.value, options.value) : null))
+const verdict = computed(() => (matrix.value && view.value && options.value ? agentFleetVerdict(matrix.value, view.value, options.value) : null))
+const queues = computed(() => (view.value ? agentLoadBy(view.value.fRuns, (run) => run.queue) : []))
+const groups = computed(() => (view.value ? agentLoadBy(view.value.fRuns, (run) => run.group) : []))
+const agentsByNode = computed(() => new Map((view.value?.agents ?? []).map((agent) => [agent.node_raw, agent])))
+const historyByNode = computed(() => new Map((matrix.value?.nodes ?? []).map((node) => [node.node_raw, node])))
+
+// ---- Drill-downs ----
+const noun = computed(() => signalNoun(options.value?.signal ?? 'infra'))
+function nodeSheet(agent: AgentRow) {
+  return nodeDetail(model.value!, view.value!, options.value!, agent, historyByNode.value.get(agent.node_raw) ?? null)
+}
+function openNode(agent: AgentRow) {
+  if (model.value && view.value && options.value) sheets.open(nodeSheet(agent))
+}
+const openNodeRaw = (nodeRaw: string) => {
+  const agent = agentsByNode.value.get(nodeRaw)
+  if (agent) openNode(agent)
+}
+const nodeSheetRaw = (nodeRaw: string) => {
+  const agent = agentsByNode.value.get(nodeRaw)
+  return agent ? nodeSheet(agent) : undefined
+}
+function openDay(index: number) {
+  const day = days.value[index]
+  if (day && matrix.value && view.value && options.value) sheets.open(dayDetail(day, matrix.value, view.value.fRuns, options.value))
+}
+function openEvent(event: CofailEvent) {
+  selectedEventKey.value = eventKey(event)
+  sheets.open(eventDetail(event, agentsByNode.value.get(event.node_raw)?._runs))
+}
+// agent_node names the topmost open node sheet, however it was reached, so a link reopens it.
+watch(
+  () => [view.value, query.node.value] as const,
+  ([current, node]) => {
+    if (current && node && !sheets.stack.value.length && agentsByNode.value.has(node)) openNode(agentsByNode.value.get(node)!)
+  },
+  { immediate: true },
+)
+watch(sheets.stack, (stack) => {
+  query.node.value = stack.map(nodeOfDetail).findLast(Boolean) ?? ''
+})
+
+// ---- KPIs with their daily history ----
+const fullDays = computed(() => days.value.slice(0, -1))
+const heatCard = ref<HTMLElement | null>(null)
+const tableCard = ref<HTMLElement | null>(null)
+const eventsCard = ref<HTMLElement | null>(null)
+const scrollTo = (target: { value: HTMLElement | null }) => target.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+
+const KPI_LABELS: Record<string, string> = {
   'agent-nodes': 'Identified AMD nodes',
   'agent-unreliable': 'Nodes with failures',
   'agent-coverage': 'Node coverage',
   'agent-cofail': 'Co-failure events',
 }
-const KPI_BADGES: Record<string, Record<string, string>> = {
-  'agent-unreliable': { soft: 'attention', pass: 'clear' },
-  'agent-coverage': { pass: 'identified', soft: 'partial', hard: 'unavailable' },
-  'agent-cofail': { hard: 'clustered', pass: 'none' },
+const KPI_ORDER = ['agent-unreliable', 'agent-cofail', 'agent-nodes', 'agent-coverage']
+interface Kpi {
+  id: string
+  label: string
+  value: number | string | null
+  empty?: string
+  footnote: string
+  trend: KpiTrend
+  action?: KpiAction
 }
-const emptyText = computed(() => (model.value && view.value ? agentEmptyText(model.value, view.value) : null))
-
-// Table: classic sort semantics (signal default until a header is chosen).
-const sortState = ref<{ sort: AgentSort; explicit: boolean }>({ sort: { key: 'infra_suspect', dir: 'desc' }, explicit: false })
-const sort = computed(() => effectiveAgentSort(sortState.value.sort, sortState.value.explicit, options.value?.signal ?? 'infra'))
-function onSort(key: string) {
-  sortState.value = { sort: nextAgentSort(sort.value, key), explicit: true }
-}
-const rows = computed(() => (view.value ? sortedAgents(view.value.agents, sort.value) : []))
-
-function sortHeader(label: string, key: string, numeric = false) {
-  return () => {
-    const active = sort.value.key === key
-    return h(
-      'button',
-      {
-        type: 'button',
-        class: 'inline-flex w-full items-center gap-1 hover:text-foreground' + (active ? ' text-foreground' : '') + (numeric ? ' justify-end' : ''),
-        'aria-label': 'Sort by ' + label,
-        'aria-sort': active ? (sort.value.dir === 'asc' ? 'ascending' : 'descending') : 'none',
-        onClick: () => onSort(key),
-      },
-      label + (active ? (sort.value.dir === 'asc' ? ' ▲' : ' ▼') : ''),
-    )
+const asNumber = (raw: string) => (/^[\d,]+$/.test(raw) ? Number(raw.replace(/,/g, '')) : raw)
+const kpis = computed(() => {
+  const m = model.value
+  const v = view.value
+  const o = options.value
+  if (!m || !v || !o) return []
+  const series = (pick: (day: AgentDay) => number | null) => fullDays.value.map(pick)
+  // Fleet size moves with scheduling, so its change is shown without a good or bad direction.
+  const trends: Record<string, KpiTrend> = {
+    'agent-nodes': kpiTrend(series((d) => d.nodes)),
+    'agent-unreliable': kpiTrend(series((d) => d.failingNodes), 'down'),
+    'agent-coverage': kpiTrend(series((d) => (d.runs ? (100 * d.identifiedRuns) / d.runs : null)), 'up', ' pts'),
+    'agent-cofail': kpiTrend(series((d) => d.cofailEvents), 'down'),
   }
-}
-const numericCell = (text: string) => h('span', { class: 'block text-right font-mono tabular-nums' }, text)
+  const actions: Record<string, KpiAction> = {
+    'agent-nodes': { label: 'Jump to the node table', onOpen: () => scrollTo(tableCard) },
+    'agent-unreliable': {
+      label: 'Open the failing nodes',
+      onOpen: () => sheets.open(failingNodesDetail(o, v, (agent) => agentCells(m, v, agent).signal, (agent) => nodeSheet(agent))),
+    },
+    'agent-coverage': { label: 'See failures by node and day', onOpen: () => scrollTo(heatCard) },
+    'agent-cofail': { label: 'Jump to co-failure events', onOpen: () => scrollTo(eventsCard) },
+  }
+  return agentKpis(m, v, o)
+    .map((kpi): Kpi => {
+      const available = kpi.value !== 'Unavailable'
+      return {
+        id: kpi.id,
+        label: KPI_LABELS[kpi.id]!,
+        value: available ? asNumber(kpi.value) : null,
+        empty: available ? undefined : 'Incomplete history',
+        footnote: kpi.meta,
+        trend: available ? trends[kpi.id]! : {},
+        action: actions[kpi.id],
+      }
+    })
+    .sort((a, b) => KPI_ORDER.indexOf(a.id) - KPI_ORDER.indexOf(b.id))
+})
 
-const columns = computed<ColumnDef<AgentRow, unknown>[]>(() => {
+// ---- Node x day heatmap ----
+const TOP_NODES = 12
+const showAllNodes = ref(false)
+const dayOfMonth = (day: string) => String(Number(day.slice(8, 10)))
+const heatColumns = computed<HeatmapColumn[]>(() =>
+  (matrix.value?.days ?? []).map((day, index, all) => {
+    const name = shortDay(Date.parse(`${day}T00:00:00Z`))
+    // Long windows label every other day; the corner names the months.
+    const labelled = all.length <= 31 || index % 2 === 0 || index === all.length - 1
+    return { id: day, label: labelled ? dayOfMonth(day) : '', title: name }
+  }),
+)
+const heatSpan = computed(() => {
+  const days = matrix.value?.days ?? []
+  const name = (day: string) => shortDay(Date.parse(`${day}T00:00:00Z`))
+  return days.length ? `${name(days[0]!)} – ${name(days.at(-1)!)}` : ''
+})
+const heatRow = (node: AgentNodeHistory): HeatmapRow => ({
+  id: node.node_raw,
+  label: node.node_raw,
+  dot: hardwareColor(node.hardware),
+  meta: [
+    value(node.hardware, ''),
+    `${node.activeDays} ${node.activeDays === 1 ? 'day' : 'days'}`,
+    node.cofailEvents ? `${node.cofailEvents} co-fail` : '',
+  ]
+    .filter(Boolean)
+    .join(' · '),
+  cells: node.cells.map((cell) => ({
+    value: cell.signal,
+    marker: cell.cofailEvents > 0,
+    rows: [
+      { label: 'Hard', value: cell.signalHard },
+      { label: 'Soft', value: cell.signalSoft },
+      { label: 'Runs that day', value: cell.runs },
+    ],
+  })),
+  total: node.signal,
+})
+const heatRows = computed(() => (matrix.value?.nodes ?? []).slice(0, showAllNodes.value ? undefined : TOP_NODES).map(heatRow))
+const fleetRow = computed<HeatmapRow>(() => ({
+  id: 'fleet',
+  label: 'All nodes',
+  cells: days.value.map((day) => ({
+    value: day.signal,
+    rows: [
+      { label: 'Failing nodes', value: day.failingNodes },
+      { label: 'Runs', value: day.runs },
+    ],
+  })),
+  total: days.value.reduce((sum, day) => sum + day.signal, 0),
+}))
+function openCell(row: HeatmapRow, index: number) {
+  const history = historyByNode.value.get(row.id)
+  const day = matrix.value?.days[index]
+  if (row.id === 'fleet') openDay(index)
+  else if (history && day && view.value && options.value) sheets.open(nodeDayDetail(history, day, view.value.fRuns, options.value))
+}
+
+// Below sm the page shows fewer events and table rows per screen, so it stays short.
+const wide = useMediaQuery('(min-width: 40rem)')
+
+// ---- Node table ----
+const textOrder = (pick: (row: AgentRow) => unknown) => (a: AgentRow, b: AgentRow) => {
+  const x = String(pick(a) || '').toLowerCase()
+  const y = String(pick(b) || '').toLowerCase()
+  return x < y ? -1 : x > y ? 1 : 0
+}
+// The ranking column's header wraps on a phone, so the unwrapped node names and the counts both fit.
+const RANK_HEADER = 'whitespace-normal'
+const columns = computed<ColumnSpec<AgentRow>[]>(() => {
   const m = model.value
   const v = view.value
   const o = options.value
   if (!m || !v || !o) return []
   const cells = (row: AgentRow) => agentCells(m, v, row)
-  const cols: ColumnDef<AgentRow, unknown>[] = [
+  const count = (id: keyof AgentRow, label: string, pick: (row: AgentRow) => string): ColumnSpec<AgentRow> => ({
+    id,
+    label,
+    value: (row) => Number(row[id]) || 0,
+    cell: (row) => ({ text: pick(row), muted: !Number(row[id]) }),
+    numeric: true,
+  })
+  const signalMax = Math.max(1, ...v.agents.map((row) => row.infra_suspect))
+  const failureMax = Math.max(1, ...v.agents.map((row) => row.failures))
+  // The ranking column carries an inline bar so the worst nodes read at a glance.
+  const ranked = o.signal === 'all' ? 'failures' : 'infra_suspect'
+  const bar = (id: 'failures' | 'infra_suspect', shown: string) => (row: AgentRow) => ({
+    text: shown,
+    muted: !row[id],
+    ...(id === ranked && row[id] > 0 ? { bar: { value: row[id], max: id === 'failures' ? failureMax : signalMax, color: SERIES.primary } } : {}),
+  })
+  return [
     {
-      id: 'Physical node',
-      header: sortHeader('Physical node', 'node'),
-      accessorFn: (row) => row.node + ' ' + row.hardware,
-      cell: ({ row }) =>
-        h(
-          'button',
-          {
-            type: 'button',
-            class: 'text-left font-mono text-xs font-medium hover:underline',
-            title: 'Show this node in the timeline and co-failure events',
-            'aria-label': 'Show ' + value(row.original.node) + ' in the timeline and co-failure events',
-            onClick: () => focusNode(row.original.node_raw),
-          },
-          value(row.original.node),
-        ),
-      enableSorting: false,
-      enableHiding: false,
+      id: 'node',
+      label: 'Physical node',
+      value: (row) => row.node,
+      compare: textOrder((row) => row.node),
+      cell: (row) => ({ text: row.node_raw, mono: true, dots: row.identified ? [hardwareColor(row.hardware)] : undefined }),
+      hideable: false,
+      class: 'whitespace-nowrap',
     },
-    { id: 'GPU', header: sortHeader('GPU', 'hardware'), accessorFn: (row) => value(row.hardware), enableSorting: false },
-    { id: 'Runs', header: sortHeader('Runs', 'runs', true), accessorFn: (row) => cells(row).runs, cell: ({ getValue }) => numericCell(String(getValue())), enableSorting: false },
-    { id: 'Fail %', header: sortHeader('Fail %', 'incident_rate', true), accessorFn: (row) => cells(row).failRate, cell: ({ getValue }) => numericCell(String(getValue())), enableSorting: false },
+    { id: 'hardware', label: 'GPU', value: (row) => value(row.hardware), compare: textOrder((row) => row.hardware), class: 'hidden md:table-cell' },
+    { ...count('runs', 'Runs', (row) => cells(row).runs), class: 'hidden md:table-cell' },
+    ...(failRateKnown.value ? [{ ...count('incident_rate', 'Fail %', (row) => cells(row).failRate), class: 'hidden md:table-cell' }] : []),
     {
-      id: 'Test group failures',
-      header: sortHeader('Test group failures', 'failures', true),
-      accessorFn: (row) => cells(row).failures,
-      cell: ({ row }) => {
-        const c = cells(row.original)
-        return h('span', { class: 'flex flex-col items-end' }, [
-          h('span', { class: 'font-mono tabular-nums' }, c.failures),
-          c.split ? h('span', { class: 'text-[11px] text-muted-foreground' }, c.split) : null,
-        ])
-      },
-      enableSorting: false,
+      id: 'failures',
+      label: 'Test group failures',
+      value: (row) => row.failures,
+      cell: (row) => ({ ...bar('failures', cells(row).failures)(row), sub: cells(row).split ?? undefined }),
+      numeric: true,
+      class: o.signal === 'all' ? RANK_HEADER : 'hidden sm:table-cell',
     },
+    ...(o.signal === 'all'
+      ? []
+      : [{ id: 'infra_suspect', label: signalColumnLabel(o.signal), value: (row: AgentRow) => row.infra_suspect, cell: (row: AgentRow) => bar('infra_suspect', cells(row).signal)(row), numeric: true, class: RANK_HEADER }]),
+    { ...count('distinct_groups', 'Groups', (row) => cells(row).groups), class: 'hidden lg:table-cell' },
+    { ...count('cofailure_event_count', 'Co-fail', (row) => cells(row).cofail), class: 'hidden sm:table-cell' },
   ]
-  if (o.signal !== 'all') {
-    const label = signalColumnLabel(o.signal)
-    cols.push({ id: label, header: sortHeader(label, 'infra_suspect', true), accessorFn: (row) => cells(row).signal, cell: ({ getValue }) => numericCell(String(getValue())), enableSorting: false })
-  }
-  cols.push(
-    { id: 'Groups', header: sortHeader('Groups', 'distinct_groups', true), accessorFn: (row) => cells(row).groups, cell: ({ getValue }) => numericCell(String(getValue())), enableSorting: false },
-    { id: 'Co-fail', header: sortHeader('Co-fail', 'cofailure_event_count', true), accessorFn: (row) => cells(row).cofail, cell: ({ getValue }) => numericCell(String(getValue())), enableSorting: false },
-    {
-      id: 'Evidence',
-      header: 'Evidence',
-      cell: ({ row }) =>
-        row.original._runs.length
-          ? h(
-              'button',
-              {
-                type: 'button',
-                class: 'text-primary hover:underline',
-                title: 'Open retained ' + signalTerm(o.signal) + ' failing runs and BuildKite logs for ' + value(row.original.node),
-                'aria-label': 'Open retained ' + signalTerm(o.signal) + ' failing runs and BuildKite logs for ' + value(row.original.node),
-                onClick: () => openNodeEvidence(row.original),
-              },
-              'runs ↗',
-            )
-          : h('span', { class: 'text-muted-foreground' }, 'not retained'),
-      enableSorting: false,
-    },
-  )
-  return cols
 })
+// Without node-specific accounting every Fail % cell would read "Unavailable", so the column is left out.
+const failRateKnown = computed(() => {
+  const m = model.value
+  const v = view.value
+  return !!m && !!v && v.agents.some((row) => agentCells(m, v, row).failRate !== 'Unavailable')
+})
+const tableSummary = computed(() => {
+  const v = view.value
+  const o = options.value
+  if (!v || !o) return ''
+  const order = o.signal === 'all' ? 'test group failures' : `${signalTerm(o.signal)} failures`
+  return `${integer(v.agents.length)} ${v.agents.length === 1 ? 'node' : 'nodes'} in ${o.windowId}, sorted by ${order}. Select a node for its days, runs and co-failures.`
+})
+const defaultSort = computed(() => ({ id: options.value?.signal === 'all' ? 'failures' : 'infra_suspect', desc: true }))
 const tableDescription = computed(() => (model.value && view.value && options.value ? agentTableDescription(model.value, view.value, options.value) : ''))
 
-// Timeline node and zoom.
-const pickedNode = ref<string | null>(null)
-const selectedNode = computed(() => (view.value ? resolveSelectedNode(view.value, pickedNode.value ?? options.value?.selectedNode ?? '') : ''))
-const nodeChoices = computed(() => (view.value ? timelineAgents(view.value) : []))
-const timelineRange = ref<TimelineRange | null>(null)
-const selectedAgent = computed(() => view.value?.agents.find((a) => a.node_raw === selectedNode.value) ?? null)
-const timeline = computed(() => agentTimeline(selectedAgent.value ? selectedAgent.value._runs : [], timelineRange.value))
-const timelineCard = ref<HTMLElement | null>(null)
-const eventsCard = ref<HTMLElement | null>(null)
-
-function selectNode(nodeRaw: string, scroll: boolean, keepZoom = false) {
-  pickedNode.value = nodeRaw
-  setQuery('agent_node', nodeRaw)
-  if (!keepZoom) timelineRange.value = null
-  if (scroll) void nextTick(() => timelineCard.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
-}
-const nodeModel = computed({ get: () => selectedNode.value, set: (v: string) => selectNode(v, false) })
-function zoomBy(factor: number) {
-  timelineRange.value = zoomTimeline(timelineRange.value, timeline.value.bounds, factor)
-}
-
-// Co-failure events.
-const eventNodeFilter = ref('')
+// ---- Co-failure events ----
+const EVENTS_SHOWN = computed(() => (wide.value ? 6 : 3))
+const showAllEvents = ref(false)
 const selectedEventKey = ref('')
-const events = computed(() => (view.value && options.value ? eventsSection(view.value, options.value, eventNodeFilter.value) : null))
-function focusNode(nodeRaw: string) {
-  eventNodeFilter.value = nodeRaw
-  selectNode(nodeRaw, true)
-}
-function selectEvent(event: CofailEvent, scroll: boolean) {
-  selectedEventKey.value = eventKey(event)
-  pickedNode.value = event.node_raw
-  setQuery('agent_node', event.node_raw)
-  timelineRange.value = eventTimelineRange(event)
-  if (scroll) void nextTick(() => timelineCard.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }))
-}
+const events = computed(() => (view.value && options.value ? eventsSection(view.value, options.value, '') : null))
+const shownEvents = computed(() => (events.value?.events ?? []).slice(0, showAllEvents.value ? undefined : EVENTS_SHOWN.value))
+const eventsSummary = computed(() => {
+  const o = options.value
+  if (!o || !view.value) return ''
+  const count = view.value.events.length
+  return `${integer(count)} ${count === 1 ? 'event' : 'events'} in ${o.windowId}: two or more ${signalTerm(o.signal)} failures on one node within ${agentCofailLabel(o.cofailMins)}. Select one for its runs.`
+})
 
-// Node evidence sheet.
-const evidence = ref<{ open: boolean; title: string; subtitle: string; rows: Rec[] }>({ open: false, title: '', subtitle: '', rows: [] })
-function openNodeEvidence(agent: AgentRow) {
-  if (!options.value) return
-  selectNode(agent.node_raw, false)
-  const drawer = nodeEvidence(agent, options.value)
-  evidence.value = { open: true, title: drawer.title, subtitle: drawer.subtitle, rows: drawer.rows }
-}
-const evidenceColumns: ColumnDef<Rec, unknown>[] = [
-  {
-    id: 'Observation',
-    header: 'Observation',
-    accessorFn: (row) => row.label,
-    cell: ({ row }) =>
-      row.original.url
-        ? h('a', { href: row.original.url, target: '_blank', rel: 'noopener', class: 'font-mono text-xs font-medium hover:underline' }, row.original.label)
-        : h('span', { class: 'font-mono text-xs' }, row.original.label),
-    enableHiding: false,
-  },
-  { id: 'Observed', header: 'Observed', accessorFn: (row) => row.timestamp, cell: ({ row }) => shortDate(row.original.timestamp) },
-  { id: 'Value', header: 'Value', accessorFn: (row) => row.valueSummary },
-  { id: 'Queue', header: 'Queue', accessorFn: (row) => value(row.run.queue) },
-  { id: 'Build', header: 'Build', accessorFn: (row) => '#' + value(row.run.build_number) },
-  {
-    id: 'Evidence',
-    header: 'Evidence',
-    cell: ({ row }) =>
-      row.original.url
-        ? h('a', { href: row.original.url, target: '_blank', rel: 'noopener', class: 'text-primary hover:underline' }, 'Open source')
-        : h('a', { href: AMD_AGENT_HEALTH_ASSET, target: '_blank', rel: 'noopener', class: 'text-muted-foreground hover:underline' }, 'Open source data'),
-    enableSorting: false,
-  },
-]
-
-const NOTE = {
-  info: 'border-info/40 bg-info/10 text-info',
-  warning: 'border-warning/40 bg-warning/10 text-warning',
-  neutral: 'border-border bg-muted/40 text-foreground',
-}
+const emptyText = computed(() => (model.value && view.value ? agentEmptyText(model.value, view.value) : null))
+const ENTER = 'motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-300'
 </script>
 
 <template>
-  <div class="flex flex-col gap-4 md:gap-6" data-testid="analytics-agent-health">
-    <p class="max-w-3xl text-sm text-muted-foreground">
-      Current main CI AMD MI health, nightly outcomes, and recent test-group timing.
-      <span v-if="health.generated_at" class="block whitespace-nowrap sm:inline" :title="health.generated_at">
-        <span class="hidden sm:inline">· </span>Observed {{ shortDate(health.generated_at) }} - {{ age(health.generated_at) }}
-      </span>
-    </p>
-    <ViewState :loading="loading && !ops" :error="error" @retry="retry">
-      <p v-if="!valid" class="rounded-md border p-3 text-sm" :class="NOTE.warning" data-testid="agent-unavailable">{{ AGENT_UNAVAILABLE_TEXT }}</p>
+  <div class="flex min-w-0 flex-col gap-4 md:gap-6" data-testid="analytics-agent-health">
+    <AsyncBoundary :loading="loading && !ops" :error="error" @retry="retry">
+      <EmptyState v-if="!valid" :title="AGENT_UNAVAILABLE_TEXT" :icon="ServerCrash" data-testid="agent-unavailable" />
       <template v-else-if="model && view && options">
-        <div class="grid gap-3 @5xl/main:grid-cols-2">
-          <div class="rounded-md border p-3 text-sm" :class="NOTE.info" data-testid="agent-note">
-            <strong>AMD physical CI main agent health. </strong>
-            <span>
-              Terminal runs from CI main builds created in the selected UTC window on AMD MI GPU hardware are attributed to the physical node from its
-              Buildkite agent tag. The timeline and co-failure clustering use the selected Failure signal: "infra-suspect" (the default — anomalous,
-              node-attributable failures), all hard failures, or all failures. Toggle the signal, nightly subset, cancelled-job handling, and co-failure
-              window; click any node or event to load its timeline.
-            </span>
-          </div>
-          <div v-if="model.completionScopeNote" class="rounded-md border p-3 text-sm" :class="NOTE.info" data-testid="agent-completion-scope">
-            {{ model.completionScopeNote }}
-          </div>
-          <div v-if="model.retentionNote" class="rounded-md border p-3 text-sm @5xl/main:col-span-2" :class="NOTE.warning" data-testid="agent-retention">
-            <strong>{{ model.retentionNote.title }}</strong><span>{{ model.retentionNote.body }}</span>
-          </div>
-          <div v-if="options.signal === 'infra'" class="rounded-md border p-3 text-sm @5xl/main:col-span-2" :class="NOTE.neutral" data-testid="agent-criteria">
-            <strong>What counts as an anomalous (infra-suspect) failure? </strong>
-            <span>
-              When the Failure signal is set to Infra-suspect (the default), a soft or hard failure is treated as node-attributable when its exact test
-              group, on that same {{ model.criteria.dayLabel }}, both:
-            </span>
-            <ol class="my-1 list-decimal pl-6">
-              <li>
-                passed at least {{ model.criteria.pct }} of its gradable runs (needs ≥ {{ model.criteria.samples }} graded samples), so the group
-                demonstrably works; and
-              </li>
-              <li>passed on at least one other physical node that day, so the failure is isolated to this box rather than a broad code break.</li>
-            </ol>
-            <span class="text-muted-foreground">
-              Groups that fail broadly (real code bugs) and failures inside auto-cancelled / superseded builds are filtered out by default, isolating the
-              signal that points at a specific machine.
-            </span>
+        <div class="grid grid-cols-2 items-end gap-x-4 gap-y-3 sm:flex sm:flex-wrap" data-testid="agent-controls">
+          <SegmentedSelect v-model="signal" label="Failure signal" :items="SIGNALS" />
+          <SegmentedSelect v-model="windowId" label="Window" :items="windowItems" />
+          <Popover>
+            <PopoverTrigger as-child>
+              <Button variant="outline" size="sm" class="w-full sm:w-auto" data-testid="agent-filters">
+                <SlidersHorizontal /> Filters
+                <Badge v-if="activeFilters" variant="secondary" class="h-5 min-w-5 rounded-full px-1.5 tabular-nums">{{ activeFilters }}</Badge>
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" class="flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-4">
+              <SegmentedSelect v-model="gpu" label="GPU" :items="gpuItems" />
+              <SegmentedSelect v-model="nightly" label="Build scope" :items="SCOPES" />
+              <SegmentedSelect v-model="cancelled" label="Cancelled builds" :items="CANCELLED" />
+              <SegmentedSelect v-model="cofail" label="Co-failure window" :items="cofailItems" />
+            </PopoverContent>
+          </Popover>
+          <div class="relative w-full sm:ml-auto sm:w-56">
+            <Search class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+            <Input v-model="searchInput" type="search" class="h-8 pl-8" placeholder="Node or GPU" aria-label="Filter nodes by name or GPU type" />
           </div>
         </div>
 
-        <Card class="gap-4 py-4">
-          <CardContent class="flex flex-col gap-4 px-4">
-            <SegmentField
-              v-model="signal"
-              label="Failure signal"
-              :items="[
-                { id: 'infra', label: 'Infra-suspect failures' },
-                { id: 'hard', label: 'Hard failures' },
-                { id: 'all', label: 'All failures (hard + soft)' },
-              ]"
-            />
-            <div class="flex flex-wrap items-end gap-x-6 gap-y-3" data-testid="agent-controls">
-              <SegmentField v-model="windowId" label="Window" aria-label="Date range" :items="windowItems" />
-              <SegmentField v-model="gpu" label="GPU" aria-label="GPU type" :items="gpuItems" />
-              <SegmentField
-                v-model="nightly"
-                label="Scope"
-                aria-label="Build scope"
-                :items="[
-                  { id: '0', label: 'All main builds' },
-                  { id: '1', label: 'Nightlies' },
-                ]"
-              />
-              <SegmentField
-                v-model="cancelled"
-                label="Cancelled"
-                aria-label="Cancelled jobs"
-                :items="[
-                  { id: '1', label: 'Exclude' },
-                  { id: '0', label: 'Include' },
-                ]"
-              />
-              <SegmentField v-model="cofail" label="Co-failure window" :items="cofailItems" />
-              <div class="flex flex-col gap-1.5">
-                <span class="text-xs font-medium text-muted-foreground">Node</span>
-                <Input v-model="searchInput" type="search" class="h-8 w-56" placeholder="Filter nodes by name or GPU type" aria-label="Filter nodes by name or GPU type" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <Callout v-if="model.retentionNote" tone="soft" :title="model.retentionNote.title.trim()" data-testid="agent-retention">
+          Counts outside the complete interval are retained-evidence lower bounds.
+          <template #action>
+            <InfoPopover label="Retention details" title="Retained history">{{ model.retentionNote.body }}</InfoPopover>
+          </template>
+        </Callout>
 
-        <section class="grid grid-cols-1 gap-4 @xl/main:grid-cols-2 @5xl/main:grid-cols-4" aria-label="Agent health summary">
+        <FleetVerdict
+          v-if="verdict && matrix && view.agents.length"
+          :verdict="verdict"
+          :matrix="matrix"
+          :signal="options.signal"
+          :window-id="options.windowId"
+          :trend="days.map((day) => day.signal)"
+          :span="heatSpan"
+          @node="(node: AgentNodeHistory) => openNodeRaw(node.node_raw)"
+        />
+
+        <StatGrid :cols="4">
           <KpiCard
-            v-for="kpi in kpis"
+            v-for="(kpi, index) in kpis"
             :key="kpi.id"
             :data-testid="`kpi-${kpi.id}`"
-            :label="KPI_TITLES[kpi.id]!"
+            :style="{ animationDelay: `${index * 30}ms` }"
+            :label="kpi.label"
             :value="kpi.value"
-            :badge="kpi.value === 'Unavailable' ? undefined : KPI_BADGES[kpi.id]?.[kpi.tone]"
-            :badge-tone="kpi.tone"
-            :headline="kpi.id === 'agent-cofail' ? 'Jump to co-failure events' : undefined"
-            :detail="kpi.meta"
-            @open="eventsCard?.scrollIntoView({ behavior: 'smooth', block: 'start' })"
+            :empty="kpi.empty"
+            :footnote="kpi.footnote"
+            :spark="kpi.trend.spark"
+            :delta="kpi.trend.delta"
+            :action="kpi.action"
           />
-        </section>
+        </StatGrid>
 
-        <p v-if="emptyText" class="rounded-md border p-3 text-sm" :class="NOTE.warning" data-testid="agent-empty">{{ emptyText }}</p>
+        <EmptyState v-if="emptyText" :title="emptyText" :icon="ServerCrash" data-testid="agent-empty" />
 
-        <Card>
-          <CardHeader>
-            <CardTitle>AMD nodes by reliability</CardTitle>
-            <CardDescription data-testid="agent-table-description">{{ tableDescription }}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <DataTable
-              :columns="columns"
-              :data="rows"
-              :page-size="15"
-              search-placeholder="Filter table rows"
-              :empty-text="`Per-node AMD reliability in ${options.windowId}. No matching observations.`"
-            />
-          </CardContent>
-        </Card>
-
-        <div ref="timelineCard">
-          <Card>
+        <div v-if="view.agents.length && matrix" ref="heatCard" class="scroll-mt-20">
+          <Card :class="['gap-4', ENTER]" data-testid="agent-heatmap-card">
             <CardHeader>
-              <CardTitle>Per-node failure timeline</CardTitle>
-              <CardDescription>
-                Each bar is one failing run on the selected node (which failures are shown depends on the Failure signal toggle above); bars that
-                overlap or cluster point to shared-node contention, an ephemeral host/network fault, or a node left in an unclean state. Click a bar to
-                open its BuildKite log.
-              </CardDescription>
+              <CardTitle>{{ noun.charAt(0).toUpperCase() + noun.slice(1) }} by node and day</CardTitle>
+              <CardDescription data-testid="agent-signal-caption">{{ signalCaption(options.signal) }}</CardDescription>
+              <CardAction>
+                <InfoPopover label="About the node and day grid" title="Reading the grid">
+                  <p>
+                    Each row is a physical node, worst first by {{ noun }} in {{ options.windowId }}; each column is a UTC day{{ model.buildCreatedCohort ? ' of build creation' : '' }}.
+                    Darker cells hold more failures. The top row adds up every node on its own scale. A ringed cell had a co-failure event that day.
+                  </p>
+                </InfoPopover>
+              </CardAction>
             </CardHeader>
             <CardContent class="flex flex-col gap-3">
-              <div class="flex flex-wrap items-center gap-3">
-                <Select v-model="nodeModel" :disabled="!nodeChoices.length">
-                  <SelectTrigger size="sm" class="w-[32rem] max-w-full" aria-label="Physical node for run timeline" data-testid="agent-node-select">
-                    <SelectValue placeholder="No node with retained runs" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem v-for="agent in nodeChoices" :key="agent.node_raw" :value="agent.node_raw">{{ nodeOptionLabel(agent, options.signal) }}</SelectItem>
-                  </SelectContent>
-                </Select>
-                <div class="flex items-center gap-1">
-                  <span class="text-xs text-muted-foreground">Zoom</span>
-                  <Button variant="outline" size="sm" aria-label="Zoom out (widen the time window)" title="Zoom out (widen the time window)" @click="zoomBy(1.6)">−</Button>
-                  <Button variant="outline" size="sm" aria-label="Zoom in (narrow the time window)" title="Zoom in (narrow the time window)" @click="zoomBy(0.625)">+</Button>
-                  <Button variant="outline" size="sm" aria-label="Reset the timeline to the full window" title="Reset the timeline to the full window" @click="timelineRange = null">
-                    Reset
-                  </Button>
-                  <span class="text-xs text-muted-foreground">drag to select a range</span>
-                </div>
-              </div>
-              <p class="text-sm text-muted-foreground" data-testid="agent-signal-caption">{{ signalCaption(options.signal) }}</p>
-              <AgentTimelineChart
-                :rows="timeline.rows"
-                :x-min="timeline.xMin"
-                :x-max="timeline.xMax"
-                @select="(min: number, max: number) => (timelineRange = clampTimelineRange(min, max, timeline.bounds))"
+              <EmptyState v-if="!matrix.nodes.length" :title="`No node had ${noun} in ${options.windowId}.`" data-testid="agent-heatmap-empty" />
+              <Heatmap
+                v-else
+                :columns="heatColumns"
+                :rows="heatRows"
+                :summary="fleetRow"
+                :label="`${noun} by node and UTC day`"
+                :unit="[noun.replace(/failures$/, 'failure'), noun]"
+                :total-label="options.windowId"
+                :corner="heatSpan"
+                marker-label="Co-failure event"
+                row-action="open the node"
+                cell-action="open the runs"
+                data-testid="agent-heatmap"
+                @cell="openCell"
+                @row="(row: HeatmapRow) => openNodeRaw(row.id)"
+                @column="openDay"
               />
-              <div class="flex gap-4 text-xs text-muted-foreground">
-                <span class="inline-flex items-center gap-1.5"><span class="size-2.5 rounded-sm" style="background: #e3a63a" />Soft fail</span>
-                <span class="inline-flex items-center gap-1.5"><span class="size-2.5 rounded-sm" style="background: #e06464" />Hard fail</span>
-              </div>
+              <Button
+                v-if="matrix.nodes.length > TOP_NODES"
+                variant="ghost"
+                size="sm"
+                class="self-start text-muted-foreground"
+                :aria-expanded="showAllNodes"
+                data-testid="agent-heatmap-more"
+                @click="showAllNodes = !showAllNodes"
+              >
+                <ChevronDown class="transition-transform" :class="showAllNodes && 'rotate-180'" />
+                {{ showAllNodes ? `Show the top ${TOP_NODES}` : `Show all ${integer(matrix.nodes.length)} failing nodes` }}
+              </Button>
             </CardContent>
           </Card>
         </div>
 
-        <div ref="eventsCard">
-          <Card v-if="events">
+        <LoadChart v-if="view.agents.length && queues.length" :queues="queues" :groups="groups" :options="options" :node="nodeSheetRaw" :class="ENTER" @open="(detail) => sheets.open(detail)" />
+
+        <div ref="tableCard" class="scroll-mt-20">
+          <Card :class="['gap-4', ENTER]">
             <CardHeader>
-              <CardTitle data-testid="agent-events-title">{{ events.title }}</CardTitle>
-              <CardDescription data-testid="agent-events-description">{{ events.description }}</CardDescription>
-              <CardAction v-if="events.scoped">
-                <Button variant="outline" size="sm" aria-label="Clear the node filter on co-failure events" @click="eventNodeFilter = ''">Show all nodes ✕</Button>
+              <CardTitle>AMD nodes by reliability</CardTitle>
+              <CardDescription data-testid="agent-table-summary">{{ tableSummary }}</CardDescription>
+              <CardAction>
+                <InfoPopover label="About the node table" title="How the node table is counted">
+                  <p data-testid="agent-table-description">{{ tableDescription }}</p>
+                </InfoPopover>
               </CardAction>
             </CardHeader>
             <CardContent>
-              <p v-if="!events.events.length" class="rounded-md border border-success/40 bg-success/10 p-3 text-sm text-success" data-testid="agent-events-empty">
-                {{ events.empty }}
-              </p>
-              <div v-else class="grid items-start gap-3 @3xl/main:grid-cols-2 @7xl/main:grid-cols-3">
-                <CofailureCard
-                  v-for="event in events.events"
-                  :key="eventKey(event)"
-                  :event="event"
-                  :selected="eventKey(event) === selectedEventKey"
-                  @select="(scroll) => selectEvent(event, scroll)"
-                />
-              </div>
+              <DataTable
+                :key="`${options.signal}:${failRateKnown}`"
+                :columns="columns"
+                :rows="view.agents"
+                :default-sort="defaultSort"
+                :searchable="false"
+                :page-size="wide ? 15 : 8"
+                label="AMD nodes by reliability"
+                :empty-text="`Per-node AMD reliability in ${options.windowId}. No matching observations.`"
+                @row-click="(agent: AgentRow) => openNode(agent)"
+              />
             </CardContent>
           </Card>
         </div>
 
-        <TableSheet
-          v-model:open="evidence.open"
-          :title="evidence.title"
-          :subtitle="evidence.subtitle"
-          :columns="evidenceColumns"
-          :rows="evidence.rows"
-          search-placeholder="Filter observation, value, date, or source"
-        />
+        <div ref="eventsCard" class="scroll-mt-20">
+          <Card v-if="events" :class="['gap-4', ENTER]">
+            <CardHeader>
+              <CardTitle data-testid="agent-events-title">{{ events.title }}</CardTitle>
+              <CardDescription data-testid="agent-events-summary">{{ eventsSummary }}</CardDescription>
+              <CardAction>
+                <InfoPopover label="About co-failure events" title="Co-failure events">
+                  <p data-testid="agent-events-description">{{ events.description }}</p>
+                </InfoPopover>
+              </CardAction>
+            </CardHeader>
+            <CardContent class="flex flex-col gap-3">
+              <EmptyState v-if="!events.events.length" :title="events.empty" data-testid="agent-events-empty" />
+              <div v-else class="grid grid-cols-1 items-start gap-3 *:min-w-0 @3xl/main:grid-cols-2 @7xl/main:grid-cols-3">
+                <CofailureCard
+                  v-for="event in shownEvents"
+                  :key="eventKey(event)"
+                  :event="event"
+                  :selected="eventKey(event) === selectedEventKey"
+                  @open="openEvent(event)"
+                />
+              </div>
+              <Button
+                v-if="events.events.length > EVENTS_SHOWN"
+                variant="ghost"
+                size="sm"
+                class="self-start text-muted-foreground"
+                :aria-expanded="showAllEvents"
+                data-testid="agent-events-more"
+                @click="showAllEvents = !showAllEvents"
+              >
+                <ChevronDown class="transition-transform" :class="showAllEvents && 'rotate-180'" />
+                {{ showAllEvents ? 'Show fewer events' : `Show all ${integer(events.events.length)} events` }}
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       </template>
-    </ViewState>
+    </AsyncBoundary>
+    <SheetStack :sheets="sheets" />
   </div>
 </template>

@@ -1,200 +1,144 @@
 <script setup lang="ts">
-import type { ColumnDef } from '@tanstack/vue-table'
-import { computed, h, ref } from 'vue'
-import ChartEvidenceSheet, { type EvidencePoint } from '@/components/analytics/ChartEvidenceSheet.vue'
-import DetailSheet, { type DetailRequest } from '@/components/analytics/DetailSheet.vue'
-import StackedBarChart, { type ChartSeries } from '@/components/analytics/StackedBarChart.vue'
-import StatCard from '@/components/analytics/StatCard.vue'
-import BuildDetailSheet from '@/components/ops/BuildDetailSheet.vue'
-import DataTable from '@/components/ops/DataTable.vue'
-import ToneBadge from '@/components/ops/ToneBadge.vue'
-import ViewState from '@/components/ops/ViewState.vue'
-import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { computed, h } from 'vue'
+import SheetStack from '@/components/evidence/SheetStack.vue'
+import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
+import Callout from '@/components/feedback/Callout.vue'
+import KpiCard from '@/components/stat/KpiCard.vue'
+import StatGrid from '@/components/stat/StatGrid.vue'
+import { kpiTrend } from '@/components/stat/trend'
+import { badge, link, type CellSpec, type ColumnSpec } from '@/components/table/columns'
+import DataTable from '@/components/table/DataTable.vue'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useOperationSections } from '@/composables/useOperations'
-import {
-  analyticsObservedAt,
-  OPERATIONS_ASSET,
-  nightliesModel,
-  nightlyCountLabel,
-  nightlyMovementSummary,
-  type NightlyStripItem,
-} from '@/domain/analytics'
-import { age, integer, shortDate, toneForState, value, type Rec } from '@/domain/format'
-import { latestAmd, nightlyFailureCount, nightlyFailureMovement } from '@/domain/nightly'
+import { useSheetStack } from '@/composables/useSheetStack'
+import { useSubviewHeader } from '@/composables/useSubviewHeader'
+import { analyticsObservedAt, nightliesModel } from '@/domain/analytics'
+import { movementBuilds } from '@/domain/ciHealth'
+import { integer, shortDate, toneForState, value, type Rec } from '@/domain/format'
+import { latestAmd, nightlyFailureCount } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
+import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
+import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
+import AnalyticsAbout from './AnalyticsAbout.vue'
+
+type Movement = 'new' | 'recurring' | 'fixed'
 
 const { data: ops, error, loading, retry } = useOperationSections(['nightly'])
+const sheets = useSheetStack()
 
-const model = computed(() => nightliesModel(latestAmd(ops.value)))
-const observedAt = computed(() => (ops.value ? analyticsObservedAt('nightlies', ops.value, {}) : null))
+const amd = computed(() => latestAmd(ops.value))
+const model = computed(() => nightliesModel(amd.value))
+const latest = computed(() => model.value.latest)
+const movement = computed(() => movementBuilds(model.value.rows))
+const open = (build: Rec, scope?: Movement) => sheets.open(buildEvidenceDetail(build, { scope }))
 
-const build = ref<{ open: boolean; build: Rec | null; scope?: string }>({ open: false, build: null })
-function openBuild(row: Rec, scope?: string) {
-  build.value = { open: true, build: row, scope }
-}
-const buildTitle = computed(() => `${model.value.name} build #${value(build.value.build?.number)}`)
-function openStat(item: NightlyStripItem) {
-  if (item.opensBuild && model.value.latest.number) openBuild(model.value.latest, item.scope)
-}
-const statBadge = (item: NightlyStripItem) => (item.label.startsWith('LATEST') && model.value.latest.number ? value(model.value.latest.state) : undefined)
+useSubviewHeader(() => ({
+  observedAt: ops.value ? analyticsObservedAt('nightlies', ops.value, {}) : undefined,
+  about: () => h(AnalyticsAbout, { view: 'nightlies' }),
+}))
 
-// Fixes are drawn below zero, as on the classic chart.
-const SERIES: ChartSeries[] = [
-  { key: 'new', label: 'New failure', color: 'var(--destructive)' },
-  { key: 'recurring', label: 'Recurring failure', color: 'var(--warning)' },
-  { key: 'fixed', label: 'Fixed', color: 'var(--success)' },
+// Oldest first, for the sparklines; only nightlies with comparable movement count.
+const oldestFirst = computed(() => [...movement.value].reverse())
+const trend = (key: Movement, goodWhen: 'up' | 'down') => kpiTrend(oldestFirst.value.map((b) => nightlyFailureCount(b, key)), goodWhen)
+const variantsTrend = computed(() => kpiTrend([...model.value.rows].reverse().map((b) => (b.total_groups === undefined ? null : Number(b.total_groups)))))
+const MOVEMENT: { key: Movement; label: string; goodWhen: 'up' | 'down'; meta: string }[] = [
+  { key: 'new', label: 'New failures', goodWhen: 'down', meta: 'Not failing in the preceding observed nightly' },
+  { key: 'recurring', label: 'Recurring failures', goodWhen: 'down', meta: 'Failed in the preceding observed nightly too' },
+  { key: 'fixed', label: 'Fixed', goodWhen: 'up', meta: 'Failed previously and passed now' },
 ]
-const chartRows = computed(() =>
-  model.value.chartBuilds.map((b) => ({
-    label: `#${b.number}`,
-    new: nightlyFailureCount(b, 'new') ?? 0,
-    recurring: nightlyFailureCount(b, 'recurring') ?? 0,
-    fixed: -Number(nightlyFailureCount(b, 'fixed') || 0),
-  })),
-)
-const points = computed<EvidencePoint[]>(() =>
-  model.value.chartBuilds.map((b) => ({
-    label: `#${b.number}`,
-    timestamp: b.created_at,
-    url: exactPipelineBuildUrl(b, 'ci') || null,
-    valueSummary: nightlyMovementSummary(b),
-  })),
-)
-const chartEvidence = ref(false)
-const detail = ref<{ open: boolean; detail: DetailRequest | null }>({ open: false, detail: null })
-function inspectPoint(index: number) {
-  const row = model.value.chartBuilds[index]
-  if (!row) return
-  const movement = nightlyFailureMovement(row)!
-  const url = exactPipelineBuildUrl(row, 'ci')
-  detail.value = {
-    open: true,
-    detail: {
-      title: `#${row.number}`,
-      subtitle: url ? 'Source-backed chart observation' : 'Retained chart observation',
-      fields: [
-        ['state', row.state],
-        ['new failure', movement.new.length],
-        ['recurring failure', movement.recurring.length],
-        ['fixed', movement.fixed.length],
-      ],
-      sources: [url ? { label: 'Open exact source', url } : { label: 'Open published source data', url: OPERATIONS_ASSET }],
-    },
-  }
+const latestCount = (key: Movement) => (model.value.latestMovement ? (model.value.latestMovement[key] || []).length : null)
+const stateLabel = (state: unknown) => {
+  const text = value(state, 'unknown')
+  return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
-const countCell = (key: 'new' | 'recurring' | 'fixed') => ({
-  id: key,
-  header: { new: 'New failure', recurring: 'Recurring failure', fixed: 'Fixed' }[key],
-  accessorFn: (row: Rec) => nightlyCountLabel(row, key),
-  cell: ({ row, getValue }: { row: { original: Rec }; getValue: () => unknown }) =>
-    h('button', { type: 'button', class: 'tabular-nums hover:underline', onClick: () => openBuild(row.original, key) }, String(getValue())),
-  enableSorting: false,
-})
-const columns = computed<ColumnDef<Rec, unknown>[]>(() => [
+const countCell = (build: Rec, key: Movement): CellSpec => {
+  const count = nightlyFailureCount(build, key)
+  if (count === null) return { text: '—' }
+  return count ? { text: integer(count), onOpen: () => open(build, key) } : { text: '0', muted: true }
+}
+const columns = computed<ColumnSpec<Rec>[]>(() => [
   {
     id: 'number',
-    header: `${model.value.name} nightly`,
-    accessorFn: (row) => `#${row.number}`,
-    cell: ({ row, getValue }) => {
-      const url = exactPipelineBuildUrl(row.original, 'ci')
-      return url
-        ? h('a', { href: url, target: '_blank', rel: 'noopener', class: 'font-mono hover:underline' }, String(getValue()))
-        : h('span', { class: 'font-mono' }, String(getValue()))
-    },
-    enableHiding: false,
-    enableSorting: false,
+    label: 'Nightly',
+    value: (row) => Number(row.number || 0),
+    cell: (row) => link(`#${value(row.number)}`, exactPipelineBuildUrl(row, 'ci'), true),
+    hideable: false,
   },
-  {
-    id: 'state',
-    header: 'State',
-    accessorFn: (row) => value(row.state, 'unknown'),
-    cell: ({ row, getValue }) => {
-      const url = exactPipelineBuildUrl(row.original, 'ci')
-      const badge = h(ToneBadge, { tone: toneForState(row.original.state) }, () => String(getValue()))
-      return url ? h('a', { href: url, target: '_blank', rel: 'noopener' }, [badge]) : badge
-    },
-    enableSorting: false,
-  },
-  {
-    id: 'variants',
-    header: 'Job variants observed',
-    accessorFn: (row) => integer(row.total_groups),
-    cell: ({ row, getValue }) =>
-      h('button', { type: 'button', class: 'tabular-nums hover:underline', onClick: () => openBuild(row.original) }, String(getValue())),
-    enableSorting: false,
-  },
-  countCell('new') as ColumnDef<Rec, unknown>,
-  countCell('recurring') as ColumnDef<Rec, unknown>,
-  countCell('fixed') as ColumnDef<Rec, unknown>,
-  { id: 'started', header: 'Started', accessorFn: (row) => shortDate(row.created_at), enableSorting: false },
+  { id: 'state', label: 'State', value: (row) => value(row.state, 'unknown'), cell: (row) => badge(stateLabel(row.state), toneForState(row.state)) },
+  { id: 'variants', label: 'Job variants', numeric: true, value: (row) => Number(row.total_groups || 0), cell: (row) => ({ text: integer(row.total_groups) }), class: 'hidden md:table-cell' },
+  ...MOVEMENT.map(
+    (m): ColumnSpec<Rec> => ({ id: m.key, label: m.label, numeric: true, value: (row) => nightlyFailureCount(row, m.key) ?? -1, cell: (row) => countCell(row, m.key) }),
+  ),
+  { id: 'started', label: 'Started', value: (row) => String(row.created_at || ''), cell: (row) => ({ text: shortDate(row.created_at), nowrap: true }), class: 'hidden md:table-cell' },
 ])
 </script>
 
 <template>
-  <ViewState :loading="loading && !ops" :error="error" @retry="retry">
+  <AsyncBoundary :loading="loading && !ops" :error="error" @retry="retry">
     <div class="flex flex-col gap-4 md:gap-6" data-testid="analytics-nightlies">
-      <p v-if="observedAt" class="-mt-2 text-xs text-muted-foreground" :title="String(observedAt)">
-        Main CI AMD MI nightly outcomes · observed {{ shortDate(observedAt) }} · {{ age(observedAt) }}
-      </p>
-      <div class="grid grid-cols-1 gap-4 @xl/main:grid-cols-2 @5xl/main:grid-cols-5" data-testid="nightlies-kpis">
-        <StatCard
-          v-for="item in model.strip"
-          :key="item.label"
-          :item="item"
-          :badge="statBadge(item)"
-          :action="item.opensBuild && model.latest.number ? 'Open evidence →' : undefined"
-          @open="openStat(item)"
-        />
-      </div>
-      <p
-        class="rounded-md border p-3 text-sm"
-        :class="model.latestMovement ? 'border-info/40 bg-info/10 text-info' : 'border-warning/40 bg-warning/10 text-warning'"
-        data-testid="nightlies-note"
-      >
-        <template v-if="model.latestMovement">
-          <strong>Main CI AMD MI job history. </strong>Every current hard or soft failure is counted once as new or recurring. A previous
-          failure that passes is fixed. Missing or skipped jobs are omitted.
-        </template>
-        <template v-else>
-          <strong>Failure movement unavailable. </strong>Refresh the operations snapshot to publish observed-failure-movement-v1 data.
-        </template>
-      </p>
+      <Callout v-if="!model.latestMovement" tone="soft" title="Failure movement unavailable" data-testid="nightlies-note">
+        The latest nightly publishes no failure movement; refresh the operations snapshot to publish observed-failure-movement-v1 data.
+      </Callout>
 
-      <Card data-testid="nightlies-chart">
+      <StatGrid :cols="5" data-testid="nightlies-kpis">
+        <KpiCard
+          label="Latest nightly"
+          :value="latest.number ? `#${latest.number}` : null"
+          :status="latest.number ? { tone: toneForState(latest.state), label: stateLabel(latest.state) } : undefined"
+          :footnote="latest.created_at ? shortDate(latest.created_at) : 'No completed nightly'"
+          :action="latest.number ? { label: 'Inspect nightly evidence', onOpen: () => open(latest) } : undefined"
+          data-testid="kpi-nightly-latest"
+        />
+        <KpiCard
+          label="Job variants observed"
+          :value="latest.total_groups === undefined ? null : Number(latest.total_groups)"
+          :spark="variantsTrend.spark"
+          :delta="variantsTrend.delta"
+          footnote="Exact jobs in the latest completed nightly"
+          data-testid="kpi-nightly-variants"
+        />
+        <KpiCard
+          v-for="m in MOVEMENT"
+          :key="m.key"
+          :label="m.label"
+          :value="latestCount(m.key)"
+          :spark="trend(m.key, m.goodWhen).spark"
+          :delta="trend(m.key, m.goodWhen).delta"
+          :footnote="model.latestMovement ? m.meta : 'Unavailable in this snapshot'"
+          :action="latest.number && latestCount(m.key) ? { label: `Inspect ${m.label.toLowerCase()}`, onOpen: () => open(latest, m.key) } : undefined"
+          :data-testid="`kpi-nightly-${m.key}`"
+        />
+      </StatGrid>
+
+      <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="nightlies-chart">
         <CardHeader>
-          <CardTitle>{{ model.name }} nightly failure movement</CardTitle>
-          <CardDescription>New and recurring failures are above zero; fixes are below. Missing or skipped jobs are omitted.</CardDescription>
-          <CardAction v-if="points.length">
-            <Button variant="outline" size="sm" @click="chartEvidence = true">Inspect {{ integer(points.length) }} observations</Button>
-          </CardAction>
+          <CardTitle as="h2">Nightly failure movement</CardTitle>
+          <CardDescription>{{ integer(movement.length) }} nightlies compared with their predecessor · fixes are drawn below zero</CardDescription>
         </CardHeader>
         <CardContent class="px-2 sm:px-6">
-          <p v-if="!chartRows.length" class="py-12 text-center text-sm text-muted-foreground">No nightly with comparable failure movement is retained.</p>
-          <StackedBarChart v-else :rows="chartRows" :series="SERIES" absolute @select="inspectPoint" />
+          <NightlyMovementChart :builds="movement" :on-select="(build: Rec) => open(build)" />
         </CardContent>
       </Card>
 
-      <Card data-testid="nightlies-table">
+      <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="nightlies-table">
         <CardHeader>
-          <CardTitle>{{ model.name }} AMD MI nightly failure movement</CardTitle>
+          <CardTitle as="h2">{{ model.name }} nightlies</CardTitle>
           <CardDescription>{{ integer(model.rows.length) }} retained nightlies · counts open their exact job variants</CardDescription>
         </CardHeader>
         <CardContent>
           <DataTable
             :columns="columns"
-            :data="model.rows"
-            :page-size="Math.max(model.rows.length, 10)"
+            :rows="model.rows"
+            :page-size="15"
+            :on-row-click="(row: Rec) => open(row)"
             search-placeholder="Filter nightly, state, or date"
-            empty-text="No matching observations."
+            :label="`${model.name} nightlies`"
+            empty-text="No matching nightlies."
           />
         </CardContent>
       </Card>
-
-      <BuildDetailSheet v-model:open="build.open" :build="build.build" :title="buildTitle" :scope="build.scope" />
-      <ChartEvidenceSheet v-model:open="chartEvidence" :title="`${model.name} nightly failure movement`" :points="points" @inspect="inspectPoint" />
-      <DetailSheet v-model:open="detail.open" :detail="detail.detail" />
     </div>
-  </ViewState>
+    <SheetStack :sheets="sheets" />
+  </AsyncBoundary>
 </template>

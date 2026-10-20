@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { Axis, Timeline, Tooltip, XYContainer } from '@unovis/ts'
+import { useElementSize } from '@vueuse/core'
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { ChartContainer } from '@/components/ui/chart'
 import type { PaletteColor } from '@/lib/palette'
-import { distinctTicks, shortDay, shortDayTime, type InspectItem } from './chart'
+import { distinctTicks, timeTicks, type InspectItem } from './chart'
 import ChartInspect from './ChartInspect.vue'
 import { useDragRange, type PlotPoint } from './dragRange'
 import { tooltipHtml, type TooltipRow } from './tooltip'
@@ -33,10 +34,13 @@ const props = defineProps<{
 }>()
 
 const ROW_HEIGHT = 26
+const MIN_SEGMENT_PX = 6
 const DAY_MS = 86_400_000
 const rowCount = computed(() => new Set(props.segments.map((s) => s.row)).size)
-const height = computed(() => Math.max(160, rowCount.value * ROW_HEIGHT + 48))
+// One lane per row plus the time axis, so no empty lane is drawn below the last row.
+const height = computed(() => Math.max(1, rowCount.value) * ROW_HEIGHT + 40)
 const host = ref<HTMLElement | null>(null)
+const { width } = useElementSize(host)
 let chart: XYContainer<TimelineSegment> | null = null
 let timeline: Timeline<TimelineSegment> | null = null
 
@@ -48,8 +52,15 @@ function containerConfig() {
   const starts = props.segments.map((s) => s.start)
   const ends = props.segments.map((s) => s.end)
   const xDomain = props.xDomain ?? ([Math.min(...starts), Math.max(...ends)] as [number, number])
-  const format = props.xFormat ?? (xDomain[1] - xDomain[0] < 2 * DAY_MS ? shortDayTime : shortDay)
-  const tickCount = Math.max(2, Math.floor((host.value?.clientWidth ?? 400) / (format === shortDayTime ? 120 : 90)))
+  const plotWidth = width.value || host.value?.clientWidth || 600
+  const short = xDomain[1] - xDomain[0] < 2 * DAY_MS
+  const tickCount = Math.max(2, Math.floor(plotWidth / (short ? 120 : 90)))
+  // Ticks sit on round UTC times (midnights, whole hours) so day labels are evenly spaced.
+  const axis = props.xFormat
+    ? { values: distinctTicks(xDomain, tickCount, props.xFormat), label: props.xFormat }
+    : timeTicks(xDomain, tickCount)
+  // A run shorter than a few pixels at this scale is still drawn wide enough to see and hover.
+  const minDuration = ((xDomain[1] - xDomain[0]) / Math.max(1, plotWidth)) * MIN_SEGMENT_PX
   return {
     height: height.value,
     margin: { left: 4, right: 12 },
@@ -57,21 +68,23 @@ function containerConfig() {
     components: [
       (timeline = new Timeline<TimelineSegment>({
         x: (d) => d.start,
-        lineDuration: (d) => Math.max(0, d.end - d.start),
+        lineDuration: (d) => Math.max(minDuration, d.end - d.start),
         lineRow: (d) => d.row,
         color: (d) => d.color,
         lineWidth: 14,
         lineCap: false,
         rowHeight: ROW_HEIGHT,
         showRowLabels: true,
-        rowMaxLabelWidth: 220,
+        // Labels keep at most 40% of a narrow plot.
+        rowMaxLabelWidth: Math.min(220, Math.round(plotWidth * 0.4)),
         rowLabelTextAlign: 'left',
         showEmptySegments: true,
+        rowFillEmptySpace: false,
         lineCursor: () => (props.onSelect ? 'pointer' : 'default'),
         events: { [Timeline.selectors.line]: { click: (d: TimelineSegment) => props.onSelect?.(d) } },
       })),
     ],
-    xAxis: new Axis<TimelineSegment>({ tickValues: distinctTicks(xDomain, tickCount, format), tickLine: false, domainLine: false, tickFormat: (v) => format(Number(v)) }),
+    xAxis: new Axis<TimelineSegment>({ tickValues: axis.values, tickLine: false, domainLine: false, tickFormat: (v) => axis.label(Number(v)) }),
     tooltip: new Tooltip({ triggers: { [Timeline.selectors.line]: tooltip } }),
   }
 }
@@ -105,7 +118,7 @@ const { selection, onDown, onClickCapture } = useDragRange({
 const inspectItems = computed<InspectItem[]>(() => props.segments.map((s) => ({ label: s.title, detail: s.row })))
 
 watch(
-  () => [props.segments, props.xDomain],
+  () => [props.segments, props.xDomain, Math.round(width.value / 40)],
   () => void nextTick(render),
   { immediate: true },
 )

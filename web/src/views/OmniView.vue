@@ -1,85 +1,86 @@
 <script setup lang="ts">
-import { ExternalLink } from '@lucide/vue'
-import { computed, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import OmniDetailSheet from '@/components/omni/OmniDetailSheet.vue'
-import ViewState from '@/components/ops/ViewState.vue'
+import { ExternalLink, ServerOff, SlidersHorizontal } from '@lucide/vue'
+import { computed } from 'vue'
+import SheetStack from '@/components/evidence/SheetStack.vue'
+import type { Detail } from '@/components/evidence/detail'
+import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
+import EmptyState from '@/components/feedback/EmptyState.vue'
+import PageHeader from '@/components/layout/PageHeader.vue'
+import { SUB_VIEWS, subViewIds } from '@/components/layout/navigation'
+import SegmentedSelect from '@/components/layout/SegmentedSelect.vue'
+import SubNav from '@/components/layout/SubNav.vue'
 import { Button } from '@/components/ui/button'
-import { useOperationSections } from '@/composables/useOperations'
-import { age, shortDate } from '@/domain/format'
-import { omniRouteValue, omniView, type OmniDetail } from '@/domain/omni'
+import { useDataset } from '@/composables/useDataset'
+import { useQueryState } from '@/composables/useQueryState'
+import { useSheetStack } from '@/composables/useSheetStack'
+import type { Rec } from '@/domain/format'
+import { areaSources } from '@/domain/freshness'
+import { OMNI_MAPPING_WINDOWS, OMNI_RANGE_WINDOWS, OMNI_REPOSITORIES, OMNI_ROUTE_DEFAULTS, omniView } from '@/domain/omni'
+import { useFreshness } from '@/features/freshness/useFreshness'
+import CoverageChip from './omni/CoverageChip.vue'
 import OmniLive from './omni/OmniLive.vue'
-import OmniMapping from './omni/OmniMapping.vue'
+import OmniWorkload from './omni/OmniWorkload.vue'
+import { toDetail } from './omni/present'
 
-const route = useRoute()
-const router = useRouter()
+const MAPPING_OPTIONS = OMNI_MAPPING_WINDOWS.map((w) => ({ value: w.id, label: w.label }))
+const RANGE_OPTIONS = OMNI_RANGE_WINDOWS.map((w) => ({ value: w.id, label: w.label }))
+const DESCRIPTION = `Incoming ${OMNI_REPOSITORIES.omni} workload and its impact on the AMD queues shared with ${OMNI_REPOSITORIES.main}.`
 
-// Classic operationSectionNames('ci-omni'); loadOperations arbitrates the live queue section.
-const { data: ops, error, loading, retry } = useOperationSections(['omni', 'queue'])
+// The queue section races its live branch against the published copy; the newer one wins.
+const dataset = useDataset<Rec>({ sections: ['omni', 'queue'] })
+const ops = dataset.data
+const error = computed(() => (ops.value === null ? dataset.error.value : null))
 
-const mappingRange = computed(() => omniRouteValue('omni_mapping_range', route.query.mapping))
-const omniRange = computed(() => omniRouteValue('omni_range', route.query.range))
-function setQuery(key: 'mapping' | 'range', id: string, fallback: string) {
-  void router.replace({ query: { ...route.query, [key]: id === fallback ? undefined : id } })
-}
+const view = useQueryState('view', { default: SUB_VIEWS.omni.default, allowed: subViewIds('omni') })
+const mapping = useQueryState('mapping', { default: OMNI_ROUTE_DEFAULTS.omni_mapping_range, allowed: MAPPING_OPTIONS.map((o) => o.value) })
+const range = useQueryState('range', { default: OMNI_ROUTE_DEFAULTS.omni_range, allowed: RANGE_OPTIONS.map((o) => o.value) })
 
-const page = computed(() => (ops.value ? omniView(ops.value, mappingRange.value, omniRange.value) : null))
-const view = computed(() => (page.value && page.value.available ? page.value : null))
+const page = computed(() => (ops.value ? omniView(ops.value, mapping.value, range.value) : null))
+const model = computed(() => (page.value?.available ? page.value : null))
+const freshness = useFreshness().chip(areaSources('omni'))
 
-// Classic stacks drawers with a back button; each drill-down pushes a sheet.
-const stack = ref<OmniDetail[]>([])
-function openDetail(detail: OmniDetail) {
-  stack.value = [detail]
-}
-function drill(detail: OmniDetail) {
-  stack.value = [...stack.value, detail]
-}
-function closeFrom(index: number, open: boolean) {
-  if (!open) stack.value = stack.value.slice(0, index)
-}
+const sheets = useSheetStack()
+const show = (detail: Detail) => sheets.open(detail)
 </script>
 
 <template>
   <div class="flex flex-col gap-4 md:gap-6">
-    <div class="flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h2 class="text-2xl font-semibold tracking-tight">Omni CI</h2>
-        <p class="max-w-3xl text-sm text-muted-foreground" data-testid="omni-description">
-          {{ view?.header.description ?? 'Incoming vllm-project/vllm-omni workload and its impact on the AMD queues shared with vllm-project/vllm.' }}
+    <PageHeader title="Omni CI" :description="DESCRIPTION" :freshness="freshness">
+      <template #about>
+        <p>
+          A mapped job is a unique Buildkite command job from {{ OMNI_REPOSITORIES.omni }} or {{ OMNI_REPOSITORIES.main }} that ran on a
+          monitored AMD MI queue, deduplicated by UUID inside the parent-build source window.
         </p>
-      </div>
-      <div v-if="view" class="flex items-center gap-3">
-        <span v-if="view.header.observedAt" class="text-xs text-muted-foreground" :title="view.header.observedAt" data-testid="omni-observed">
-          Observed {{ shortDate(view.header.observedAt) }} · {{ age(view.header.observedAt) }}
-        </span>
-        <Button variant="outline" size="sm" as="a" :href="view.header.actionUrl" target="_blank" rel="noopener">
-          {{ view.header.actionLabel }} <ExternalLink />
-        </Button>
-      </div>
-    </div>
-
-    <ViewState :loading="loading && !ops" :error="error" @retry="retry">
-      <p
-        v-if="page && !page.available"
-        class="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning"
-        data-testid="omni-unavailable"
-      >
-        {{ page.message }}
-      </p>
-      <template v-else-if="view">
-        <OmniMapping :view="view" @open="openDetail" @range="(id) => setQuery('mapping', id, '7d')" />
-        <OmniLive :view="view" @open="openDetail" @range="(id) => setQuery('range', id, '24h')" />
+        <p>Live queues is a separate snapshot of the jobs on those queues now and their recent occupancy; it is not unique-job volume.</p>
+        <div v-if="model" class="flex flex-wrap gap-2 pt-1">
+          <Button variant="outline" size="sm" class="text-foreground" @click="show(toDetail(model.methodology()))"><SlidersHorizontal /> Scope &amp; coverage</Button>
+          <Button variant="ghost" size="sm" class="text-foreground" as="a" :href="model.header.actionUrl" target="_blank" rel="noopener">
+            {{ model.header.actionLabel }} <ExternalLink />
+          </Button>
+        </div>
       </template>
-    </ViewState>
+      <template #actions>
+        <CoverageChip v-if="view === 'workload' && model?.mappingView.available" :view="model" @open="(detail) => show(toDetail(detail))" />
+        <SegmentedSelect v-if="view === 'workload'" v-model="mapping" :items="MAPPING_OPTIONS" label="Mapping window" :show-label="false" class="w-32 sm:w-auto" data-testid="omni-mapping-range" />
+        <SegmentedSelect v-else v-model="range" :items="RANGE_OPTIONS" label="Live queue window" :show-label="false" class="w-32 sm:w-auto" data-testid="omni-range" />
+      </template>
+    </PageHeader>
 
-    <OmniDetailSheet
-      v-for="(detail, index) in stack"
-      :key="`${index}:${detail.id}`"
-      :open="true"
-      :detail="detail"
-      :depth="index"
-      @update:open="(open) => closeFrom(index, open)"
-      @drill="drill"
-    />
+    <SubNav :items="SUB_VIEWS.omni.items" :default-value="SUB_VIEWS.omni.default" label="Omni CI views" />
+
+    <AsyncBoundary :loading="dataset.loading.value && !ops" :error="error" :refreshing="dataset.refreshing.value" @retry="dataset.refresh">
+      <EmptyState
+        v-if="page && !page.available"
+        :icon="ServerOff"
+        title="Omni queue data is unavailable"
+        :description="page.message"
+        cause="omni.hardware_scope ≠ amd_mi_gpu"
+        data-testid="omni-unavailable"
+      />
+      <OmniWorkload v-else-if="model && view === 'workload'" :view="model" @show="show" />
+      <OmniLive v-else-if="model" :view="model" @show="show" />
+    </AsyncBoundary>
+
+    <SheetStack :sheets="sheets" />
   </div>
 </template>

@@ -1,9 +1,9 @@
 <script setup lang="ts" generic="T extends ChartRow">
 import { VisAxis, VisLine, VisScatter, VisXYContainer } from '@unovis/vue'
-import { computed, ref } from 'vue'
+import { ref } from 'vue'
 import { ChartContainer, ChartCrosshair, ChartTooltip } from '@/components/ui/chart'
 import { cn } from '@/lib/utils'
-import { chartConfig, plainNumber, seriesValue, shortDay, thinTicks, useSeriesInteraction, useTickCount, type ChartRow, type SeriesSpec } from './chart'
+import { chartConfig, niceTicks, plainNumber, seriesValue, shortDay, thinTicks, useSeriesInteraction, useTickCount, type ChartRow, type SeriesSpec } from './chart'
 import ChartInspect from './ChartInspect.vue'
 import Legend from './Legend.vue'
 
@@ -49,18 +49,24 @@ const { track, tooltip, select, selectHovered, inspectItems } = useSeriesInterac
       <ChartContainer :config="chartConfig(series)" :class="cn('aspect-auto w-full', compact ? 'h-16' : 'h-[220px]', props.class)" cursor>
         <VisXYContainer :data="rows" :margin="compact ? { top: 4, bottom: 4, left: 4, right: 4 } : { left: 4, right: 12, top: 8 }" :y-domain="yDomain">
           <template v-for="s in series" :key="s.key">
-            <VisLine :x="xValue" :y="(row: T) => seriesValue(row, s.key)" :color="s.color" :line-width="2" curve-type="monotoneX" :duration="300" />
+            <VisLine :x="xValue" :y="(row: T) => seriesValue(row, s.key)" :color="s.color" :line-width="2" :line-dash-array="s.dash" curve-type="monotoneX" :duration="300" />
             <VisScatter v-if="!compact && rows.length <= 40" :x="xValue" :y="(row: T) => seriesValue(row, s.key)" :color="s.color" :size="6" stroke-color="var(--card)" :stroke-width="2" />
           </template>
           <template v-if="!compact">
             <VisAxis type="x" :x="xValue" :tick-values="thinTicks(rows.map(xValue), ticks)" :tick-format="xFormat" :tick-line="false" :domain-line="false" :grid-line="false" />
-            <VisAxis type="y" :num-ticks="4" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
+            <VisAxis type="y" :num-ticks="yDomain ? undefined : 4" :tick-values="yDomain ? niceTicks(yDomain[0], yDomain[1], 4) : undefined" :tick-format="yFormat" :tick-line="false" :domain-line="false" />
           </template>
           <ChartTooltip />
-          <ChartCrosshair :template="tooltip" :on-crosshair-move="track" :color="series.map((s) => s.color)" />
+          <ChartCrosshair
+            :x="xValue"
+            :y="series.map((s) => (row: T) => seriesValue(row, s.key))"
+            :template="tooltip"
+            :onCrosshairMove="track"
+            :color="series.map((s) => s.color)"
+          />
         </VisXYContainer>
       </ChartContainer>
     </div>
-    <Legend v-if="series.length > 1 && !compact" :items="series" />
+    <Legend v-if="series.length > 1 && !compact" :items="series" lines />
   </div>
 </template>

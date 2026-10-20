@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ChevronRight, ExternalLink } from '@lucide/vue'
+import { ChevronRight, CircleDashed, ExternalLink } from '@lucide/vue'
 import { TransitionPresets, usePreferredReducedMotion, useTransition } from '@vueuse/core'
 import { computed } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
@@ -32,6 +32,10 @@ const props = withDefaults(
     action?: KpiAction
     variant?: 'default' | 'ring'
     ratio?: { current: number; total: number }
+    /** Shown in place of the value and trend when the metric cannot be established; the footnote gives the reason. */
+    empty?: string
+    /** 'inline' puts the delta and status beside the value, keeping long labels on one row. */
+    badges?: 'header' | 'inline'
   }>(),
   { variant: 'default', format: (value: number) => Math.round(value).toLocaleString('en-US') },
 )
@@ -48,6 +52,8 @@ const display = computed(() => {
   return Number.isFinite(props.value) ? props.format(tweened.value) : '—'
 })
 const missing = computed(() => display.value === '—')
+// Zero counts render muted like missing values.
+const muted = computed(() => missing.value || props.value === 0)
 
 const RADIUS = 42
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS
@@ -69,7 +75,7 @@ const actionAttrs = computed(() => {
 <template>
   <Card
     :class="cn(
-      '@container/card relative gap-4 bg-linear-to-t from-brand/5 to-card py-5 shadow-xs motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-300',
+      '@container/card relative isolate gap-4 bg-linear-to-t from-brand/5 to-card py-5 shadow-xs motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1 motion-safe:duration-300',
       action && 'group/kpi transition-[border-color,box-shadow,transform] duration-150 hover:border-foreground/20 hover:shadow-sm has-[[data-kpi-action]:focus-visible]:ring-3 has-[[data-kpi-action]:focus-visible]:ring-ring/50 motion-safe:active:scale-[.99]',
     )"
     data-slot="kpi-card"
@@ -81,21 +87,34 @@ const actionAttrs = computed(() => {
           v-if="action"
           v-bind="actionAttrs"
           data-kpi-action
-          class="text-left outline-none after:absolute after:inset-0 after:rounded-xl after:content-['']"
+          class="text-left outline-none after:absolute after:inset-0 after:z-10 after:rounded-xl after:content-['']"
         >
-          {{ label }}<span class="sr-only">: {{ action.label }}</span>
+          <span data-slot="kpi-label">{{ label }}</span><span class="sr-only">: {{ action.label }}</span>
         </component>
-        <template v-else>{{ label }}</template>
+        <span v-else data-slot="kpi-label">{{ label }}</span>
       </CardDescription>
-      <CardTitle
-        v-if="variant === 'default'"
-        class="font-semibold tabular-nums"
-        :class="[missing && 'text-muted-foreground', display.length > 10 ? 'text-xl @[250px]/card:text-2xl' : 'text-2xl @[250px]/card:text-3xl']"
-        data-slot="kpi-value"
-      >
-        {{ display }}<span v-if="unit && !missing" class="ml-1 text-base font-medium text-muted-foreground">{{ unit }}</span>
+      <CardTitle v-if="empty" class="col-span-full pt-1" data-slot="kpi-empty">
+        <span class="inline-flex items-center gap-2 rounded-md border border-dashed px-2.5 py-1.5 text-sm font-medium text-muted-foreground">
+          <CircleDashed class="size-4 shrink-0" aria-hidden="true" />{{ empty }}
+        </span>
       </CardTitle>
-      <CardAction v-if="delta || status" class="@max-[15rem]/card:col-start-1 @max-[15rem]/card:row-span-1 @max-[15rem]/card:row-start-3 @max-[15rem]/card:justify-self-start flex flex-wrap items-center justify-end gap-1.5">
+      <div v-else-if="variant === 'default'" class="col-span-full flex flex-wrap items-center gap-x-2 gap-y-1">
+        <CardTitle
+          class="font-semibold tabular-nums"
+          :class="[muted && 'text-muted-foreground', display.length > 10 ? 'text-xl @[250px]/card:text-2xl' : 'text-2xl @[250px]/card:text-3xl']"
+          data-slot="kpi-value"
+        >
+          {{ display }}<span v-if="unit && !missing" class="ml-1 text-base font-medium text-muted-foreground">{{ unit }}</span>
+        </CardTitle>
+        <template v-if="badges === 'inline'">
+          <StatusBadge v-if="status" :tone="status.tone" :label="status.label" />
+          <DeltaBadge v-if="delta" :delta="delta" />
+        </template>
+      </div>
+      <CardAction
+        v-if="badges !== 'inline' && (delta || status)"
+        class="row-span-1 @max-[15rem]/card:col-start-1 @max-[15rem]/card:row-span-1 @max-[15rem]/card:row-start-3 @max-[15rem]/card:justify-self-start flex flex-wrap items-center justify-end gap-1.5"
+      >
         <StatusBadge v-if="status" :tone="status.tone" :label="status.label" />
         <DeltaBadge v-if="delta" :delta="delta" />
       </CardAction>
@@ -123,20 +142,27 @@ const actionAttrs = computed(() => {
         </span>
       </div>
       <div class="flex min-w-0 flex-col gap-0.5">
-        <span class="text-xl font-semibold break-words tabular-nums" :class="missing && 'text-muted-foreground'">{{ display }}</span>
+        <span class="text-xl font-semibold break-words tabular-nums" :class="muted && 'text-muted-foreground'">{{ display }}</span>
         <span v-if="ratio" class="text-xs text-muted-foreground tabular-nums">
           {{ ratio.current.toLocaleString('en-US') }} / {{ ratio.total.toLocaleString('en-US') }}
         </span>
       </div>
     </div>
 
-    <div v-if="spark && spark.length > 1" class="px-4 @[15rem]/card:px-6">
-      <Sparkline :values="spark" :label="`${label} trend over ${spark.length} points`" />
+    <div v-if="$slots.default" class="relative px-4 @[15rem]/card:px-6" data-slot="kpi-content">
+      <slot />
     </div>
 
-    <CardFooter v-if="headline || footnote || action" class="flex-col items-start gap-1 px-4 text-sm @[15rem]/card:px-6">
+    <div v-if="spark && spark.length > 1 && !empty" class="px-4 @[15rem]/card:px-6">
+      <Sparkline :values="spark" :label="`${label} trend over ${spark.length} points`" />
+    </div>
+    <div v-else-if="$slots.visual" class="flex min-h-10 flex-col justify-center px-4 @[15rem]/card:px-6" data-slot="kpi-visual">
+      <slot name="visual" />
+    </div>
+
+    <CardFooter v-if="headline || footnote || action" class="mt-auto flex-col items-start gap-1 px-4 text-sm @[15rem]/card:px-6">
       <div v-if="headline || action" class="flex w-full items-center gap-2 font-medium">
-        <span class="line-clamp-2 min-w-0 flex-1">{{ headline ?? action?.label }}</span>
+        <span class="line-clamp-2 min-w-0 flex-1" data-slot="kpi-headline">{{ headline ?? action?.label }}</span>
         <component
           :is="action?.href ? ExternalLink : ChevronRight"
           v-if="action"
@@ -144,7 +170,7 @@ const actionAttrs = computed(() => {
           aria-hidden="true"
         />
       </div>
-      <p v-if="footnote" class="hidden text-muted-foreground @[15rem]/card:block">{{ footnote }}</p>
+      <p v-if="footnote" class="hidden text-muted-foreground @[15rem]/card:block" data-slot="kpi-footnote">{{ footnote }}</p>
     </CardFooter>
   </Card>
 </template>

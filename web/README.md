@@ -2,8 +2,8 @@
 
 The v2 frontend is the site root: `web/` builds `docs/index.html` plus
 `docs/v2/`. The classic dashboard stays at `docs/classic.html` for views not
-ported yet, and legacy `?ops_*#<tab>` links are routed to whichever page serves
-them (`src/legacyLinks.ts`). The built bundle is committed so the hourly
+ported yet, and old `?ops_*#<tab>` links are routed to whichever page serves
+them (`src/app/oldLinks.ts`). The built bundle is committed so the hourly
 publication lane never needs Node; CI fails if it differs from a fresh build.
 
 ```bash

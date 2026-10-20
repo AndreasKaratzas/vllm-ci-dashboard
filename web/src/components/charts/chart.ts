@@ -10,6 +10,8 @@ export interface SeriesSpec {
   key: string
   label: string
   color: PaletteColor
+  /** Line charts: a dash pattern, so series of one hue stay distinguishable without color. */
+  dash?: number[]
 }
 
 export interface InspectItem {
@@ -33,6 +35,49 @@ export const shortDayTime = (value: number | Date) => DAY_TIME.format(new Date(v
 
 export const plainNumber = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 1 })
 
+/**
+ * Round ticks from at or below `min` to at or beyond `max`: about `count` steps of 1, 2, 2.5 or 5
+ * times a power of ten, never finer than `minStep` (1 for counts).
+ */
+export function niceTicks(min: number, max: number, count: number, minStep = 0): number[] {
+  const span = max - min
+  if (!(span > 0)) return [min, min + Math.max(1, minStep)]
+  const raw = Math.max(span / Math.max(1, count), minStep)
+  const power = 10 ** Math.floor(Math.log10(raw))
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * power).find((candidate) => candidate >= raw && (minStep < 1 || Number.isInteger(candidate)))!
+  const ticks: number[] = []
+  for (let tick = Math.floor(min / step) * step; tick < max + step / 2; tick += step) ticks.push(Math.round(tick * 1e9) / 1e9)
+  if (ticks.at(-1)! < max) ticks.push(Math.round((ticks.at(-1)! + step) * 1e9) / 1e9)
+  return ticks
+}
+
+/**
+ * The value-axis ticks of a bar chart: round ticks at or beyond the longest bar (or stack). Diverging
+ * charts with bars on both sides share one scale around zero so their lengths compare honestly; with
+ * bars on one side only, the empty side gets no axis. `compact` halves the tick count on narrow plots.
+ */
+export function barValueTicks(
+  rows: ChartRow[],
+  series: SeriesSpec[],
+  { diverging = [], stacked = true, compact = false }: { diverging?: string[]; stacked?: boolean; compact?: boolean } = {},
+): number[] {
+  const sum = (values: number[]) => values.reduce((a, b) => a + b, 0)
+  const totals = rows.map((row) => {
+    const values = series.map((s) => (diverging.includes(s.key) ? -1 : 1) * seriesValue(row, s.key))
+    const up = values.filter((v) => v > 0)
+    const down = values.filter((v) => v < 0)
+    return stacked ? [sum(down), sum(up)] : [Math.min(0, ...down), Math.max(0, ...up)]
+  })
+  const counts = rows.every((row) => series.every((s) => Number.isInteger(seriesValue(row, s.key))))
+  let lo = Math.min(0, ...totals.map((t) => t[0]!))
+  let hi = Math.max(0, ...totals.map((t) => t[1]!))
+  if (diverging.length && lo < 0 && hi > 0) {
+    hi = Math.max(1, -lo, hi)
+    lo = -hi
+  }
+  return niceTicks(lo, hi, diverging.length && compact ? 2 : 4, counts ? 1 : 0)
+}
+
 /** At most `max` of the values, evenly spaced and always keeping the latest one. */
 export function thinTicks(values: number[], max: number): number[] {
   const step = Math.max(1, Math.ceil(values.length / Math.max(1, max)))
@@ -53,6 +98,25 @@ export function distinctTicks([min, max]: [number, number], count: number, forma
   return ticks
 }
 
+const MINUTE = 60_000
+const HOUR = 60 * MINUTE
+const DAY_MS = 24 * HOUR
+const TIME_STEPS = [5 * MINUTE, 10 * MINUTE, 15 * MINUTE, 30 * MINUTE, HOUR, 2 * HOUR, 3 * HOUR, 6 * HOUR, 12 * HOUR, DAY_MS, 2 * DAY_MS, 7 * DAY_MS, 14 * DAY_MS, 28 * DAY_MS]
+const CLOCK = new Intl.DateTimeFormat('en-US', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'UTC' })
+
+/**
+ * At most `count` ticks on round UTC times (whole minutes and hours, midnights) inside the domain, evenly
+ * spaced, with a label that names the day at midnight and the clock time otherwise.
+ */
+export function timeTicks([min, max]: [number, number], count: number): { values: number[]; label: (value: number) => string } {
+  const span = Math.max(0, max - min)
+  const step = TIME_STEPS.find((s) => span / s <= Math.max(1, count)) ?? TIME_STEPS.at(-1)!
+  const values: number[] = []
+  for (let value = Math.ceil(min / step) * step; value <= max; value += step) values.push(value)
+  const label = (value: number) => (step >= DAY_MS || value % DAY_MS === 0 ? shortDay(value) : CLOCK.format(new Date(value)))
+  return { values, label }
+}
+
 /** About one axis tick per `spacing` pixels of the element's width. */
 export function useTickCount(el: Ref<HTMLElement | null>, spacing = 80) {
   const { width } = useElementSize(el)
@@ -63,7 +127,8 @@ interface SeriesInteraction<T extends ChartRow> {
   rows: () => T[]
   series: () => SeriesSpec[]
   title: (row: T) => string
-  format: (value: number) => string
+  /** Formats one series value; the series lets mixed charts format each series its own way. */
+  format: (value: number, series: SeriesSpec) => string
   hint: () => string | undefined
   onSelect: () => ((row: T, index: number) => void) | undefined
 }
@@ -74,7 +139,7 @@ interface SeriesInteraction<T extends ChartRow> {
  */
 export function useSeriesInteraction<T extends ChartRow>(opts: SeriesInteraction<T>) {
   let hovered: T | null = null
-  const describe = (row: T) => opts.series().map((s) => ({ label: s.label, value: opts.format(seriesValue(row, s.key)), color: s.color }))
+  const describe = (row: T) => opts.series().map((s) => ({ label: s.label, value: opts.format(seriesValue(row, s.key), s), color: s.color }))
   // Unovis reports an undefined x whenever the pointer is outside the plot area.
   function track(x: number | Date | undefined, row: T | undefined) {
     hovered = x === undefined ? null : (row ?? null)

@@ -1,5 +1,4 @@
-// Perf Eval: ports of the classic renderPerf / openPerfHistory decisions
-// (docs/assets/js/ops-v2.js). Classic names are kept where a function exists.
+// Perf Eval page decisions over data/vllm/perf_eval/perf_eval.json.
 import { integer, shortDate, value, type Rec, type Tone } from './format'
 
 export const PERF_SOURCE = 'data/vllm/perf_eval/perf_eval.json'
@@ -13,7 +12,7 @@ export interface PerfState {
   device: string
 }
 
-/** classic syncRouteState for ci-perf-eval: view is validated, model/device take any non-empty value. */
+/** The route state: view is validated, model/device take any non-empty value. */
 export function perfState(query: { view?: unknown; model?: unknown; device?: unknown }): PerfState {
   const pick = (v: unknown) => (typeof v === 'string' ? v : Array.isArray(v) && typeof v[0] === 'string' ? v[0] : null)
   const view = pick(query.view)
@@ -26,7 +25,7 @@ export function perfState(query: { view?: unknown; model?: unknown; device?: unk
   }
 }
 
-/** The route query for a state; defaults are dropped, as classic setQueryValue does. */
+/** The route query for a state; defaults are dropped. */
 export function perfQuery(state: PerfState): Record<string, string> {
   const query: Record<string, string> = {}
   if (state.view !== 'performance') query.view = state.view
@@ -57,7 +56,7 @@ export interface PerfDelta {
   title: string | null
 }
 
-/** classic perfDelta returns a span; this is its text, tone class, and title. */
+/** A block's change versus the previous nightly: text, tone and title. */
 export function perfDelta(block: Rec): PerfDelta {
   if (block.previous === null || block.previous === undefined) return { label: 'First nightly', tone: 'neutral', title: null }
   const delta = Number(block.delta_pct)
@@ -82,7 +81,7 @@ export function perfModels(perf: Rec | null | undefined): Rec[] {
   return Array.isArray((perf || {}).models) ? perf!.models : []
 }
 
-/** The classic guard: any non-MI or GPU-less record withholds the whole page. */
+/** Any non-MI or GPU-less record withholds the whole page rather than mixing hardware. */
 export function perfDataUnavailable(perf: Rec): boolean {
   const models = perfModels(perf)
   const summary = perf.summary || {}
@@ -126,7 +125,7 @@ export function perfKpis(perf: Rec): PerfKpis {
   }
 }
 
-/** AMD MODELS drill-down: classic openHistoryEvidence lists the points reversed. */
+/** The model families drill-down lists the payload order reversed (newest family first). */
 export function perfModelFamilies(perf: Rec): { label: string; valueSummary: string; url: string | undefined }[] {
   return perfModels(perf)
     .map((model) => ({ label: model.model, valueSummary: integer(model.nightly_count) + ' nightlies', url: (model.latest || {}).build_url }))
@@ -214,7 +213,7 @@ export function accuracyRows(models: Rec[]): { model: Rec; task: Rec }[] {
   return rows
 }
 
-/** The history block classic builds for an accuracy row. */
+/** The history block of an accuracy row. */
 export function accuracyBlock(task: Rec): Rec {
   return { ...task, label: task.task + ' - ' + task.metric, unit: 'ratio', direction: task.direction || 'higher' }
 }
@@ -301,20 +300,6 @@ export function perfImageDetail(row: Rec): PerfDetail {
   }
 }
 
-/** classic openMetricDetail for the METRIC POINTS and AMD HARDWARE strip items. */
-export function perfMetricDetail(item: { label: string; value: unknown; meta: string; provenance?: string }): PerfDetail {
-  return {
-    title: item.label,
-    subtitle: 'Operational aggregate',
-    description: item.meta || 'This value is derived from the currently loaded dashboard snapshot.',
-    fields: present([
-      { label: 'Value', value: value(item.value) },
-      { label: 'Provenance', value: item.provenance },
-    ]),
-    sources: [],
-  }
-}
-
 export interface PerfHistory {
   title: string
   subtitle: string
@@ -329,7 +314,7 @@ export interface PerfHistory {
   tableTitle: string
 }
 
-/** classic openPerfHistory: rows newest first, summary of the block. */
+/** A metric history: rows newest first, summary of the block. */
 export function perfHistory(model: Rec, config: Rec, metricName: string, block: Rec): PerfHistory {
   const series = (block.series || [])
     .slice()
@@ -354,16 +339,12 @@ export function perfHistoryBuildLabel(row: Rec): string {
   return row.build_number ? '#' + row.build_number : 'Build'
 }
 
-/** classic drawPerfSpark: only finite points; no chart below two. */
+/** Chartable points: only finite values; no chart below two. */
 export function perfSparkRows(series: Rec[] | null | undefined): Rec[] {
   return (series || []).filter((point) => Number.isFinite(Number(point.value)))
 }
 
-export function perfSparkLabel(point: Rec): string {
-  return String(point.vllm_commit || '').slice(0, 7) || shortDate(point.date)
-}
-
-/** classic drawChart inspectIndex for a drawPerfSpark point (tile sparkline and history chart). */
+/** One chart point as evidence. */
 export function perfPointDetail(point: Rec, unit: unknown): PerfDetail {
   const label = point.build_number ? 'Build #' + point.build_number : shortDate(point.date)
   const details: Rec = { value: perfValue(point.value, unit), vllm_commit: point.vllm_commit, image: point.image }
@@ -400,7 +381,7 @@ export interface PerfModelSection {
   configs: PerfConfigSection[]
 }
 
-/** classic perfModelSection + perfMetricTile, as data. */
+/** A model's configurations and metric tiles, as data. */
 export function perfModelSection(model: Rec, device: string): PerfModelSection {
   return {
     model,
@@ -441,7 +422,7 @@ export interface PerfPageCommon {
   showBack: boolean
 }
 
-/** classic renderPerf: which body the page shows for a state. */
+/** Which body the page shows for a state. */
 export function perfPage(perf: Rec, state: PerfState): PerfPage {
   if (perfDataUnavailable(perf)) return { kind: 'unavailable' }
   const models = perfModels(perf)
@@ -456,4 +437,197 @@ export function perfPage(perf: Rec, state: PerfState): PerfPage {
   if (state.model === 'all') return { kind: 'summary', rows: perfModelRows(filtered), ...common }
   if (state.view === 'accuracy') return { kind: 'accuracy', rows: accuracyRows(filtered), ...common }
   return { kind: 'performance', sections: filtered.map((model) => perfModelSection(model, state.device)), ...common }
+}
+
+// Presentation helpers.
+
+/** The model name without its organization prefix. */
+export function perfShortModel(name: unknown): string {
+  const text = String(name ?? '')
+  return text.slice(text.lastIndexOf('/') + 1) || text
+}
+
+/** A configuration title without the collector's "?" placeholders for unrecorded lengths. */
+export function perfConfigTitle(config: Rec): string {
+  const known = perfConfigLabel(config)
+    .replace(/\?\s*in\s*\/\s*/, '')
+    .replace(/\s*\/\s*\?\s*out/, '')
+    .replace(/^\?\s*(in|out)\s*/, '')
+  return known.replace(/^@\s*conc\b/, 'Concurrency')
+}
+
+/** Models matching the state, each keeping only the configurations on the selected device. */
+export function perfScopedModels(models: Rec[], state: Pick<PerfState, 'model' | 'device'>): Rec[] {
+  return filterPerfModels(models, state).map((model) =>
+    state.device === 'all' ? model : { ...model, perf_configs: perfModelConfigs(model, state.device) },
+  )
+}
+
+/** The same models with their accuracy tasks only. */
+export function perfAccuracyOnly(models: Rec[]): Rec[] {
+  return models.map((model) => ({ ...model, perf_configs: [] }))
+}
+
+export type PerfVerdict = 'good' | 'bad' | 'neutral'
+
+/** The collector's red/green rule for one nightly against the one before it. */
+export function perfPointVerdict(previous: unknown, latest: unknown, direction: unknown, relative: boolean, thresholds: Rec): PerfVerdict {
+  const before = Number(previous)
+  const after = Number(latest)
+  if (previous === null || previous === undefined || !Number.isFinite(before) || !Number.isFinite(after)) return 'neutral'
+  const delta = after - before
+  const moved = relative ? before !== 0 && Math.abs(delta / before) >= Number(thresholds.perf_rel) : Math.abs(delta) >= Number(thresholds.accuracy_abs)
+  if (!moved) return 'neutral'
+  return (direction === 'lower' ? delta < 0 : delta > 0) ? 'good' : 'bad'
+}
+
+export interface PerfNightly {
+  key: string
+  buildNumber: number | null
+  url: string | undefined
+  date: string
+  models: number
+  points: number
+  /** As of this nightly, metrics whose latest observation so far moved past the threshold versus the one before it. */
+  regressions: number
+  improvements: number
+}
+
+function eachSeries(model: Rec, visit: (series: Rec[], direction: unknown, relative: boolean) => void) {
+  ;(model.perf_configs || []).forEach((config: Rec) =>
+    Object.values(config.metrics || {}).forEach((block) => visit((block as Rec).series || [], (block as Rec).direction, true)),
+  )
+  ;(model.accuracy_tasks || []).forEach((task: Rec) => visit(task.series || [], task.direction || 'higher', false))
+}
+
+/**
+ * Every retained nightly, oldest first, with the models and metric points it reported. Given thresholds, each
+ * nightly also carries the regressed and improved metric counts as of that nightly, so the newest nightly
+ * matches the latest-status counts of perfModelRows.
+ */
+export function perfNightlyActivity(models: Rec[], thresholds?: Rec): PerfNightly[] {
+  type Entry = Omit<PerfNightly, 'key' | 'models'> & { models: Set<string>; verdicts: [number, PerfVerdict][] }
+  const nightlies = new Map<string, Entry>()
+  const keyOf = (point: Rec) => (point.build_number !== null && point.build_number !== undefined ? `#${point.build_number}` : String(point.date || ''))
+  let metric = 0
+  models.forEach((model) =>
+    eachSeries(model, (series, direction, relative) => {
+      metric += 1
+      series.forEach((point, index) => {
+        const key = keyOf(point)
+        if (!key) return
+        const entry: Entry = nightlies.get(key) ?? {
+          buildNumber: Number(point.build_number) || null,
+          url: undefined,
+          date: '',
+          models: new Set<string>(),
+          points: 0,
+          regressions: 0,
+          improvements: 0,
+          verdicts: [],
+        }
+        entry.models.add(model.model)
+        entry.points += 1
+        entry.url ??= point.build_url || undefined
+        if (String(point.date || '') > entry.date) entry.date = String(point.date)
+        if (thresholds) entry.verdicts.push([metric, index > 0 ? perfPointVerdict(series[index - 1]!.value, point.value, direction, relative, thresholds) : 'neutral'])
+        nightlies.set(key, entry)
+      })
+    }),
+  )
+  const sorted = Array.from(nightlies, ([key, entry]) => ({ key, entry })).sort(
+    (a, b) => a.entry.date.localeCompare(b.entry.date) || (a.entry.buildNumber ?? 0) - (b.entry.buildNumber ?? 0),
+  )
+  const state = new Map<number, PerfVerdict>()
+  return sorted.map(({ key, entry: { verdicts, models: reported, ...entry } }) => {
+    verdicts.forEach(([id, verdict]) => state.set(id, verdict))
+    const current = Array.from(state.values())
+    return {
+      ...entry,
+      key,
+      models: reported.size,
+      regressions: current.filter((verdict) => verdict === 'bad').length,
+      improvements: current.filter((verdict) => verdict === 'good').length,
+    }
+  })
+}
+
+/** The newest perf-eval build any model reports: upstream activity, not collection age. */
+export function perfLatestBuild(models: Rec[]): { number: number; url: string | undefined; date: string | undefined } | null {
+  let best: Rec | null = null
+  models.forEach((model) => {
+    const latest = model.latest || {}
+    if (Number.isFinite(Number(latest.build_number)) && (!best || Number(latest.build_number) > Number(best.build_number))) best = latest
+  })
+  const latest = best as Rec | null
+  return latest ? { number: Number(latest.build_number), url: latest.build_url, date: latest.date } : null
+}
+
+export interface PerfChange {
+  kind: 'performance' | 'accuracy'
+  model: Rec
+  config: Rec
+  name: string
+  block: Rec
+  label: string
+  tone: Tone
+  deltaPct: number
+}
+
+/** Metrics whose latest nightly regressed or improved (as counted by perfModelRows), largest change first. */
+export function perfChanges(models: Rec[]): PerfChange[] {
+  const changes: PerfChange[] = []
+  models.forEach((model) => {
+    ;(model.perf_configs || []).forEach((config: Rec) =>
+      sortedMetricNames(config.metrics).forEach((name) => {
+        const block: Rec = config.metrics[name]
+        changes.push({ kind: 'performance', model, config, name, block, label: block.label || name, tone: perfStatusTone(block.status), deltaPct: Number(block.delta_pct) })
+      }),
+    )
+    ;(model.accuracy_tasks || []).forEach((task: Rec) => {
+      const block = accuracyBlock(task)
+      changes.push({ kind: 'accuracy', model, config: { label: 'Accuracy' }, name: task.metric, block, label: block.label, tone: perfStatusTone(task.status), deltaPct: Number(task.delta_pct) })
+    })
+  })
+  const size = (change: PerfChange) => (Number.isFinite(change.deltaPct) ? Math.abs(change.deltaPct) : -1)
+  return changes.filter((change) => change.tone !== 'neutral').sort((a, b) => size(b) - size(a))
+}
+
+/** The lead metric of a model's first configuration on the device, as a trend. */
+export function perfModelTrend(model: Rec, device: string): { values: number[]; label: string; device: string } | null {
+  for (const config of perfModelConfigs(model, device)) {
+    const name = sortedMetricNames(config.metrics)[0]
+    if (!name) continue
+    const block: Rec = config.metrics[name]
+    const values = perfSparkRows(block.series).map((point) => Number(point.value))
+    if (values.length < 2) continue
+    return { values, label: `${block.label || name}, ${perfConfigTitle(config)}`, device: String(config.device || '') }
+  }
+  return null
+}
+
+export interface PerfHardwareRow {
+  id: string
+  label: string
+  models: number
+  configs: number
+  metrics: number
+  regressions: number
+  improvements: number
+}
+
+/** Per AMD device: the models, configurations and performance metrics that ran on it. */
+export function perfHardwareRows(perf: Rec): PerfHardwareRow[] {
+  return perfDevices(perf).map((device) => {
+    const configs = perfModels(perf).flatMap((model) => perfModelConfigs(model, device.id).map((config) => ({ model, config })))
+    const metrics: Rec[] = configs.flatMap(({ config }) => Object.values(config.metrics || {}))
+    return {
+      ...device,
+      models: new Set(configs.map(({ model }) => model.model)).size,
+      configs: configs.length,
+      metrics: metrics.length,
+      regressions: metrics.filter((metric) => metric.status === 'bad').length,
+      improvements: metrics.filter((metric) => metric.status === 'good').length,
+    }
+  })
 }

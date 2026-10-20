@@ -175,15 +175,12 @@ export function latestFailureObservations(amdHealth: Rec | null | undefined): Re
     )
 }
 
-/** Oldest-first nightlies (up to 14) whose failure movement is available. */
+/** The nightlies, newest first as published, whose failure movement against the previous nightly is available. */
 export function movementBuilds(builds: Rec[]): Rec[] {
-  return (builds || [])
-    .filter((row) => {
-      const movement = nightlyFailureMovement(row)
-      return row.has_test_results !== false && Boolean(movement) && movement!.available !== false
-    })
-    .slice(0, 14)
-    .reverse()
+  return (builds || []).filter((row) => {
+    const movement = nightlyFailureMovement(row)
+    return row.has_test_results !== false && Boolean(movement) && movement!.available !== false
+  })
 }
 
 export function testGroupParityState(stateName: string): { label: string; tone: Tone } {
@@ -258,4 +255,90 @@ export function parityGapAreas(parity: Rec): GapArea[] {
       }
     })
     .sort((left, right) => right.attention - left.attention || left.label.localeCompare(right.label))
+}
+
+export interface LogicalHealthPoint {
+  number: number
+  rate: number
+}
+
+/** Logical pass rate (passing on any route) per retained nightly with a test signal, oldest first. */
+export function logicalHealthHistory(builds: Rec[] | null | undefined): LogicalHealthPoint[] {
+  return (builds || [])
+    .filter((build) => build.has_test_results !== false && Number(build.unique_test_groups || 0) > 0)
+    .map((build) => ({
+      number: Number(build.number),
+      rate: (Number(build.test_groups_passing_or || 0) / Number(build.unique_test_groups)) * 100,
+    }))
+    .reverse()
+}
+
+export interface JobVariantPoint {
+  number: number
+  observed: number
+  passed: number
+  soft: number
+  hard: number
+}
+
+/** Exact job-variant outcomes per retained AMD build, oldest first. */
+export function jobVariantHistory(amdHealth: Rec | null | undefined): JobVariantPoint[] {
+  const builds: Rec[] = Array.isArray(currentAmdHealth(amdHealth).builds) ? currentAmdHealth(amdHealth).builds : []
+  return builds
+    .filter((build) => Number(build.observed_job_variants ?? build.observed ?? 0) > 0)
+    .map((build) => ({
+      number: Number(build.build_number ?? build.number),
+      observed: Number(build.observed_job_variants ?? build.observed ?? 0),
+      passed: Number(build.passed_job_variants ?? build.passed ?? 0),
+      soft: Number(build.soft_failed_job_variants ?? build.soft_failed ?? 0),
+      hard: Number(build.hard_failed_job_variants ?? build.hard_failed ?? 0),
+    }))
+    .sort((left, right) => left.number - right.number)
+}
+
+/** The configured-route sentence of the upstream parity methodology. */
+export function parityConfigNote(summary: Rec, source: Rec): string {
+  const required = summary.main_required_groups
+  const rate = summary.main_required_rate_pct
+  const commit = source.current_definition_commit_sha || source.main_commit || ''
+  return (
+    `Configured AMD routes cover ${integer(summary.main_complete_groups)} of ${integer(summary.applicable_groups)} applicable current CUDA logical groups. ` +
+    (required === undefined
+      ? 'Required-route coverage is unavailable. '
+      : `${integer(required)} groups have a required source configuration` +
+        (Number.isFinite(Number(rate)) ? ` (${Number(rate).toFixed(1)}%)` : '') +
+        `; ${integer(summary.main_optional_only_groups)} are optional only and ${integer(summary.main_soft_fail_only_groups)} are soft fail only. `) +
+    'These are source configuration flags; individual nightly scheduling and blocking outcomes are separate.' +
+    (/^[0-9a-f]{40}$/.test(commit) ? ` Source: main CI at ${commit.slice(0, 12)}.` : '')
+  )
+}
+
+export interface HardwarePassPoint {
+  number: number
+  observedAt: string | null
+  observed: number
+  passed: number
+}
+
+/** Exact job outcomes per retained AMD build for each hardware family (lower-case id), oldest build first. */
+export function hardwareVariantHistory(amdHealth: Rec | null | undefined): Map<string, HardwarePassPoint[]> {
+  const byHardware = new Map<string, Map<number, HardwarePassPoint>>()
+  for (const row of amdHealthGroups(currentAmdHealth(amdHealth))) {
+    for (const observation of amdGroupObservations(row)) {
+      const number = Number(observation.build_number)
+      const state = observationState(observation)
+      const passed = state === 'passed'
+      if (!Number.isFinite(number) || number <= 0 || (!passed && !isIncidentObservation(observation))) continue
+      const hardware = String(observation.hardware || row.hardware || 'unknown').toLowerCase()
+      const builds = byHardware.get(hardware) ?? new Map<number, HardwarePassPoint>()
+      const point = builds.get(number) ?? { number, observedAt: null, observed: 0, passed: 0 }
+      const when = observationTimestamp(observation)
+      if (when && (!point.observedAt || when < point.observedAt)) point.observedAt = when
+      point.observed += 1
+      if (passed) point.passed += 1
+      builds.set(number, point)
+      byHardware.set(hardware, builds)
+    }
+  }
+  return new Map([...byHardware].map(([hardware, builds]) => [hardware, [...builds.values()].sort((a, b) => a.number - b.number)]))
 }

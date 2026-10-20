@@ -14,7 +14,7 @@ withDefaults(defineProps<{ title: string; description?: string; cause?: string; 
       <p class="text-sm font-medium">{{ title }}</p>
       <p v-if="description" class="text-sm text-muted-foreground">{{ description }}</p>
     </div>
-    <span v-if="cause" class="rounded-md bg-muted px-2 py-0.5 font-mono text-xs text-muted-foreground">{{ cause }}</span>
+    <span v-if="cause" class="rounded-md border px-2 py-0.5 font-mono text-xs text-muted-foreground">{{ cause }}</span>
     <slot name="action" />
   </div>
 </template>

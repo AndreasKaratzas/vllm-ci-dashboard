@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { areaFreshness, coreFreshness, freshnessRows, queueFreshness, sourceFreshness } from '@/domain/freshness'
+import { areaSources, coreFreshness, freshnessOf, freshnessRows, queueFreshness, sourceFreshness, type SourceFreshness } from '@/domain/freshness'
+import { freshnessChip } from '@/features/freshness/freshness'
 
 const CONFIG = JSON.parse(readFileSync(resolve(__dirname, '../../../config/data_freshness_targets.json'), 'utf8'))
 const MANIFEST = JSON.parse(readFileSync(resolve(__dirname, '../fixtures/operations_v2_manifest.json'), 'utf8'))
@@ -24,9 +25,14 @@ const byKey = (rows: ReturnType<typeof sourceFreshness>) => Object.fromEntries(r
 
 describe('source freshness', () => {
   it('covers exactly the configured sources, labelled from the config', () => {
-    const rows = sourceFreshness(MANIFEST.shell, { generated_at: minutesAgo(5) }, NOW)
+    const rows = sourceFreshness(opsAt(5), null, NOW)
     expect(rows.map((row) => row.key)).toEqual(Object.keys(CONFIG.sources))
     expect(byKey(rows).analytics!.label).toBe(CONFIG.sources.analytics.label)
+  })
+
+  it('skips a main-derived clock that a manifest written before it does not list', () => {
+    const rows = sourceFreshness(MANIFEST.shell, null, NOW)
+    expect(rows.map((row) => row.key)).toEqual(Object.keys(CONFIG.sources).filter((key) => !CONFIG.core.main_derived_sources.includes(key)))
   })
 
   it('applies the core warn and stale thresholds at their boundaries', () => {
@@ -67,7 +73,13 @@ describe('group freshness', () => {
   it('reports core data as old as its oldest core source', () => {
     const rows = sourceFreshness(opsAt(10, { workload_mapping: 160 }), { generated_at: minutesAgo(30) }, NOW)
     expect(coreFreshness(rows)).toMatchObject({ timestamp: minutesAgo(160), ageMs: 160 * 60_000, state: 'warn' })
-    expect(coreFreshness(rows)!.sources.map((row) => row.key).sort()).toEqual([...CONFIG.core.sources].sort())
+    expect(coreFreshness(rows)!.sources.map((row) => row.key).sort()).toEqual([...CONFIG.core.sources, ...CONFIG.core.main_derived_sources].sort())
+  })
+
+  it('holds the all-main cohort clock to the core targets, so a stuck cohort makes core data stale', () => {
+    const rows = sourceFreshness(opsAt(10, { main_ci: CONFIG.core.stale_minutes + 1 }), { generated_at: minutesAgo(10) }, NOW)
+    expect(byKey(rows).main_ci).toMatchObject({ warnMinutes: CONFIG.core.warn_minutes, staleMinutes: CONFIG.core.stale_minutes, state: 'stale' })
+    expect(coreFreshness(rows)).toMatchObject({ ageMs: (CONFIG.core.stale_minutes + 1) * 60_000, state: 'stale' })
   })
 
   it('reports core data as stale with no age when a core source is missing', () => {
@@ -78,12 +90,13 @@ describe('group freshness', () => {
   it('summarizes the queue and each area, leaving upstream activity informational', () => {
     const rows = sourceFreshness(opsAt(10, { queue_timeseries: 45, amd_test_signal: 5000 }), { generated_at: minutesAgo(10) }, NOW)
     expect(queueFreshness(rows)).toMatchObject({ ageMs: 45 * 60_000, state: 'warn' })
-    const health = areaFreshness(rows, 'health')!
+    const health = freshnessOf(rows, areaSources('health'))!
     expect(health.sources.map((row) => row.key)).not.toContain('amd_test_signal')
     expect(health).toMatchObject({ ageMs: 10 * 60_000, state: 'fresh' })
     expect(byKey(rows).amd_test_signal).toMatchObject({ informational: true, state: 'stale' })
-    expect(areaFreshness(rows, 'perf')).toMatchObject({ ageMs: 10 * 60_000 })
-    expect(areaFreshness(rows, 'nowhere')).toBeNull()
+    expect(areaSources('perf')).toEqual(['perf_eval'])
+    expect(freshnessOf(rows, areaSources('perf'))).toMatchObject({ ageMs: 10 * 60_000 })
+    expect(freshnessOf(rows, areaSources('nowhere'))).toBeNull()
   })
 
   it('reads the published fixture: core age is the oldest core collection', () => {
@@ -115,5 +128,37 @@ describe('data freshness sheet rows', () => {
     })
     expect(rows.find((row) => row.key === 'agent_health')!.published).toBe(false)
     expect(rows.find((row) => row.key === 'perf_eval')!.path).toBe('perf_eval/perf_eval.json')
+  })
+})
+
+describe('page freshness chip', () => {
+  const row = (over: Partial<SourceFreshness>): SourceFreshness => ({
+    key: 'dns',
+    label: 'DNS observations',
+    area: 'analytics',
+    informational: false,
+    timestamp: minutesAgo(90),
+    ageMs: 90 * 60_000,
+    state: 'warn',
+    warnMinutes: 60,
+    staleMinutes: 180,
+    path: 'data/vllm/ci/dns_failures.json',
+    timestampSource: 'payload',
+    published: true,
+    ...over,
+  })
+
+  it('states the age, the tone of the state, and the target the source is held to', () => {
+    const chip = freshnessChip(freshnessOf([row({})], ['dns']), NOW)!
+    expect(chip.tone).toBe('soft')
+    expect(chip.text).toBe('Collected 1h ago')
+    expect(chip.detail).toBe('DNS observations 1h ago (target 1h / 3h).')
+    expect([freshnessChip(freshnessOf([row({ state: 'fresh' })], ['dns']), NOW)!.tone, freshnessChip(freshnessOf([row({ state: 'stale' })], ['dns']), NOW)!.tone]).toEqual(['pass', 'hard'])
+  })
+
+  it('names a single limit once and an unknown collection time plainly', () => {
+    const chip = freshnessChip(freshnessOf([row({ timestamp: null, ageMs: null, state: 'stale', warnMinutes: 180, path: null })], ['dns']), NOW)!
+    expect(chip.text).toBe('Collected at an unknown time')
+    expect(chip.detail).toBe('DNS observations without a timestamp (target 3h).')
   })
 })

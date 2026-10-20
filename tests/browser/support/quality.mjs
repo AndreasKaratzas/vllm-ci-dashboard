@@ -1,16 +1,21 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect } from '@playwright/test';
 
-// Quality gates every page must pass: no page or console errors, a pointer
-// cursor on every visible clickable control, no horizontal page overflow, and
+// Quality gates every page must pass: no page errors or console errors and
+// warnings, a pointer cursor on every visible clickable control (clickable
+// table rows and chart bars included), no horizontal page overflow, and
 // no serious or critical accessibility violations in the current theme.
 
-const CLICKABLE = 'button:not(:disabled), [role="tab"], [role="button"], [role="option"], [role="menuitem"], a[href], summary, select';
+const CLICKABLE = [
+  'button:not(:disabled), [role="tab"], [role="button"], [role="option"], [role="menuitem"], a[href], summary, select',
+  'tr[data-clickable] td',
+  '[data-slot="bar-plot"][data-clickable] path[class*="-bar"]',
+].join(', ');
 
 export function collectErrors(page) {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  page.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
+  page.on('console', (message) => ['error', 'warning'].includes(message.type()) && errors.push(`${message.type()}: ${message.text()}`));
   return errors;
 }
 
@@ -44,8 +49,19 @@ export async function expectAccessible(page) {
   expect(serious, 'serious accessibility violations').toEqual([]);
 }
 
+/** Waits for enter animations (fades, slides) so contrast is measured on the settled page. */
+export async function settleAnimations(page) {
+  await page.waitForFunction(() =>
+    document.getAnimations().every((animation) => {
+      const timing = animation.effect?.getComputedTiming();
+      return timing?.iterations === Infinity || animation.playState !== 'running';
+    }),
+  );
+}
+
 /** Every gate on the current page, as rendered at the current viewport and theme. */
 export async function expectQuality(page, errors) {
+  await settleAnimations(page);
   await expectPointerCursors(page);
   await expectNoHorizontalOverflow(page);
   await expectAccessible(page);

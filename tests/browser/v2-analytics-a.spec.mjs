@@ -6,82 +6,115 @@ import { readGolden } from './golden/read.mjs';
 // against the golden page facts of the fixture snapshot.
 const golden = readGolden('analytics-a');
 
-const v2Strip = (root) =>
-  root.locator('[data-part="label"]').evaluateAll((labels) =>
-    labels.map((label) => {
-      const card = label.closest('[data-slot="card"]');
-      return [label.textContent.trim(), card.querySelector('[data-part="value"]').textContent.trim(), card.querySelector('[data-part="meta"]').textContent.trim()];
-    }),
+const clean = (text) => (text ?? '').replace(/\s+/g, ' ').trim();
+
+/** [label, value, headline, footnote] of every KPI card under root. */
+const kpis = (root) =>
+  root.locator('[data-slot="kpi-card"]').evaluateAll((cards) =>
+    cards.map((card) =>
+      ['kpi-label', 'kpi-value', 'kpi-headline', 'kpi-footnote'].map((slot) => {
+        const nodes = card.querySelectorAll(`[data-slot="${slot}"]`);
+        return nodes.length ? nodes[nodes.length - 1].textContent.replace(/\s+/g, ' ').trim() : null;
+      }),
+    ),
   );
 
 const cellTexts = (rows) =>
-  rows.evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => td.innerText.replace(/\s+/g, ' ').trim())));
+  rows.evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('td')].map((td) => td.innerText.replace(/\s+/g, ' ').trim()).filter(Boolean)));
 
-// Hovering the bar of a row must show an Unovis tooltip naming that row and its
-// series. The chart wrapper is excluded: only the floating tooltip counts.
-async function hoverBar(page, chart, label, series) {
-  const tooltip = page.locator('[class*="-tooltip"]:not([data-slot="chart"])').filter({ hasText: label });
-  const bars = chart.locator('path[class*=bar]');
+// Hovering a bar must show an Unovis tooltip naming the series; the chart wrapper is excluded.
+async function hoverBar(page, chart, series) {
+  const tooltip = page.locator('[class*="-tooltip"]:not([data-slot="chart"]):visible').filter({ hasText: series[0] });
+  const bars = chart.locator('path[class*="-bar"]');
   const count = await bars.count();
+  let hovered = null;
   for (let index = 0; index < count && !(await tooltip.last().isVisible()); index += 1) {
-    await bars.nth(index).hover();
+    const box = await bars.nth(index).boundingBox();
+    if (!box || box.width < 2 || box.height < 2) continue;
+    hovered = bars.nth(index);
+    await hovered.hover();
+    await page.waitForTimeout(100);
   }
   const tip = tooltip.last();
   await expect(tip).toBeVisible();
   for (const name of series) await expect(tip).toContainText(name);
+  expect(await hovered.evaluate((el) => getComputedStyle(el).cursor)).toBe('pointer');
   await page.mouse.move(0, 0);
 }
 
-async function chartEvidence(page, root, name) {
-  await root.getByRole('button', { name }).click();
+/** Picks one entry of a chart's keyboard Inspect list. */
+async function inspect(page, chart, entry) {
+  await chart.getByRole('button', { name: /^Inspect / }).click();
+  await page.getByRole('menuitem').filter({ hasText: entry }).first().click();
   return page.getByRole('dialog').last();
 }
 
+async function closeSheets(page) {
+  while ((await page.getByRole('dialog').count()) > 0) {
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(150);
+  }
+}
+
 test.describe('CI Analytics matches the golden page facts', () => {
-  test('AMD test health: KPIs, clusters, failures, catalog, and charts', async ({ page }) => {
+  test('AMD test health: KPIs, catalog, failures, and charts', async ({ page }) => {
     const errors = [];
     page.on('pageerror', (error) => errors.push(error.message));
-    const { strip, clusters, browseAll, priority, priorityMeta, attentionRows, attentionCaption, searchedRows, hardwareEvidence, logicalCount } = golden.groups;
+    const { strip, clusters, browseAll, priority, priorityMeta, attentionRows, hardwareEvidence, logicalCount } = golden.groups;
+    const name = (row) => row[0].replace(/ \S+ - \S+$/, '');
 
     await page.goto('/#/analytics');
     const view = page.getByTestId('analytics-groups');
-    await expect(view.getByTestId('groups-kpis')).toBeVisible();
-    expect(await v2Strip(view.getByTestId('groups-kpis'))).toEqual(strip);
-    const v2Clusters = await view.getByTestId('cluster').evaluateAll((tiles) =>
-      tiles.map((t) => ['label', 'count', 'description', 'meta'].map((p) => t.querySelector(`[data-part="${p}"]`).textContent.trim())),
-    );
-    expect(v2Clusters).toEqual(clusters);
+    const cards = await kpis(view.getByTestId('groups-kpis'));
+    expect(cards.map((card) => card[3])).toEqual(strip.map((item) => item[2]));
+    expect([cards[0][1], cards[2][1], cards[3][1]]).toEqual([strip[0][1], strip[2][1], strip[3][1]]);
+    await expect(view.getByTestId('kpi-amd-health-test-groups')).toContainText(strip[1][1].replace(' passing', ''));
+
+    const catalog = await kpis(view.getByTestId('catalog'));
+    expect(catalog.map(([label, value, headline, footnote]) => [label, value, headline, footnote])).toEqual(clusters);
     await expect(view.getByTestId('browse-all')).toHaveText(browseAll);
-    await expect(view.getByTestId('priority')).toContainText(priorityMeta);
-    const v2Priority = await cellTexts(view.getByTestId('priority').locator('tbody tr'));
-    expect(v2Priority.map((r) => r.map((c) => c.replace(/ ↗$/, '')))).toEqual(priority);
+
+    const failures = view.getByTestId('priority');
+    await expect(failures).toContainText(priorityMeta);
+    const rows = await cellTexts(failures.locator('tbody tr'));
+    expect(rows.map((row) => [row[0].startsWith(name(priority[rows.indexOf(row)])), row[2], row[3], row[4]])).toEqual(
+      priority.map((row) => [true, row[3], row[5], row[2]]),
+    );
+    // Every row opens its exact job evidence.
+    await failures.locator('tbody tr').first().locator('td').nth(2).click();
+    await expect(page.getByRole('dialog')).toContainText('Main CI AMD gating-job outcomes');
+    await closeSheets(page);
 
     await view.getByTestId('cluster').first().click();
-    const catalog = page.getByTestId('amd-catalog');
-    await expect(catalog).toBeVisible();
-    await expect(catalog.getByTestId('catalog-caption')).toHaveText(attentionCaption);
-    const v2Attention = await cellTexts(catalog.getByTestId('catalog-row'));
-    expect(v2Attention.map((r) => r.map((c) => c.replace(/ ↗$/, '')))).toEqual(attentionRows);
-    await catalog.getByRole('combobox').click();
+    const sheet = page.getByRole('dialog');
+    const attention = await cellTexts(sheet.locator('tbody tr'));
+    expect(attention.map((row) => row[0])).toEqual(attentionRows.map((row) => `${name(row)} ${row[6]}`));
+    await sheet.getByRole('combobox', { name: 'Result' }).click();
     await page.getByRole('option', { name: 'All retained variants' }).click();
-    await catalog.getByPlaceholder('Search AMD job variant, hardware, or queue').fill('routed');
-    const v2Searched = await cellTexts(catalog.getByTestId('catalog-row'));
-    expect(v2Searched.map((r) => r.map((c) => c.replace(/ ↗$/, '')))).toEqual(searchedRows);
-    await catalog.getByTestId('catalog-row').first().getByRole('button').first().click();
+    await expect(sheet.locator('[data-slot="row-count"]')).toHaveText(`${browseAll.match(/\d+/)[0]} of ${browseAll.match(/\d+/)[0]} rows`);
+    await sheet.locator('tbody tr').first().locator('td').nth(2).click();
     await expect(page.getByRole('dialog').last()).toContainText('Main CI AMD gating-job outcomes');
-    await page.getByRole('dialog').last().getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('dialog').last().getByRole('button', { name: 'Back' }).click();
     await expect(page.getByRole('dialog')).toHaveCount(1);
-    await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await closeSheets(page);
 
-    const evidence = await chartEvidence(page, view.getByTestId('hardware-health-chart'), /Inspect 2 observations/);
-    const v2Hardware = await cellTexts(evidence.locator('tbody tr'));
-    expect(v2Hardware.map((r) => r.slice(0, 3))).toEqual(hardwareEvidence.map((r) => r.slice(0, 3)));
-    await page.keyboard.press('Escape');
-    await hoverBar(page, view.getByTestId('hardware-health-chart'), v2Hardware[0][0], ['Passing', 'Hard fail', 'Not in latest']);
+    const hardware = view.getByTestId('hardware-health-chart');
+    await hoverBar(page, hardware, ['Passing', 'Hard fail', 'Not in latest']);
+    const hardwareSheet = await inspect(page, hardware, hardwareEvidence[0][0]);
+    await expect(hardwareSheet).toContainText(`${hardwareEvidence[0][0]} AMD job variants`);
+    await closeSheets(page);
+
+    const builds = view.getByTestId('build-health-chart');
+    await hoverBar(page, builds, ['Passing', 'Soft fail', 'Hard fail', 'Unknown']);
+    await expect(await inspect(page, builds, strip[0][1])).toContainText(`AMD nightly ${strip[0][1]}`);
+    await closeSheets(page);
 
     await view.getByTestId('kpi-amd-health-test-groups').click();
     await expect(page.getByRole('dialog')).toContainText(`${logicalCount.split(' of ')[0]} rows`);
+    await closeSheets(page);
+
+    await page.getByRole('button', { name: 'About this view' }).click();
+    await expect(page.getByRole('dialog')).toContainText('Upstream results are never used as AMD passes.');
     expect(errors).toEqual([]);
   });
 
@@ -93,46 +126,57 @@ test.describe('CI Analytics matches the golden page facts', () => {
     await page.goto('/#/analytics?view=latency');
     const view = page.getByTestId('analytics-latency');
     await expect(view.getByTestId('latency-cohort')).toHaveText(cohort);
-    expect(await v2Strip(view.getByTestId('latency-kpis'))).toEqual(strip);
+    const cards = await kpis(view.getByTestId('latency-kpis'));
+    expect(cards.slice(0, 2).map((card) => [card[1], card[3]])).toEqual(strip.map((item) => [item[1], item[2]]));
     const table = view.getByTestId('latency-table');
     await expect(table).toContainText(meta);
     expect(await cellTexts(table.locator('tbody tr'))).toEqual(rows.slice(0, 12));
 
-    await table.locator('tbody tr').first().getByRole('button').first().click();
-    const sheet = page.getByTestId('latency-evidence');
-    await expect(sheet.getByTestId('latency-evidence-value')).toHaveText(evidenceStrip[0][1]);
-    await expect(sheet.getByTestId('latency-evidence-meta')).toHaveText(evidenceStrip[0][2]);
-    expect(await cellTexts(sheet.getByTestId('latency-evidence-row'))).toEqual(evidenceRows);
-    await page.keyboard.press('Escape');
+    await table.locator('tbody tr').first().locator('td').nth(1).click();
+    const sheet = page.getByRole('dialog');
+    await expect(sheet.locator('[data-slot="evidence-stat-value"]')).toHaveText(evidenceStrip[0][1]);
+    await expect(sheet.locator('[data-slot="evidence-stats"]')).toContainText(evidenceStrip[0][2]);
+    expect(await cellTexts(sheet.locator('tbody tr'))).toEqual(evidenceRows);
+    await closeSheets(page);
 
-    const evidence = await chartEvidence(page, view.getByTestId('latency-chart'), /Inspect \d+ observations/);
-    expect((await cellTexts(evidence.locator('tbody tr'))).map((r) => [r[0], r[2]])).toEqual(chartRows.map((r) => [r[0], r[2]]));
-    await page.keyboard.press('Escape');
-    await hoverBar(page, view.getByTestId('latency-chart'), chartRows[0][0], ['AMD']);
+    const chart = view.getByTestId('latency-chart');
+    await hoverBar(page, chart, ['AMD MI median', 'min']);
+    const slowest = chartRows.at(-1)[0];
+    await expect(await inspect(page, chart, slowest)).toContainText(slowest.charAt(0).toUpperCase() + slowest.slice(1));
     expect(errors).toEqual([]);
   });
 
-  test('AMD nightlies: KPIs, movement table, chart evidence, and build detail', async ({ page }) => {
-    const { strip, note, rows, chartRows, buildTitle } = golden.nightlies;
+  test('AMD nightlies: KPIs, movement table, chart, and build evidence', async ({ page }) => {
+    const { strip, note, rows, chartRows } = golden.nightlies;
 
     await page.goto('/#/analytics?view=nightlies');
     const view = page.getByTestId('analytics-nightlies');
-    expect(await v2Strip(view.getByTestId('nightlies-kpis'))).toEqual(strip);
-    await expect(view.getByTestId('nightlies-note')).toHaveText(note.replace(/\s+/g, ' '));
-    const table = view.getByTestId('nightlies-table');
-    expect(await cellTexts(table.locator('tbody tr'))).toEqual(rows);
-
-    const evidence = await chartEvidence(page, view.getByTestId('nightlies-chart'), /Inspect \d+ observations/);
-    expect((await cellTexts(evidence.locator('tbody tr'))).map((r) => [r[0], r[1], r[2]])).toEqual(chartRows.map((r) => [r[0], r[1], r[2]]));
+    const cards = await kpis(view.getByTestId('nightlies-kpis'));
+    expect(cards.map((card) => [card[1], card[3].toLowerCase()])).toEqual(strip.map((item) => [item[1], item[2].toLowerCase()]));
+    await expect(view.getByTestId('nightlies-note')).toHaveCount(0);
+    await page.getByRole('button', { name: 'About this view' }).click();
+    await expect(page.getByRole('dialog')).toContainText(note.split('. ').at(-2));
     await page.keyboard.press('Escape');
+
+    const table = view.getByTestId('nightlies-table');
+    const shown = (await cellTexts(table.locator('tbody tr'))).map((row) => row.map((cell) => cell.toLowerCase()));
+    expect(shown).toEqual(rows.map((row) => row.map((cell) => (cell === '-' ? '—' : cell.toLowerCase()))));
+
+    const chart = view.getByTestId('nightlies-chart');
+    await hoverBar(page, chart, ['Recurring failure']);
+    await chart.getByRole('button', { name: /^Inspect / }).click();
+    await expect(page.getByRole('menuitem')).toHaveCount(chartRows.length);
+    await page.getByRole('menuitem').filter({ hasText: chartRows[0][0] }).click();
+    await expect(page.getByRole('dialog')).toContainText(`AMD nightly ${chartRows[0][0]}`);
+    await closeSheets(page);
 
     await table.locator('tbody tr').first().locator('td').nth(4).getByRole('button').click();
     const sheet = page.getByRole('dialog');
-    await expect(sheet).toContainText(buildTitle);
-    await expect(sheet).toContainText('Recurring failures');
+    await expect(sheet).toContainText(`AMD nightly ${rows[0][0]}`);
+    await expect(sheet).toContainText('Recurring failures evidence');
   });
 
-  test('legacy CI Analytics links open the ported v2 views', async ({ page }) => {
+  test('old CI Analytics links open the routed views', async ({ page }) => {
     await page.goto('/?ops_analytics_view=nightlies#ci-analytics');
     await expect(page).toHaveURL(/#\/analytics\?view=nightlies$/);
     await expect(page.getByTestId('analytics-nightlies')).toBeVisible();

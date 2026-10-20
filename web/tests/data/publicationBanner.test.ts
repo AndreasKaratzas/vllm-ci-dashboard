@@ -18,7 +18,7 @@ afterEach(() => {
 })
 
 async function mountBanner() {
-  const { default: PublicationBanner } = await import('@/components/ops/PublicationBanner.vue')
+  const { default: PublicationBanner } = await import('@/components/layout/PublicationBanner.vue')
   const wrapper = mount(PublicationBanner)
   await elapse(2000, 8)
   return wrapper

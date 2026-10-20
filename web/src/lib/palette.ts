@@ -21,11 +21,47 @@ export function statusVar(status: Tone | StatusFill): PaletteColor {
   return token(`status-${status in TONE_FILL ? TONE_FILL[status as Tone] : status}`)
 }
 
+/** The same color at a lower strength, for a secondary state of one meaning (e.g. recurring vs new failures). */
+export function tint(color: PaletteColor, percent: number): PaletteColor {
+  return `color-mix(in oklch, ${color} ${percent}%, transparent)` as PaletteColor
+}
+
 export const SERIES = {
   primary: token('series-1'),
   secondary: token('series-2'),
   muted: token('series-muted'),
 } as const
+
+/** Background of a time span with no observations (a collection gap), behind the series. */
+export const CHART_GAP = { fill: 'color-mix(in oklch, var(--muted) 70%, transparent)' as PaletteColor, label: token('muted-foreground') } as const
+
+export const HEAT_LEVELS = 5
+
+/**
+ * The step (0 for none, 1..HEAT_LEVELS) of a count up to `max`: linear while every count can get its
+ * own step, then on a square-root scale so single failures stay visible next to a large maximum.
+ */
+export function heatLevel(value: number, max: number): number {
+  if (!(value > 0) || !(max > 0)) return 0
+  const share = Math.min(value, max) / max
+  return Math.min(HEAT_LEVELS, Math.max(1, Math.ceil(HEAT_LEVELS * (max <= HEAT_LEVELS ? share : Math.sqrt(share)))))
+}
+
+export function heatColor(level: number): PaletteColor {
+  return token(`heat-${Math.min(HEAT_LEVELS, Math.max(0, Math.round(level)))}`)
+}
+
+/** The whole-number counts each used step covers up to `max`, for the legend. */
+export function heatLegend(max: number): { level: number; from: number; to: number }[] {
+  const steps: { level: number; from: number; to: number }[] = []
+  for (let value = 1; value <= Math.floor(max); value++) {
+    const level = heatLevel(value, max)
+    const last = steps.at(-1)
+    if (last && last.level === level) last.to = value
+    else steps.push({ level, from: value, to: value })
+  }
+  return steps
+}
 
 export type HardwareFamily = 'MI250' | 'MI300' | 'MI325' | 'MI355'
 const HARDWARE_FAMILIES: readonly HardwareFamily[] = ['MI250', 'MI300', 'MI325', 'MI355']
@@ -55,7 +91,7 @@ export type TonePart = 'badge' | 'text' | 'icon' | 'fill' | 'stroke' | 'surface'
 // Literal class strings so Tailwind's scanner emits every one of them. Pass is
 // the quiet default (no tint); 'info' deliberately renders neutral.
 const QUIET: Record<TonePart, string> = {
-  badge: 'border-border bg-muted text-muted-foreground',
+  badge: 'border-border bg-muted text-foreground/80',
   text: 'text-muted-foreground',
   icon: 'text-muted-foreground',
   fill: 'bg-status-unknown',

@@ -6,7 +6,6 @@ import EmptyState from '@/components/feedback/EmptyState.vue'
 import HwDot from '@/components/feedback/HwDot.vue'
 import InfoPopover from '@/components/feedback/InfoPopover.vue'
 import StatusBadge from '@/components/feedback/StatusBadge.vue'
-import StatusDot from '@/components/feedback/StatusDot.vue'
 import type { Tone } from '@/lib/tone'
 import { installLayoutStubs, settle, text } from './support'
 
@@ -40,14 +39,6 @@ describe('StatusBadge', () => {
     const wrapper = mount(StatusBadge, { props: { tone: 'info', label: 'New' } })
     expect(wrapper.classes()).toContain('bg-muted')
     expect(wrapper.html()).not.toMatch(/(bg|text|border)-info/)
-  })
-})
-
-describe('StatusDot', () => {
-  it('pairs a status dot with its label', () => {
-    const wrapper = mount(StatusDot, { props: { tone: 'soft', label: 'Flaky' } })
-    expect(wrapper.find('[aria-hidden=true]').classes()).toContain('bg-status-soft')
-    expect(text(wrapper.element)).toBe('Flaky')
   })
 })
 

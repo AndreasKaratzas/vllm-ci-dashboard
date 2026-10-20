@@ -24,6 +24,12 @@ watch(
     leaving.value = [...leaving.value, ...popped].filter((entry) => !live.has(entry.key))
   },
 )
+const WIDTHS = ['md', 'lg', 'xl'] as const
+// The widest sheet at or below each depth, so a drill-down never shows a wider panel behind it.
+function floorWidth(depth: number): Detail['width'] {
+  const widths = props.sheets.stack.value.slice(0, depth).map((detail) => WIDTHS.indexOf(detail.width ?? 'lg'))
+  return widths.length ? WIDTHS[Math.max(...widths)] : undefined
+}
 const entries = computed<Entry[]>(() =>
   [...props.sheets.stack.value.map((detail, depth) => ({ key: keyOf(detail, depth), detail, depth, open: true })), ...leaving.value].sort(
     (a, b) => a.depth - b.depth,
@@ -40,9 +46,12 @@ function forget(key: string) {
     :key="entry.key"
     :detail="entry.detail"
     :depth="entry.depth"
+    :min-width="floorWidth(entry.depth)"
     :open="entry.open"
     @update:open="(open: boolean) => !open && entry.open && sheets.closeFrom(entry.depth)"
     @drill="sheets.push"
     @closed="forget(entry.key)"
-  />
+  >
+    <slot :detail="entry.detail" :depth="entry.depth" />
+  </EvidenceSheet>
 </template>

@@ -31,13 +31,20 @@ const summary = computed(() => `${props.label}: ${props.segments.map((s) => `${s
 
 <template>
   <div class="flex min-w-0 flex-col gap-3" data-slot="proportion-bar">
-    <div class="flex h-2.5 w-full gap-0.5 overflow-hidden rounded-full bg-muted" role="img" :aria-label="summary">
-      <span
+    <div class="flex h-2.5 w-full gap-0.5 rounded-full bg-muted" :role="onSelect ? 'group' : 'img'" :aria-label="summary">
+      <component
+        :is="onSelect ? 'button' : 'span'"
         v-for="segment in filled"
         :key="segment.key"
-        class="h-full first:rounded-l-full last:rounded-r-full motion-safe:transition-[width] motion-safe:duration-500"
+        :type="onSelect ? 'button' : undefined"
+        :class="cn(
+          'relative h-full first:rounded-l-full last:rounded-r-full motion-safe:transition-[width,opacity] motion-safe:duration-500',
+          onSelect && 'outline-none before:absolute before:-inset-y-2 before:inset-x-0 hover:opacity-80 focus-visible:ring-3 focus-visible:ring-ring/50',
+        )"
         :style="{ width: `${(segment.count / total) * 100}%`, backgroundColor: segment.color }"
         :title="`${segment.label}: ${valueFormat(segment.count)}`"
+        :aria-label="onSelect ? `${segment.label}: ${valueFormat(segment.count)}` : undefined"
+        @click="onSelect?.(segment)"
       />
     </div>
     <ul v-if="legend" class="flex flex-wrap gap-x-1 gap-y-1 text-sm">

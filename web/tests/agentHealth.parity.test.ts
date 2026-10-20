@@ -42,8 +42,6 @@ interface Selection {
   nightly?: string
   signal?: string
   search?: string
-  /** Header labels clicked in order (classic onSort). */
-  sorts?: string[]
   /** Focus the n-th table node (classic focusNode) and expand the first event card. */
   focus?: number
 }
@@ -76,6 +74,9 @@ async function settle() {
   await new Promise((resolve) => setTimeout(resolve, 230))
 }
 
+/** Table rows in one canonical order: the page sorts its own table, so only the row contents are compared. */
+const byContent = (rows: (string | null)[][]) => rows.slice().sort((a, b) => (a.join('|') < b.join('|') ? -1 : a.join('|') > b.join('|') ? 1 : 0))
+
 function scrape(host: HTMLElement) {
   const tableRows = [...host.querySelectorAll('.ops-agent-table tbody tr')]
   const result = {
@@ -85,11 +86,8 @@ function scrape(host: HTMLElement) {
       (k) => `${text(k.querySelector('.ops-stat-label'))}|${text(k.querySelector('.ops-stat-value'))}|${text(k.querySelector('.ops-stat-meta'))}|${k.className}`,
     ),
     panelMeta: text(host.querySelector('.ops-agent-table')?.closest('.ops-panel')?.querySelector('.ops-panel-meta')),
-    headers: [...host.querySelectorAll('.ops-agent-table thead th')].map((th) => th.textContent),
-    rows: tableRows.map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent)),
+    rows: byContent(tableRows.map((tr) => [...tr.querySelectorAll('td')].map((td) => td.textContent))),
     emptyTable: text(host.querySelector('.ops-panel .ops-empty')),
-    nodeOptions: [...host.querySelectorAll('.ops-agent-toolbar select option')].map((o) => `${(o as HTMLOptionElement).value}|${o.textContent}`),
-    selectedNode: (host.querySelector('.ops-agent-toolbar select') as HTMLSelectElement).value,
     caption: text(host.querySelector('.ops-agent-signal-caption')),
     eventsTitle: text(host.querySelector('.ops-cluster-section .ops-section-title')),
     eventsDescription: text(host.querySelector('.ops-cluster-section .ops-section-description')),
@@ -115,7 +113,7 @@ function rgb(hex: string) {
   return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`
 }
 
-function v2Scrape(health: Rec, sel: Selection, state: { sort: v2.AgentSort; sortExplicit: boolean; eventNodeFilter: string; selectedEventKey: string; selectedNode?: string }) {
+function v2Scrape(health: Rec, sel: Selection, state: { eventNodeFilter: string; selectedEventKey: string }) {
   if (!v2.agentHealthScopeValid(health)) return { unavailable: v2.AGENT_UNAVAILABLE_TEXT }
   const model = v2.agentHealthModel(health)
   const options = v2.agentOptions(
@@ -141,22 +139,8 @@ function v2Scrape(health: Rec, sel: Selection, state: { sort: v2.AgentSort; sort
   )
   const empty = v2.agentEmptyText(model, view)
   if (empty) notes.push('ops-evidence-note soft|' + empty)
-  const sort = v2.effectiveAgentSort(state.sort, state.sortExplicit, options.signal)
-  const rows = v2.sortedAgents(view.agents, sort)
+  const rows = view.agents
   const showSignal = options.signal !== 'all'
-  const arrow = (key: string) => (sort.key === key ? (sort.dir === 'asc' ? ' ▲' : ' ▼') : '')
-  const headers = [
-    'Physical node' + arrow('node'),
-    'GPU' + arrow('hardware'),
-    'Runs' + arrow('runs'),
-    'Fail %' + arrow('incident_rate'),
-    'Test group failures' + arrow('failures'),
-    ...(showSignal ? [v2.signalColumnLabel(options.signal) + arrow('infra_suspect')] : []),
-    'Groups' + arrow('distinct_groups'),
-    'Co-fail' + arrow('cofailure_event_count'),
-    'Evidence',
-  ]
-  const selectedNode = v2.resolveSelectedNode(view, state.selectedNode ?? options.selectedNode)
   const section = v2.eventsSection(view, options, state.eventNodeFilter)
   return {
     notes,
@@ -165,8 +149,7 @@ function v2Scrape(health: Rec, sel: Selection, state: { sort: v2.AgentSort; sort
       (k) => `${k.label}|${k.value}|${k.meta}|ops-status-item ops-linked-metric ${k.tone}`,
     ),
     panelMeta: v2.agentTableDescription(model, view, options),
-    headers: rows.length ? headers : [],
-    rows: rows.map((row) => {
+    rows: byContent(rows.map((row) => {
       const cells = v2.agentCells(model, view, row)
       return [
         row.node || '-',
@@ -179,10 +162,8 @@ function v2Scrape(health: Rec, sel: Selection, state: { sort: v2.AgentSort; sort
         cells.cofail,
         row._runs.length ? 'runs ↗' : 'not retained',
       ]
-    }),
+    })),
     emptyTable: rows.length ? null : 'Per-node AMD reliability in ' + options.windowId + '. No matching observations.',
-    nodeOptions: v2.timelineAgents(view).map((a) => `${a.node_raw}|${v2.nodeOptionLabel(a, options.signal)}`),
-    selectedNode,
     caption: v2.signalCaption(options.signal),
     eventsTitle: section.title,
     eventsDescription: section.description,
@@ -205,7 +186,7 @@ function v2Scrape(health: Rec, sel: Selection, state: { sort: v2.AgentSort; sort
 }
 
 function initialState() {
-  return { sort: { key: 'infra_suspect', dir: 'desc' as 'asc' | 'desc' }, sortExplicit: false, eventNodeFilter: '', selectedEventKey: '', selectedNode: undefined as string | undefined }
+  return { eventNodeFilter: '', selectedEventKey: '' }
 }
 
 async function expectSame(health: Rec, sel: Selection) {
@@ -220,16 +201,6 @@ async function expectSame(health: Rec, sel: Selection) {
   }
   const v2State = initialState()
   parity('view', v2Scrape(health, sel, v2State), scrape(host))
-  for (const label of sel.sorts ?? []) {
-    const button = host.querySelector(`.ops-agent-table button[aria-label="Sort by ${label}"]`) as HTMLButtonElement | null
-    if (!button) continue
-    button.click()
-    const key = { 'Physical node': 'node', GPU: 'hardware', Runs: 'runs', 'Fail %': 'incident_rate', 'Test group failures': 'failures', 'Infra-suspect failures': 'infra_suspect', 'Hard failures': 'infra_suspect', Groups: 'distinct_groups', 'Co-fail': 'cofailure_event_count' }[label]!
-    const options = v2.agentOptions(v2.agentHealthModel(health), { signal: sel.signal })
-    v2State.sort = v2.nextAgentSort(v2.effectiveAgentSort(v2State.sort, v2State.sortExplicit, options.signal), key)
-    v2State.sortExplicit = true
-    parity('sortedView', v2Scrape(health, sel, v2State), scrape(host))
-  }
   if (sel.focus !== undefined) {
     const buttons = host.querySelectorAll('.ops-agent-table tbody tr td:first-child button')
     const button = buttons[sel.focus % Math.max(1, buttons.length)] as HTMLButtonElement | undefined
@@ -239,16 +210,14 @@ async function expectSame(health: Rec, sel: Selection) {
       const model = v2.agentHealthModel(health)
       const options = v2.agentOptions(model, { ...sel }, (sel.search ?? '').trim())
       const view = v2.computeAgentView(model, options)
-      const agent = v2.sortedAgents(view.agents, v2.effectiveAgentSort(v2State.sort, v2State.sortExplicit, options.signal)).find((a) => (a.node || '-') === label)!
+      const agent = view.agents.find((a) => (a.node || '-') === label)!
       v2State.eventNodeFilter = agent.node_raw
-      v2State.selectedNode = agent.node_raw
       parity('focusedView', v2Scrape(health, sel, v2State), scrape(host))
       const card = host.querySelector('.ops-cofailure-card .ops-cofailure-meta') as HTMLElement | null
       if (card) {
         card.click()
         const event = v2.eventsSection(view, options, v2State.eventNodeFilter).events[0]!
         v2State.selectedEventKey = v2.eventKey(event)
-        v2State.selectedNode = event.node_raw
         parity('selectedEventView', v2Scrape(health, sel, v2State), scrape(host))
       }
       // The node evidence drawer (Evidence column) lists the retained runs newest first.
@@ -279,13 +248,13 @@ async function expectSame(health: Rec, sel: Selection) {
 
 const SELECTIONS: Selection[] = [
   {},
-  { signal: 'hard', sorts: ['Physical node', 'Physical node', 'Runs'] },
-  { signal: 'all', sorts: ['Fail %', 'GPU'] },
+  { signal: 'hard' },
+  { signal: 'all' },
   { window: '1d', focus: 0 },
   { window: '3d', cofail: '30', focus: 1 },
   { window: '14d', nightly: '1', exclCancel: '0', focus: 2 },
   { window: '30d', gpu: 'MI355', signal: 'all', cofail: '1440', focus: 0 },
-  { window: '60d', gpu: 'MI300', sorts: ['Co-fail', 'Groups', 'Test group failures'] },
+  { window: '60d', gpu: 'MI300' },
   { gpu: 'MI999', node: 'crsuse2-m2m-160', cofail: '999', signal: 'bogus', window: '2d' },
   { search: 'crsuse2', focus: 0 },
   { search: 'mi300', signal: 'hard' },
@@ -293,7 +262,7 @@ const SELECTIONS: Selection[] = [
 ]
 
 describe('CI agent health domain matches the classic renderer', () => {
-  it('renders the same notes, KPIs, table, timeline nodes, and events on the real snapshot', async () => {
+  it('renders the same notes, KPIs, table rows, and events on the real snapshot', async () => {
     let rows = 0
     let events = 0
     for (const sel of SELECTIONS) {
@@ -441,7 +410,6 @@ describe('CI agent health domain matches the classic renderer', () => {
         exclCancel: pick(['0', '1']),
         cofail: pick(['30', '60', '180', '1440']),
         gpu: pick(['all', 'MI300', 'MI355', 'MI250']),
-        sorts: rand() < 0.5 ? [pick(['Physical node', 'Runs', 'Fail %', 'Groups'])] : [],
         search: rand() < 0.3 ? pick(['crsuse2', 'mi300', 'MI355', 'gpu']) : undefined,
         focus: rand() < 0.5 ? Math.floor(rand() * 4) : undefined,
       }
@@ -512,7 +480,7 @@ describe('CI agent health domain matches the classic renderer', () => {
     rich.failure_accounting_totals = [{ d: '2026-10-07', h: 'MI300', s: 'hard', i: 1, ng: 1, bc: 0, c: 1 }]
     rich.operations_publication_retention.aggregate_accounting_complete = true
     rich.node_days[3].a = [2, 0, 0, 0]
-    await expectSame(rich, { sorts: ['Physical node', 'Physical node', 'GPU'] })
+    await expectSame(rich, {})
     const cancelled = await expectSame(rich, { exclCancel: '0' })
     const excluded = await expectSame(rich, {})
     expect(cancelled!.rows).not.toEqual(excluded!.rows)
@@ -547,14 +515,8 @@ describe('CI agent health helpers on hand-written inputs', () => {
     expect(events[0]).toMatchObject({ pattern: 'concurrent', span_mins: 15, run_count: 2, group_count: 2, hard_failed: 1, soft_failed: 1, cross_pipeline: false })
   })
 
-  it('colors states, labels nodes, and sorts by signal', () => {
+  it('colors states and labels nodes', () => {
     expect(['passed', 'soft', 'hard', 'canceled', ''].map((s) => v2.agentStateColor(s))).toEqual(['#35bb78', '#e3a63a', '#e06464', '#8a93a0', '#66717d'])
     expect([v2.agentNodeLabel('n1', 'MI300'), v2.agentNodeLabel('n1', '')]).toEqual(['n1 (MI300)', 'n1'])
-    expect(v2.effectiveAgentSort({ key: 'node', dir: 'asc' }, false, 'infra')).toEqual({ key: 'infra_suspect', dir: 'desc' })
-    expect(v2.effectiveAgentSort({ key: 'infra_suspect', dir: 'asc' }, true, 'all')).toEqual({ key: 'failures', dir: 'asc' })
-    expect([v2.nextAgentSort({ key: 'node', dir: 'asc' }, 'node'), v2.nextAgentSort({ key: 'node', dir: 'asc' }, 'failures')]).toEqual([
-      { key: 'node', dir: 'desc' },
-      { key: 'failures', dir: 'desc' },
-    ])
   })
 })

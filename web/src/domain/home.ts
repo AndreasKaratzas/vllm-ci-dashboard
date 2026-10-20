@@ -1,4 +1,4 @@
-import type { Rec } from './format'
+import { toneForState, type Rec, type Tone } from './format'
 import { nightlyFailureCount } from './nightly'
 
 export interface NightlyCounts {
@@ -47,4 +47,39 @@ export function passRateTrend(builds: Rec[]): { latest: NightlyCounts; deltaPoin
   if (!latest || Number(builds[0]?.number) !== latest.number) return null
   const previous = series.at(-2)
   return { latest, deltaPoints: previous ? (latest.passRate - previous.passRate) * 100 : null }
+}
+
+/** Tone of a nightly's outcome: hard or soft failures, a pass, or no test signal. */
+export function nightlyResultTone(build: Rec | null | undefined): Tone {
+  const counts = nightlyCounts(build)
+  if (!counts) return Number(build?.test_jobs_blocked || 0) ? 'hard' : 'neutral'
+  return counts.hard ? 'hard' : counts.soft ? 'soft' : 'pass'
+}
+
+/** Why a nightly has no pass rate, or null when it has one. */
+export function noSignalLabel(build: Rec | null | undefined): string | null {
+  if (nightlyCounts(build)) return null
+  return Number(build?.test_jobs_blocked || 0) ? 'Infra blocked' : 'No test signal'
+}
+
+const AXIS_STEPS = [1, 2, 5, 10, 20, 25]
+
+/**
+ * A pass-rate axis up to 100 that puts the lowest rate mid-plot, so small changes stay visible,
+ * with at most five round ticks and the bottom of the domain on a tick.
+ */
+export function passRateAxis(series: NightlyCounts[]): { domain: [number, number]; ticks: number[] } {
+  const lowest = series.length ? Math.min(...series.map((row) => row.passRate * 100)) : 0
+  const floor = series.length ? Math.max(0, Math.floor(lowest - Math.max(2, 100 - lowest))) : 0
+  const step = AXIS_STEPS.find((candidate) => (100 - floor) / candidate <= 4) ?? 25
+  const start = Math.floor(floor / step) * step
+  const ticks: number[] = []
+  for (let value = start; value <= 100; value += step) ticks.push(value)
+  return { domain: [start, 100], ticks }
+}
+
+/** The most severe tone across attention signals; none active is a pass. */
+export function attentionTone(items: Rec[]): Tone {
+  const tones = items.map((item) => toneForState(item.severity))
+  return tones.includes('hard') ? 'hard' : tones.includes('soft') ? 'soft' : 'pass'
 }

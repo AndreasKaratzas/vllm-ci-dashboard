@@ -12,7 +12,6 @@ import Cell from './Cell.vue'
 import type { CellSpec, ColumnSpec, FilterSpec } from './columns'
 
 const ALL = '__all__'
-
 const props = withDefaults(
   defineProps<{
     columns: ColumnSpec<T>[]
@@ -24,20 +23,26 @@ const props = withDefaults(
     searchPlaceholder?: string
     emptyText?: string
     label?: string
+    /** Show the column visibility menu; defaults to on whenever a column is hideable. */
+    columnMenu?: boolean
+    /** Count rows as "shown of total" so filtered views keep the population visible. */
+    showTotal?: boolean
+    /** The ordering before any header is clicked. */
+    defaultSort?: { id: string; desc: boolean }
     onRowClick?: (row: T) => void
   }>(),
-  { filters: () => [], pageSize: 10, searchable: true, searchPlaceholder: 'Filter rows…', emptyText: 'No rows.' },
+  { filters: () => [], pageSize: 10, searchable: true, columnMenu: true, searchPlaceholder: 'Filter rows…', emptyText: 'No rows.' },
 )
 const emit = defineEmits<{ drill: [Detail] }>()
 
 const query = ref('')
-const sort = ref<{ id: string; desc: boolean } | null>(null)
+const sort = ref<{ id: string; desc: boolean } | null>(props.defaultSort ? { ...props.defaultSort } : null)
 const hidden = ref(new Set<string>())
 const page = ref(0)
 const filterValues = reactive<Record<string, string>>(Object.fromEntries(props.filters.map((f) => [f.id, f.initial ?? ALL])))
 
 const visibleColumns = computed(() => props.columns.filter((c) => !hidden.value.has(c.id)))
-const hideable = computed(() => props.columns.filter((c, i) => (c.hideable ?? i > 0)))
+const hideable = computed(() => (props.columnMenu ? props.columns.filter((c, i) => (c.hideable ?? i > 0)) : []))
 
 const filtered = computed(() => {
   const needle = query.value.trim().toLowerCase()
@@ -58,6 +63,7 @@ const sorted = computed(() => {
   if (!active || !column) return filtered.value
   const direction = active.desc ? -1 : 1
   return [...filtered.value].sort((a, b) => {
+    if (column.compare) return column.compare(a, b) * direction
     const x = column.value(a)
     const y = column.value(b)
     const order = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), 'en', { numeric: true })
@@ -97,7 +103,7 @@ function activate(row: T, event: Event) {
 <template>
   <div class="flex min-w-0 flex-col gap-3" data-slot="data-table">
     <div v-if="searchable || filters.length || hideable.length || $slots.toolbar" class="flex flex-wrap items-center gap-2">
-      <div v-if="searchable" class="relative w-full sm:max-w-xs">
+      <div v-if="searchable" class="relative min-w-40 flex-1 sm:max-w-xs">
         <Search class="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
         <Input v-model="query" :placeholder="searchPlaceholder" :aria-label="searchPlaceholder" class="h-8 pl-8" />
       </div>
@@ -106,14 +112,14 @@ function activate(row: T, event: Event) {
           <SelectValue :placeholder="filter.label" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem :value="ALL">All {{ filter.label.toLowerCase() }}</SelectItem>
+          <SelectItem :value="ALL">{{ filter.allLabel ?? `All ${filter.label.toLowerCase()}` }}</SelectItem>
           <SelectItem v-for="option in filter.options" :key="option.value" :value="option.value">{{ option.label }}</SelectItem>
         </SelectContent>
       </Select>
       <slot name="toolbar" />
       <DropdownMenu v-if="hideable.length">
         <DropdownMenuTrigger as-child>
-          <Button variant="outline" size="sm" class="ml-auto"><Columns3 /> <span class="hidden lg:inline">Columns</span></Button>
+          <Button variant="outline" size="sm" class="ml-auto"><Columns3 /> <span class="sr-only lg:not-sr-only">Columns</span></Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           <DropdownMenuCheckboxItem
@@ -137,7 +143,7 @@ function activate(row: T, event: Event) {
               v-for="column in visibleColumns"
               :key="column.id"
               :aria-sort="column.sortable === false ? undefined : ariaSort(column.id)"
-              :class="column.numeric && 'text-right'"
+              :class="cn(column.numeric && 'text-right', column.class)"
             >
               <button
                 v-if="column.sortable !== false"
@@ -166,11 +172,11 @@ function activate(row: T, event: Event) {
             @keydown.enter="(e: KeyboardEvent) => activate(row, e)"
             @keydown.space="(e: KeyboardEvent) => activate(row, e)"
           >
-            <TableCell v-for="column in visibleColumns" :key="column.id" :class="cn('whitespace-normal', column.numeric && 'text-right tabular-nums')">
+            <TableCell v-for="column in visibleColumns" :key="column.id" :class="cn('whitespace-normal', column.numeric && 'text-right tabular-nums', column.class)">
               <Cell :cell="cellOf(column, row)" @drill="(d) => emit('drill', d)" />
             </TableCell>
             <TableCell v-if="onRowClick" class="w-8 pr-3 text-muted-foreground">
-              <ChevronRight class="size-4 opacity-0 transition-[opacity,transform] group-hover/row:translate-x-0.5 group-hover/row:opacity-100 group-focus-visible/row:opacity-100" aria-hidden="true" />
+              <ChevronRight class="size-4 opacity-50 transition-[opacity,transform] group-hover/row:translate-x-0.5 group-hover/row:text-foreground group-hover/row:opacity-100 group-focus-visible/row:opacity-100" aria-hidden="true" />
             </TableCell>
           </TableRow>
           <TableRow v-if="!pageRows.length" class="hover:bg-transparent">
@@ -181,7 +187,9 @@ function activate(row: T, event: Event) {
     </div>
 
     <div v-if="pageSize" class="flex items-center justify-between gap-2 text-sm text-muted-foreground">
-      <span class="tabular-nums">{{ sorted.length.toLocaleString('en-US') }} rows</span>
+      <span class="tabular-nums" data-slot="row-count">
+        {{ sorted.length.toLocaleString('en-US') }}<template v-if="showTotal"> of {{ rows.length.toLocaleString('en-US') }}</template> {{ !showTotal && sorted.length === 1 ? 'row' : 'rows' }}
+      </span>
       <div v-if="pageCount > 1" class="flex items-center gap-2">
         <span class="tabular-nums">Page {{ page + 1 }} of {{ pageCount }}</span>
         <Button variant="outline" size="icon-sm" :disabled="page === 0" aria-label="Previous page" @click="page--"><ChevronLeft /></Button>

@@ -5,9 +5,11 @@ import AreaChart from '@/components/charts/AreaChart.vue'
 import BarChart from '@/components/charts/BarChart.vue'
 import Donut from '@/components/charts/Donut.vue'
 import LineChart from '@/components/charts/LineChart.vue'
+import Heatmap from '@/components/charts/Heatmap.vue'
 import ProportionBar from '@/components/charts/ProportionBar.vue'
 import Timeline from '@/components/charts/Timeline.vue'
-import { distinctTicks, shortDay, useSeriesInteraction } from '@/components/charts/chart'
+import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
+import { barValueTicks, distinctTicks, niceTicks, shortDay, timeTicks, useSeriesInteraction } from '@/components/charts/chart'
 import { useDragRange } from '@/components/charts/dragRange'
 import { escapeHtml, tooltipHtml } from '@/components/charts/tooltip'
 import { SERIES, statusVar } from '@/lib/palette'
@@ -17,7 +19,7 @@ import { installLayoutStubs, settle, text } from './support'
 vi.mock('@unovis/vue', async () => {
   const { defineComponent, h } = await import('vue')
   const stub = (name: string) => defineComponent({ name, inheritAttrs: false, setup: (_, { slots }) => () => h('div', { 'data-vis': name }, slots.default?.()) })
-  const names = ['VisXYContainer', 'VisSingleContainer', 'VisArea', 'VisLine', 'VisScatter', 'VisAxis', 'VisStackedBar', 'VisGroupedBar', 'VisDonut', 'VisTooltip', 'VisCrosshair']
+  const names = ['VisXYContainer', 'VisSingleContainer', 'VisArea', 'VisLine', 'VisPlotband', 'VisScatter', 'VisAxis', 'VisStackedBar', 'VisGroupedBar', 'VisDonut', 'VisTooltip', 'VisCrosshair']
   return Object.fromEntries(names.map((name) => [name, stub(name)]))
 })
 
@@ -74,6 +76,38 @@ describe('distinctTicks', () => {
     expect(distinctTicks([start, start + 6 * 3_600_000], 5, shortDay)).toEqual([start])
     const days = distinctTicks([Date.UTC(2026, 8, 20), Date.UTC(2026, 8, 24)], 5, shortDay)
     expect(days.map(shortDay)).toEqual(['Sep 20', 'Sep 21', 'Sep 22', 'Sep 23', 'Sep 24'])
+  })
+})
+
+describe('timeTicks', () => {
+  const at = (iso: string) => Date.parse(iso)
+  it('ticks on round UTC times and names the day at midnight', () => {
+    const { values, label } = timeTicks([at('2026-10-16T05:29:00Z'), at('2026-10-19T05:09:00Z')], 8)
+    expect(values.map(label)).toEqual(['12:00', 'Oct 17', '12:00', 'Oct 18', '12:00', 'Oct 19'])
+    expect(new Set(values.slice(1).map((v, i) => v - values[i]!))).toEqual(new Set([12 * 3_600_000]))
+  })
+
+  it('ticks on round minutes when zoomed into one event', () => {
+    const { values, label } = timeTicks([at('2026-10-14T08:14:00Z'), at('2026-10-14T08:52:00Z')], 6)
+    expect(values.map(label)).toEqual(['08:20', '08:30', '08:40', '08:50'])
+  })
+
+  it('switches to whole days on long windows', () => {
+    const { values, label } = timeTicks([at('2026-09-20T07:00:00Z'), at('2026-10-19T07:00:00Z')], 6)
+    expect(values.map(label)).toEqual(['Sep 24', 'Oct 1', 'Oct 8', 'Oct 15'])
+  })
+})
+
+describe('crosshair wiring', () => {
+  // A hyphenated `on-` binding reaches Unovis as an unknown key and is never called.
+  it('hands the crosshair move handler to Unovis under its config name', async () => {
+    for (const Chart of [AreaChart, LineChart]) {
+      const wrapper = mount(Chart as typeof AreaChart<Row>, { props: { rows, x: (r: Row) => r.day, series: rate, label: 'Rate', onSelect: () => {} } })
+      const crosshair = wrapper.findComponent({ name: 'VisCrosshair' })
+      expect(typeof crosshair.vm.$attrs.onCrosshairMove).toBe('function')
+      expect(crosshair.vm.$attrs['on-crosshair-move']).toBeUndefined()
+      wrapper.unmount()
+    }
   })
 })
 
@@ -163,6 +197,33 @@ describe('BarChart', () => {
   })
 })
 
+describe('NightlyMovementChart', () => {
+  const nightly = (number: number, counts: { new?: number; recurring?: number; fixed?: number }) => ({
+    number,
+    created_at: `2026-10-0${number % 10}T06:00:00Z`,
+    failure_movement: {
+      policy_id: 'observed-failure-movement-v1',
+      available: true,
+      new: Array.from({ length: counts.new ?? 0 }, () => ({})),
+      recurring: Array.from({ length: counts.recurring ?? 0 }, () => ({})),
+      fixed: Array.from({ length: counts.fixed ?? 0 }, () => ({})),
+    },
+  })
+
+  it('draws and lists only the movements that happened', async () => {
+    const wrapper = mount(NightlyMovementChart, { props: { builds: [nightly(2, { new: 2 }), nightly(1, { fixed: 1 })] }, attachTo: document.body })
+    await settle()
+    expect(text(wrapper.find('[data-slot=chart-legend]').element)).toBe('New failure Fixed')
+    wrapper.unmount()
+  })
+
+  it('shows an empty state when no retained nightly moved', () => {
+    const wrapper = mount(NightlyMovementChart, { props: { builds: [nightly(2, {}), nightly(1, {})], emptyDescription: 'Latest signal #2' } })
+    expect(wrapper.find('[data-slot=bar-chart]').exists()).toBe(false)
+    expect(text(wrapper.find('[data-slot=empty-state]').element)).toBe('No failure movement in the retained nightlies Latest signal #2')
+  })
+})
+
 describe('Donut', () => {
   const slices = [
     { key: 'mi355', label: 'MI355', value: 3, color: SERIES.primary },
@@ -198,13 +259,18 @@ describe('ProportionBar', () => {
     expect(wrapper.find('button').exists()).toBe(false)
   })
 
-  it('turns legend entries into buttons when selectable and mutes zero counts', async () => {
+  it('turns segments and legend entries into buttons when selectable and mutes zero counts', async () => {
     const picked: string[] = []
     const wrapper = mount(ProportionBar, { props: { segments, label: 'Groups', max: 16, onSelect: (s: { key: string }) => picked.push(s.key) } })
-    expect(wrapper.find('[role=img] span').attributes('style')).toContain('width: 37.5%')
-    const buttons = wrapper.findAll('button')
+    const bar = wrapper.find('[role=group]')
+    expect(bar.attributes('aria-label')).toBe('Groups: Passing 6, Hard 2, Soft 0')
+    const parts = bar.findAll('button')
+    expect(parts.map((p) => p.attributes('aria-label'))).toEqual(['Passing: 6', 'Hard: 2'])
+    expect(parts[0]!.attributes('style')).toContain('width: 37.5%')
+    await parts[0]!.trigger('click')
+    const buttons = wrapper.findAll('li button')
     await buttons[1]!.trigger('click')
-    expect(picked).toEqual(['hard'])
+    expect(picked).toEqual(['pass', 'hard'])
     expect(buttons[2]!.find('.tabular-nums').classes()).toContain('text-muted-foreground')
   })
 })
@@ -278,5 +344,138 @@ describe('Timeline', () => {
     const wrapper = mount(Timeline, { props: { segments: [], label: 'Failing runs' }, slots: { empty: '<p>No runs</p>' } })
     expect(wrapper.text()).toBe('No runs')
     expect(wrapper.find('[data-testid=timeline]').exists()).toBe(false)
+  })
+})
+
+describe('barValueTicks', () => {
+  const MOVEMENT = [
+    { key: 'new', label: 'New', color: statusVar('hard') },
+    { key: 'fixed', label: 'Fixed', color: statusVar('pass') },
+  ]
+
+  it('shares one scale around zero when diverging bars sit on both sides', () => {
+    expect(barValueTicks([{ new: 12, fixed: 3 }], MOVEMENT, { diverging: ['fixed'] })).toEqual([-20, -10, 0, 10, 20])
+  })
+
+  it('keeps a one-sided diverging chart on a one-sided axis', () => {
+    expect(barValueTicks([{ new: 12, fixed: 0 }], MOVEMENT, { diverging: ['fixed'] })).toEqual([0, 5, 10, 15])
+    expect(barValueTicks([{ new: 0, fixed: 7 }], MOVEMENT, { diverging: ['fixed'] })).toEqual([-8, -6, -4, -2, 0])
+  })
+
+  it('sums stacks, takes the longest bar when grouped, and halves the ticks when compact', () => {
+    const rows = [{ new: 6, fixed: 5 }]
+    const series = MOVEMENT.map((s) => ({ ...s }))
+    expect(barValueTicks(rows, series)).toEqual([0, 5, 10, 15])
+    expect(barValueTicks(rows, series, { stacked: false })).toEqual([0, 2, 4, 6])
+    expect(barValueTicks([{ new: 12, fixed: 3 }], MOVEMENT, { diverging: ['fixed'], compact: true })).toEqual([-20, 0, 20])
+  })
+})
+
+describe('niceTicks', () => {
+  it('ends on a round tick at or beyond the largest value', () => {
+    expect(niceTicks(0, 188, 4)).toEqual([0, 50, 100, 150, 200])
+    expect(niceTicks(0, 14, 4)).toEqual([0, 5, 10, 15])
+    expect(niceTicks(0, 150, 4)).toEqual([0, 50, 100, 150])
+    expect(niceTicks(-7, 12, 4)).toEqual([-10, -5, 0, 5, 10, 15])
+  })
+
+  it('never steps finer than the minimum step, and spans an empty range', () => {
+    expect(niceTicks(0, 2, 4, 1)).toEqual([0, 1, 2])
+    expect(niceTicks(0, 1, 4)).toEqual([0, 0.25, 0.5, 0.75, 1])
+    expect(niceTicks(0, 0, 4, 1)).toEqual([0, 1])
+  })
+})
+
+describe('BarChart interaction', () => {
+  it('gives clickable bars a pointer and keeps a legend when one series encodes a state', () => {
+    const clickable = mount(BarChart<Row>, {
+      props: { rows, category: (r: Row) => shortDay(r.day), series: [failures[0]!], label: 'Failures', legend: true, onSelect: () => {} },
+    })
+    const plot = clickable.find('[role=img]')
+    expect(plot.attributes('data-clickable')).toBe('')
+    expect(plot.classes()).toContain('[--vis-stacked-bar-cursor:pointer]')
+    expect(clickable.find('[data-slot=chart-legend]').text()).toContain('Hard')
+    const still = mount(BarChart<Row>, { props: { rows, category: (r: Row) => shortDay(r.day), series: [failures[0]!], label: 'Failures' } })
+    expect(still.find('[role=img]').attributes('data-clickable')).toBeUndefined()
+    expect(still.find('[data-slot=chart-legend]').exists()).toBe(false)
+  })
+})
+
+describe('Heatmap', () => {
+  const columns = ['2026-10-10', '2026-10-11', '2026-10-12'].map((day, i) => ({ id: day, label: String(10 + i), title: `Oct ${10 + i}` }))
+  const row = (id: string, values: number[], marker = -1) => ({
+    id,
+    label: id,
+    dot: 'var(--hw-mi355)' as never,
+    cells: values.map((value, i) => ({ value, marker: i === marker })),
+    total: values.reduce((a, b) => a + b, 0),
+  })
+  const rows = [row('node-a', [0, 4, 1], 1), row('node-b', [2, 0, 0])]
+  const summary = { id: 'fleet', label: 'All nodes', cells: [2, 4, 1].map((value) => ({ value })), total: 7 }
+
+  it('colors cells by heat step, with the summary on its own scale', () => {
+    const wrapper = mount(Heatmap, { props: { columns, rows, summary, label: 'Failures' } })
+    const color = (el: { attributes: (name: string) => string | undefined }) => /background-color: ([^;]+)/.exec(el.attributes('style') ?? '')?.[1]
+    const cells = wrapper.findAll('[data-slot=heatmap-cell]')
+    expect(cells).toHaveLength(9)
+    // Summary row (max 4), then node rows (max 4).
+    expect(cells.map(color)).toEqual([3, 5, 2, 0, 5, 2, 3, 0, 0].map((level) => `var(--heat-${level})`))
+    expect(wrapper.findAll('[data-slot=heatmap-marker]')).toHaveLength(1)
+    expect(text(wrapper.find('[data-slot=heatmap-legend]').element)).toContain('max 4 per cell; All nodes on its own scale, max 4')
+    // Without handlers nothing is a button.
+    expect(wrapper.find('button').exists()).toBe(false)
+  })
+
+  it('makes non-empty cells, row labels and day headers buttons that report what they open', async () => {
+    const onCell = vi.fn()
+    const onRow = vi.fn()
+    const onColumn = vi.fn()
+    const wrapper = mount(Heatmap, { props: { columns, rows, summary, label: 'Failures', markerLabel: 'Co-failure event', cellAction: 'open the runs', onCell, onRow, onColumn }, attachTo: document.body })
+    const cells = wrapper.findAll('button[data-slot=heatmap-cell]')
+    // Empty cells stay plain and hidden from assistive tech; the summary row is clickable too.
+    expect(cells).toHaveLength(6)
+    expect(cells[3]!.attributes('aria-label')).toBe('node-a · Oct 11: 4 failures, Co-failure event, open the runs')
+    await cells[3]!.trigger('click')
+    expect(onCell).toHaveBeenCalledWith(rows[0], 1)
+    await cells[3]!.trigger('mouseenter')
+    const tip = wrapper.find('[data-slot=heatmap-tooltip]')
+    expect(text(tip.element)).toContain('node-a · Oct 11')
+    expect(text(tip.element)).toContain('Click to open the runs')
+    await cells[3]!.trigger('mouseleave')
+    expect(wrapper.find('[data-slot=heatmap-tooltip]').exists()).toBe(false)
+    const labels = wrapper.findAll('button[data-slot=heatmap-row]')
+    expect(labels.map((b) => b.attributes('aria-label'))).toEqual(['node-a: 5 failures, open the row', 'node-b: 2 failures, open the row'])
+    await labels[1]!.trigger('click')
+    expect(onRow).toHaveBeenCalledWith(rows[1])
+    expect(wrapper.find('[data-slot=heatmap-summary]').element.tagName).toBe('SPAN')
+    const headers = wrapper.findAll('button[data-slot=heatmap-column]')
+    expect(headers.map((b) => b.attributes('aria-label'))).toEqual(['Oct 10: open the day', 'Oct 11: open the day', 'Oct 12: open the day'])
+    await headers[2]!.trigger('click')
+    expect(onColumn).toHaveBeenCalledWith(2)
+    wrapper.unmount()
+  })
+
+  it('keeps one cell in the tab order and moves between failing cells with the arrow keys', async () => {
+    const wrapper = mount(Heatmap, { props: { columns, rows, summary, label: 'Failures', onCell: () => {} }, attachTo: document.body })
+    const stops = () => wrapper.findAll('button[data-slot=heatmap-cell]').filter((b) => b.attributes('tabindex') === '0').map((b) => b.attributes('data-spot'))
+    expect(stops()).toEqual(['0:0'])
+    const at = (spot: string) => wrapper.find(`[data-spot="${spot}"]`)
+    await at('0:0').trigger('focus')
+    await at('0:0').trigger('keydown', { key: 'End' })
+    expect(document.activeElement).toBe(at('0:2').element)
+    // Down from the summary's last day lands on node-a's nearest failing day; empty cells are skipped.
+    await at('0:2').trigger('keydown', { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(at('1:2').element)
+    await at('1:2').trigger('focus')
+    await at('1:2').trigger('keydown', { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(at('2:0').element)
+    await at('2:0').trigger('focus')
+    expect(stops()).toEqual(['2:0'])
+    wrapper.unmount()
+  })
+
+  it('names its rows with the given action and unit', () => {
+    const wrapper = mount(Heatmap, { props: { columns, rows: [row('n', [1, 0, 0])], label: 'Runs', unit: ['run', 'runs'] as [string, string], rowAction: 'open the node', onRow: () => {} } })
+    expect(wrapper.find('button[data-slot=heatmap-row]').attributes('aria-label')).toBe('n: 1 run, open the node')
   })
 })

@@ -1,128 +1,159 @@
 <script setup lang="ts">
-import type { ColumnDef } from '@tanstack/vue-table'
-import { computed, h, ref } from 'vue'
-import ChartEvidenceSheet, { type EvidencePoint } from '@/components/analytics/ChartEvidenceSheet.vue'
-import LatencyEvidenceSheet from '@/components/analytics/LatencyEvidenceSheet.vue'
-import StackedBarChart, { type ChartSeries } from '@/components/analytics/StackedBarChart.vue'
-import StatCard from '@/components/analytics/StatCard.vue'
-import DataTable from '@/components/ops/DataTable.vue'
-import ViewState from '@/components/ops/ViewState.vue'
-import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { computed, h } from 'vue'
+import BarChart from '@/components/charts/BarChart.vue'
+import { plainNumber, type SeriesSpec } from '@/components/charts/chart'
+import SheetStack from '@/components/evidence/SheetStack.vue'
+import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
+import EmptyState from '@/components/feedback/EmptyState.vue'
+import KpiCard from '@/components/stat/KpiCard.vue'
+import StatGrid from '@/components/stat/StatGrid.vue'
+import type { ColumnSpec } from '@/components/table/columns'
+import DataTable from '@/components/table/DataTable.vue'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useOperationSections } from '@/composables/useOperations'
+import { useSheetStack } from '@/composables/useSheetStack'
+import { useSubviewHeader } from '@/composables/useSubviewHeader'
 import { analyticsObservedAt, latencyComparison, latencyLabel, latencyModel, latencySideDuration, observedNightliesLabel } from '@/domain/analytics'
-import { age, shortDate, type Rec } from '@/domain/format'
+import { duration, integer, shortDate, type Rec } from '@/domain/format'
+import { SERIES } from '@/lib/palette'
+import AnalyticsAbout from './AnalyticsAbout.vue'
+import { latencyDetail, latencyTitle } from './latencyDetail'
 
 const { data: ops, error, loading, retry } = useOperationSections(['comparison'])
+const sheets = useSheetStack()
 
 const comparison = computed(() => latencyComparison(ops.value))
 const model = computed(() => latencyModel(comparison.value))
-const observedAt = computed(() => (ops.value ? analyticsObservedAt('latency', ops.value, {}) : null))
+const open = (row: Rec) => sheets.open(latencyDetail(row, comparison.value))
 
-const evidence = ref<{ open: boolean; row: Rec | null }>({ open: false, row: null })
-const openEvidence = (row: Rec) => (evidence.value = { open: true, row })
+useSubviewHeader(() => ({
+  observedAt: ops.value ? analyticsObservedAt('latency', ops.value, {}) : undefined,
+  about: () => h(AnalyticsAbout, { view: 'latency' }),
+}))
 
-const SERIES: ChartSeries[] = [{ key: 'amd', label: 'AMD', color: 'var(--warning)' }]
-const chartRows = computed(() => model.value.top.map((row) => ({ label: latencyLabel(row), amd: Number(row.amd.median_duration_mins) })))
-const points = computed<EvidencePoint[]>(() =>
-  model.value.top.map((row) => ({ label: latencyLabel(row), valueSummary: `${latencySideDuration(row.amd)} AMD MI` })),
-)
-const chartEvidence = ref(false)
+const minutes = (row: Rec) => Number(row.amd?.median_duration_mins)
+const cohortRange = computed(() => {
+  const builds = model.value.builds
+  return builds.length ? `${shortDate(builds.at(-1)!.created_at)} – ${shortDate(builds[0]!.created_at)}` : 'No recent nightly observations'
+})
+const medianOfMedians = computed(() => {
+  const values = model.value.timed.map(minutes).sort((a, b) => a - b)
+  if (!values.length) return null
+  const mid = Math.floor(values.length / 2)
+  return values.length % 2 ? values[mid]! : (values[mid - 1]! + values[mid]!) / 2
+})
+const slowest = computed(() => model.value.timed[0])
 
-const columns = computed<ColumnDef<Rec, unknown>[]>(() => [
+const CHART_SERIES: SeriesSpec[] = [{ key: 'minutes', label: 'AMD MI median', color: SERIES.primary }]
+const chartRows = computed(() => model.value.top.map((row) => ({ row, minutes: minutes(row) })))
+const minutesLabel = (value: number) => `${plainNumber(value)} min`
+
+const columns: ColumnSpec<Rec>[] = [
   {
     id: 'label',
-    header: 'Main CI test group',
-    accessorFn: (row) => [row.label, row.id].join(' '),
-    cell: ({ row }) => h('button', { type: 'button', class: 'text-left font-medium hover:underline', onClick: () => openEvidence(row.original) }, latencyLabel(row.original)),
-    enableHiding: false,
-    enableSorting: false,
+    label: 'Main CI test group',
+    value: (row) => latencyLabel(row),
+    cell: (row) => ({ text: latencyLabel(row) || '—', onOpen: () => open(row) }),
+    hideable: false,
   },
   {
     id: 'median',
-    header: 'AMD median',
-    accessorFn: (row) => latencySideDuration(row.amd),
-    cell: ({ row, getValue }) =>
-      h('button', { type: 'button', class: 'tabular-nums hover:underline', onClick: () => openEvidence(row.original) }, String(getValue())),
-    enableSorting: false,
+    label: 'AMD median',
+    numeric: true,
+    value: (row) => (row.amd ? minutes(row) : -1),
+    cell: (row) => ({ text: latencySideDuration(row.amd), muted: !row.amd }),
   },
   {
     id: 'observed',
-    header: 'Observed nightlies',
-    accessorFn: (row) => observedNightliesLabel(row, model.value.builds),
-    cell: ({ getValue }) => h('span', { class: 'tabular-nums' }, String(getValue())),
-    enableSorting: false,
+    label: 'Observed nightlies',
+    numeric: true,
+    value: (row) => Number(row.amd?.sample_count ?? 0),
+    cell: (row) => ({ text: observedNightliesLabel(row, model.value.builds), muted: !row.amd }),
   },
-])
+]
 </script>
 
 <template>
-  <ViewState :loading="loading && !ops" :error="error" @retry="retry">
+  <AsyncBoundary :loading="loading && !ops" :error="error" @retry="retry">
     <div class="flex flex-col gap-4 md:gap-6" data-testid="analytics-latency">
-      <p v-if="observedAt" class="-mt-2 text-xs text-muted-foreground" :title="String(observedAt)">
-        Recent main CI AMD MI test-group timing · observed {{ shortDate(observedAt) }} · {{ age(observedAt) }}
-      </p>
-      <p v-if="!comparison.available" class="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning" data-testid="latency-unavailable">
-        <strong>AMD MI nightly latency unavailable. </strong>{{ comparison.unavailable_reason }}. Recent AMD MI timing data is required.
-      </p>
+      <EmptyState
+        v-if="!comparison.available"
+        title="AMD MI nightly latency unavailable"
+        :description="`${comparison.unavailable_reason}. Recent AMD MI timing data is required.`"
+        data-testid="latency-unavailable"
+      />
       <template v-else>
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-          <strong>Latest five completed main CI nightlies</strong>
-          <span class="font-mono text-muted-foreground" data-testid="latency-cohort">{{ model.context }}</span>
-        </div>
-        <p class="rounded-md border border-info/40 bg-info/10 p-3 text-sm text-info">
-          <strong>Current CI gating jobs only. </strong>One wall-completion observation per test group per nightly, then the median across
-          up to five observations. Parallel shards contribute their maximum completion time. Missing recent observations stay unavailable;
-          older builds are not substituted.
-        </p>
-        <div class="grid grid-cols-1 gap-4 @xl/main:grid-cols-2" data-testid="latency-kpis">
-          <StatCard v-for="item in model.strip" :key="item.label" :item="item" />
-        </div>
+        <StatGrid :cols="4" data-testid="latency-kpis">
+          <KpiCard
+            label="Main CI nightlies"
+            :value="`${integer(model.builds.length)} / 5`"
+            :footnote="cohortRange"
+            data-testid="kpi-latency-nightlies"
+          />
+          <KpiCard
+            label="AMD groups timed"
+            :value="model.timed.length"
+            :footnote="`${integer(model.rows.length - model.timed.length)} not observed in this cohort`"
+            data-testid="kpi-latency-timed"
+          />
+          <KpiCard
+            label="Slowest group"
+            :value="slowest ? duration(minutes(slowest)) : null"
+            :footnote="slowest ? latencyTitle(slowest) : 'No timed group'"
+            :action="slowest ? { label: 'Inspect its nightlies', onOpen: () => open(slowest!) } : undefined"
+            data-testid="kpi-latency-slowest"
+          />
+          <KpiCard
+            label="Typical group"
+            :value="medianOfMedians === null ? null : duration(medianOfMedians)"
+            :footnote="`Median of ${integer(model.timed.length)} group medians`"
+            data-testid="kpi-latency-typical"
+          />
+        </StatGrid>
 
-        <Card v-if="model.timed.length" data-testid="latency-chart">
+        <Card v-if="model.timed.length" class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="latency-chart">
           <CardHeader>
-            <CardTitle>Recent AMD MI completion time</CardTitle>
-            <CardDescription>Median of per-nightly group wall completion in minutes · select a bar for its nightly evidence</CardDescription>
-            <CardAction>
-              <Button variant="outline" size="sm" @click="chartEvidence = true">Inspect {{ points.length }} observations</Button>
-            </CardAction>
+            <CardTitle as="h2">Slowest AMD MI test groups</CardTitle>
+            <CardDescription>
+              Median group wall completion over nightlies <span class="font-mono" data-testid="latency-cohort">{{ model.context }}</span>
+            </CardDescription>
           </CardHeader>
           <CardContent class="px-2 sm:px-6">
-            <StackedBarChart
+            <BarChart
               :rows="chartRows"
-              :series="SERIES"
-              horizontal
-              :height="Math.max(220, chartRows.length * 30 + 70)"
-              value-label="Median group wall completion (minutes)"
-              @select="(i) => model.top[i] && openEvidence(model.top[i])"
+              :category="(point: { row: Rec }) => latencyLabel(point.row)"
+              :row-label="(point: { row: Rec }) => latencyTitle(point.row)"
+              :series="CHART_SERIES"
+              orientation="horizontal"
+              :category-width="150"
+              :value-format="minutesLabel"
+              label="Slowest AMD MI test groups"
+              hint="Click for its nightly evidence"
+              inspect-placement="legend"
+              :on-select="(point: { row: Rec }) => open(point.row)"
             />
           </CardContent>
         </Card>
 
-        <Card data-testid="latency-table">
+        <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="latency-table">
           <CardHeader>
-            <CardTitle>Recent AMD MI nightly latency</CardTitle>
+            <CardTitle as="h2">Recent AMD MI nightly latency</CardTitle>
             <CardDescription>{{ model.tableMeta }}</CardDescription>
           </CardHeader>
           <CardContent>
             <DataTable
               :columns="columns"
-              :data="model.rows"
+              :rows="model.rows"
               :page-size="12"
+              :on-row-click="open"
               search-placeholder="Filter current main CI test group"
+              label="Recent AMD MI nightly latency"
               empty-text="No current main CI test groups."
             />
           </CardContent>
         </Card>
-
-        <LatencyEvidenceSheet v-model:open="evidence.open" :row="evidence.row" :comparison="comparison" />
-        <ChartEvidenceSheet
-          v-model:open="chartEvidence"
-          title="Recent gating-job timing evidence"
-          :points="points"
-          @inspect="(i) => model.top[i] && openEvidence(model.top[i])"
-        />
       </template>
     </div>
-  </ViewState>
+    <SheetStack :sheets="sheets" />
+  </AsyncBoundary>
 </template>
