@@ -190,6 +190,11 @@ def _observation_urls(build_url: str, observation: dict) -> tuple[str, str]:
     return job_url, step_url
 
 
+def observation_job_url(build_url: str, observation: dict) -> str:
+    """The Buildkite page of one observed attempt."""
+    return _observation_urls(build_url, observation)[0]
+
+
 def _hydrate_reliability_observation(
     reliability: dict,
     observation: dict,
@@ -903,6 +908,7 @@ def build_all_main_reliability(
                 "group_id": group_id,
                 "identity": identity,
                 "final_outcomes": {},
+                "final_walls": {},
                 "observations": [],
                 "result_counts": Counter(),
                 "excluded_counts": Counter(),
@@ -945,6 +951,9 @@ def build_all_main_reliability(
                 if outcome == "passed" and group_id in failed_groups:
                     code = RECOVERED_OUTCOME_CODE
                 grouped[group_id]["final_outcomes"][catalog_build["number"]] = code
+                wall = duration_mins(selected["job"].get("started_at"), selected["job"].get("finished_at"))
+                if outcome == "passed" and wall is not None and wall > 0:
+                    grouped[group_id]["final_walls"][catalog_build["number"]] = round(wall, 1)
             elif str(selected["job"].get("state") or "").lower() in NOT_RUN_JOB_STATES:
                 job_counts["not_run"] += 1
             else:
@@ -1027,6 +1036,11 @@ def build_all_main_reliability(
                     for number in catalog_order
                     if number in group["final_outcomes"]
                 ),
+                "wall_mins": [
+                    group["final_walls"].get(number)
+                    for number in catalog_order
+                    if number in group["final_outcomes"]
+                ],
             },
         })
     groups.sort(key=lambda row: (

@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from vllm.ci import main_flakiness
-from vllm.ci.reliability_history import validate_all_main_reliability
+from vllm.ci.reliability_history import observation_job_url, validate_all_main_reliability
 
 
 PIPELINE = "ci"
@@ -27,6 +27,7 @@ TOP_FLAKY_LIMIT = 50
 RETRY_HOTSPOT_LIMIT = 30
 HEADLINE_MAX_CHARS = 160
 AMD_COUNT_KEYS = ("passed", "soft", "hard", "unknown", "not_run", "retried")
+FAILING_CODES = {"f": "hard", "s": "soft"}
 
 
 def _iso(value: datetime) -> str:
@@ -57,7 +58,55 @@ def _amd_counts(build: dict) -> dict | None:
     return result
 
 
-def _build_rows(reliability: dict) -> list[dict]:
+def _final_attempt_url(group: dict, number: int, build_url: str) -> str:
+    """The job page of the group's final attempt in one build, while its observations still hold it."""
+    attempts = [
+        row
+        for row in group.get("observations") or []
+        if isinstance(row, dict) and row.get("build_number") == number
+    ]
+    finals = [row for row in attempts if not (row.get("retry_evidence") or {}).get("retried")]
+    if not finals or not build_url:
+        return ""
+    return observation_job_url(build_url, max(finals, key=lambda row: str(row.get("observed_at") or "")))
+
+
+def _failing_groups(reliability: dict) -> tuple[dict[int, list[dict]], dict[str, dict]]:
+    """Per build, the groups whose final outcome was a hard or soft failure, and their names."""
+    urls = {
+        build.get("number"): str(build.get("url") or "")
+        for build in reliability.get("builds") or []
+        if isinstance(build, dict)
+    }
+    failing: dict[int, list[dict]] = defaultdict(list)
+    catalog: dict[str, dict] = {}
+    for group in reliability.get("groups") or []:
+        if not isinstance(group, dict):
+            continue
+        history = group.get("outcome_history") or {}
+        numbers, results = history.get("builds"), history.get("results")
+        if not isinstance(numbers, list) or not isinstance(results, str) or len(numbers) != len(results):
+            continue
+        group_id = str(group.get("group_id") or "")
+        for number, code in zip(numbers, results):
+            if code not in FAILING_CODES:
+                continue
+            row = {"group_id": group_id, "severity": FAILING_CODES[code]}
+            job_url = _final_attempt_url(group, number, urls.get(number, ""))
+            if job_url:
+                row["job_url"] = job_url
+            failing[number].append(row)
+            catalog[group_id] = {
+                "name": str(group.get("name") or group.get("raw_name") or ""),
+                "hardware": str(group.get("hardware") or ""),
+                "queue": str(group.get("queue") or ""),
+            }
+    for rows in failing.values():
+        rows.sort(key=lambda row: (row["severity"] != "hard", catalog[row["group_id"]]["name"].lower()))
+    return failing, catalog
+
+
+def _build_rows(reliability: dict, failing: dict[int, list[dict]]) -> list[dict]:
     rows = []
     for build in reliability.get("builds") or []:
         if not isinstance(build, dict):
@@ -73,10 +122,37 @@ def _build_rows(reliability: dict) -> list[dict]:
                 "state": str(build.get("state") or "unknown"),
                 "amd": _amd_counts(build),
                 "url": str(build.get("url") or ""),
+                "failing": failing.get(build.get("number"), []),
             }
         )
     rows.sort(key=lambda row: (row["created_at"], int(row["number"] or 0)), reverse=True)
     return rows
+
+
+def _day_totals(builds: list[dict], start: datetime, end: datetime) -> dict:
+    """AMD job totals of the builds created in [start, end)."""
+    day = [
+        row
+        for row in builds
+        if (created := main_flakiness.parse_ts(row["created_at"])) is not None and start <= created < end
+    ]
+    counted = [row for row in day if row["amd"]]
+    jobs = defaultdict(int)
+    for row in counted:
+        for key in ("passed", "soft", "hard"):
+            jobs[key] += row["amd"][key]
+    total = jobs["passed"] + jobs["soft"] + jobs["hard"]
+    return {
+        "builds": len(day),
+        "amd_builds": sum(bool(row["amd"]["passed"] + row["amd"]["soft"] + row["amd"]["hard"]) for row in counted),
+        "green_builds": sum(
+            row["amd"]["hard"] == 0 and bool(row["amd"]["passed"] + row["amd"]["soft"]) for row in counted
+        ),
+        "passed": jobs["passed"],
+        "soft": jobs["soft"],
+        "hard": jobs["hard"],
+        "pass_rate": round(jobs["passed"] / total * 100, 2) if total else None,
+    }
 
 
 def _bucket(rows: list[dict], start: datetime, step: timedelta, count: int) -> list[dict]:
@@ -241,12 +317,13 @@ def _flakiness(scoped: dict, now: datetime, thresholds: dict[str, int]) -> tuple
             "hardware": row["hardware"],
             "queue": row["queue"],
             "trend": row["trend"],
-            "alerting": main_flakiness.crosses(row, thresholds),
         }
+        # Each list alerts on its own criterion; the watcher's issue lists groups crossing either.
         if month_stats["flips"]:
             flaky.append(
                 {
                     **base,
+                    "alerting": main_flakiness.flips_alert(row, thresholds),
                     "flips_window": recent["flips"],
                     "flips_previous_window": previous["flips"],
                     "flips_30d": month_stats["flips"],
@@ -262,6 +339,7 @@ def _flakiness(scoped: dict, now: datetime, thresholds: dict[str, int]) -> tuple
             hotspots.append(
                 {
                     **base,
+                    "alerting": main_flakiness.recoveries_alert(row, thresholds),
                     "recovered_window": recent["recovered"],
                     "recovered_previous_window": previous["recovered"],
                     "recovered_30d": month_stats["recovered"],
@@ -276,6 +354,44 @@ def _flakiness(scoped: dict, now: datetime, thresholds: dict[str, int]) -> tuple
     return flaky, hotspots
 
 
+def _slowdowns(state: dict, now: datetime) -> dict:
+    """Test-step slowdowns exactly as the duration watcher holds them, provided
+    the watcher evaluated this same cohort (it runs right before the snapshot)."""
+    from vllm.amd_duration_regression_watcher import INCIDENT_STATE_VERSION, MAX_DATA_AGE, RULES
+
+    if (
+        not isinstance(state, dict)
+        or state.get("incident_state_version") != INCIDENT_STATE_VERSION
+        or state.get("hardware_scope") != "amd_mi_gpu"
+    ):
+        return {"available": False, "reason": "duration_watcher_state_unavailable", "rows": []}
+    last_run = main_flakiness.parse_ts(state.get("last_run"))
+    if last_run is None or abs(now - last_run) > MAX_DATA_AGE:
+        return {"available": False, "reason": "duration_watcher_state_stale", "rows": []}
+    rows = sorted(
+        (dict(row) for row in (state.get("active") or {}).values() if isinstance(row, dict)),
+        key=lambda row: (
+            row.get("status") != "active",
+            -float(row.get("increase_mins") or 0),
+            str(row.get("name") or "").lower(),
+        ),
+    )
+    issue = state.get("issue") if isinstance(state.get("issue"), dict) else None
+    number = (issue or {}).get("number")
+    return {
+        "available": True,
+        "watcher_last_run": str(state.get("last_run") or ""),
+        "issue": (
+            {"number": number, "url": f"{DASHBOARD_REPO_URL}/issues/{number}"}
+            if isinstance(number, int) and number > 0
+            else None
+        ),
+        "suppressed": state.get("suppressed") is True,
+        "rules": dict(RULES),
+        "rows": rows,
+    }
+
+
 def unavailable(reason: str, generated_at: str) -> dict:
     return {
         "available": False,
@@ -287,6 +403,7 @@ def unavailable(reason: str, generated_at: str) -> dict:
         "summary": {},
         "builds": [],
         "incidents": {"available": False, "active": [], "pending_soft": []},
+        "slowdowns": {"available": False, "reason": reason, "rows": []},
         "timeline": [],
         "top_flaky": [],
         "retry_hotspots": [],
@@ -294,7 +411,12 @@ def unavailable(reason: str, generated_at: str) -> dict:
     }
 
 
-def build_main_ci(analytics_ci: dict, watcher_state: dict, generated_at: str) -> dict:
+def build_main_ci(
+    analytics_ci: dict,
+    watcher_state: dict,
+    generated_at: str,
+    duration_state: dict | None = None,
+) -> dict:
     reliability = (analytics_ci or {}).get("all_main_reliability")
     if not validate_all_main_reliability(reliability, PIPELINE):
         return unavailable("strict_all_main_reliability_unavailable", generated_at)
@@ -307,20 +429,15 @@ def build_main_ci(analytics_ci: dict, watcher_state: dict, generated_at: str) ->
     if now is None:
         return unavailable("reliability_generated_at_unavailable", generated_at)
     thresholds = main_flakiness.load_thresholds()
-    builds = _build_rows(scoped)
+    failing, group_catalog = _failing_groups(scoped)
+    builds = _build_rows(scoped, failing)
     incidents, timeline = _incidents(watcher_state, scoped)
+    slowdowns = _slowdowns(duration_state or {}, now)
     has_history = main_flakiness.has_outcome_history(scoped)
     flaky, hotspots = _flakiness(scoped, now, thresholds) if has_history else ([], [])
     retry = (analytics_ci or {}).get("main_retry_analysis") or {}
     retry_summary = retry.get("summary") if isinstance(retry.get("summary"), dict) else {}
-    day_ago = now - timedelta(days=1)
-    last_day = [row for row in builds if (main_flakiness.parse_ts(row["created_at"]) or now) >= day_ago]
-    last_day_counted = [row for row in last_day if row["amd"]]
-    jobs = defaultdict(int)
-    for row in last_day_counted:
-        for key in ("passed", "soft", "hard"):
-            jobs[key] += row["amd"][key]
-    total = jobs["passed"] + jobs["soft"] + jobs["hard"]
+    day = timedelta(days=1)
     latest = builds[0] if builds else None
     cohort = reliability.get("cohort") or {}
     return {
@@ -354,24 +471,19 @@ def build_main_ci(analytics_ci: dict, watcher_state: dict, generated_at: str) ->
                 if latest
                 else None
             ),
-            "last_24h": {
-                "builds": len(last_day),
-                "amd_builds": sum(
-                    bool(row["amd"]["passed"] + row["amd"]["soft"] + row["amd"]["hard"])
-                    for row in last_day_counted
-                ),
-                "green_builds": sum(
-                    row["amd"]["hard"] == 0 and bool(row["amd"]["passed"] + row["amd"]["soft"])
-                    for row in last_day_counted
-                ),
-                "passed": jobs["passed"],
-                "soft": jobs["soft"],
-                "hard": jobs["hard"],
-                "pass_rate": round(jobs["passed"] / total * 100, 2) if total else None,
-            },
+            "last_24h": _day_totals(builds, now - day, now),
+            "previous_24h": _day_totals(builds, now - 2 * day, now - day),
             "active_incidents": len(incidents["active"]),
             "hard_incidents": sum(row["severity"] == "hard" for row in incidents["active"]),
             "pending_soft": len(incidents["pending_soft"]),
+            **{
+                f"{status}_slowdowns": (
+                    sum(row.get("status") == status for row in slowdowns["rows"])
+                    if slowdowns["available"]
+                    else None
+                )
+                for status in ("active", "settled")
+            },
             "flaky_groups": len(flaky),
             "alerting_flaky_groups": sum(row["alerting"] for row in flaky),
             "retry_hotspot_groups": len(hotspots),
@@ -380,10 +492,12 @@ def build_main_ci(analytics_ci: dict, watcher_state: dict, generated_at: str) ->
             "failed_then_passed_recoveries": retry_summary.get("failed_then_passed_recovery_count"),
         },
         "incidents": incidents,
+        "slowdowns": slowdowns,
         "timeline": timeline,
         "top_flaky": flaky[:TOP_FLAKY_LIMIT],
         "retry_hotspots": hotspots[:RETRY_HOTSPOT_LIMIT],
         "series": _series(builds, now),
+        "group_catalog": group_catalog,
         "builds": builds,
     }
 
@@ -434,8 +548,10 @@ def main_ci_shell(section: dict) -> dict:
                 "builds",
                 "latest_build",
                 "last_24h",
+                "previous_24h",
                 "active_incidents",
                 "hard_incidents",
+                "active_slowdowns",
                 "alerting_flaky_groups",
                 "alerting_retry_groups",
             )

@@ -3940,7 +3940,8 @@ def test_candidate_audit_never_accepts_stale_fallback(
     }
 
 
-def test_stale_shard_bases_are_a_routable_ci_surface_error(tmp_path: Path) -> None:
+@pytest.mark.parametrize("state", [{"build_state": "passed"}, {"build_state": "failing", "amd_complete": True}])
+def test_stale_shard_bases_are_a_routable_ci_surface_error(tmp_path: Path, state: dict) -> None:
     ci = tmp_path / "data/vllm/ci"
     results = ci / "test_results"
     results.mkdir(parents=True)
@@ -3965,7 +3966,7 @@ def test_stale_shard_bases_are_a_routable_ci_surface_error(tmp_path: Path) -> No
                     "pipeline": "amd",
                     "build_number": 100,
                     "build_commit": "a" * 40,
-                    "build_state": "passed",
+                    **state,
                     "roster_complete": True,
                     "result_file": "2026-08-12_amd.jsonl",
                     "job_names": ["mi300_1: Active Sharded Group 1"],

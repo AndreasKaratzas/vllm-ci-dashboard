@@ -1,5 +1,5 @@
 import { toneForState, type Rec, type Tone } from './format'
-import { nightlyFailureCount } from './nightly'
+import { hasTestSignal, nightlyFailureCount } from './nightly'
 
 export interface NightlyCounts {
   number: number
@@ -14,9 +14,8 @@ export interface NightlyCounts {
 
 /** Pass/hard/soft counts for a nightly with test signal, by the classic fallback rule. */
 export function nightlyCounts(build: Rec | null | undefined): NightlyCounts | null {
-  if (!build || build.has_test_results === false) return null
-  const total = Number(build.total_groups || 0)
-  if (!(total > 0)) return null
+  if (!build || !hasTestSignal(build)) return null
+  const total = Number(build.total_groups)
   const hard = Array.isArray(build.failed_groups) ? build.failed_groups.length : 0
   const soft = Array.isArray(build.soft_failed_groups) ? build.soft_failed_groups.length : 0
   const passed = Math.max(0, total - hard - soft)
@@ -40,11 +39,11 @@ export function nightlySeries(builds: Rec[]): NightlyCounts[] {
     .reverse()
 }
 
-/** Latest pass rate and its change in percentage points versus the previous signal-bearing nightly. */
+/** The newest nightly's pass rate and its change in points versus the nightly with results before it. */
 export function passRateTrend(builds: Rec[]): { latest: NightlyCounts; deltaPoints: number | null } | null {
   const series = nightlySeries(builds)
   const latest = series.at(-1)
-  if (!latest || Number(builds[0]?.number) !== latest.number) return null
+  if (!latest) return null
   const previous = series.at(-2)
   return { latest, deltaPoints: previous ? (latest.passRate - previous.passRate) * 100 : null }
 }
@@ -59,23 +58,8 @@ export function nightlyResultTone(build: Rec | null | undefined): Tone {
 /** Why a nightly has no pass rate, or null when it has one. */
 export function noSignalLabel(build: Rec | null | undefined): string | null {
   if (nightlyCounts(build)) return null
-  return Number(build?.test_jobs_blocked || 0) ? 'Infra blocked' : 'No test signal'
-}
-
-const AXIS_STEPS = [1, 2, 5, 10, 20, 25]
-
-/**
- * A pass-rate axis up to 100 that puts the lowest rate mid-plot, so small changes stay visible,
- * with at most five round ticks and the bottom of the domain on a tick.
- */
-export function passRateAxis(series: NightlyCounts[]): { domain: [number, number]; ticks: number[] } {
-  const lowest = series.length ? Math.min(...series.map((row) => row.passRate * 100)) : 0
-  const floor = series.length ? Math.max(0, Math.floor(lowest - Math.max(2, 100 - lowest))) : 0
-  const step = AXIS_STEPS.find((candidate) => (100 - floor) / candidate <= 4) ?? 25
-  const start = Math.floor(floor / step) * step
-  const ticks: number[] = []
-  for (let value = start; value <= 100; value += step) ticks.push(value)
-  return { domain: [start, 100], ticks }
+  if (Number(build?.test_jobs_blocked || 0)) return 'Infra blocked'
+  return build?.active_retry === true ? 'AMD retry running' : 'No test signal'
 }
 
 /** The most severe tone across attention signals; none active is a pass. */

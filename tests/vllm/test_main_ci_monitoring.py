@@ -125,11 +125,11 @@ def test_reliability_records_per_build_amd_counts_and_final_outcome_history():
     assert reliability["builds"][0]["amd_jobs"] == {
         "passed": 2, "soft": 1, "hard": 1, "unknown": 1, "not_run": 1, "retried": 1,
     }
-    assert _group(reliability, "Retried")["outcome_history"] == {"builds": [101], "results": "r"}
+    assert _group(reliability, "Retried")["outcome_history"] == {"builds": [101], "results": "r", "wall_mins": [9.0]}
     assert _group(reliability, "Stable")["outcome_history"]["results"] == "p"
     assert _group(reliability, "Broken")["outcome_history"]["results"] == "f"
     assert _group(reliability, "Soft")["outcome_history"]["results"] == "s"
-    assert _group(reliability, "Blocked")["outcome_history"] == {"builds": [], "results": ""}
+    assert _group(reliability, "Blocked")["outcome_history"] == {"builds": [], "results": "", "wall_mins": []}
 
 
 def _flaky_builds(start, count, *, outcome):
@@ -400,6 +400,60 @@ def test_main_ci_section_summarizes_every_main_build_and_series():
     assert all(bucket["pass_rate"] is None or 0 <= bucket["pass_rate"] <= 100 for bucket in daily)
     shell = main_ci_section.main_ci_shell(section)
     assert shell["latest_build"]["number"] == 1007 and shell["builds"] == 8
+
+
+def test_main_ci_builds_name_their_failing_groups_and_days_meet_end_to_end():
+    builds = _flaky_builds(NOW - timedelta(days=2), 8, outcome=lambda i: "failed" if i % 2 else "passed")
+    # The 24 hours before the latest 24 end exactly where they start: a build on the boundary is the latest day's.
+    builds.append(_build(1100, NOW - timedelta(days=1), [_job("b1100", "Steady", "passed", NOW - timedelta(days=1))]))
+    builds.append(_build(1101, NOW - timedelta(days=2, seconds=1), [_job("b1101", "Steady", "passed", NOW - timedelta(days=2))]))
+    reliability = _reliability(builds)
+    section = main_ci_section.build_main_ci({"all_main_reliability": reliability}, {}, _ts(NOW))
+
+    rows = {row["number"]: row for row in section["builds"]}
+    flipper = _group(reliability, "Flipper")["group_id"]
+    (failing,) = rows[1007]["failing"]
+    assert failing == {
+        "group_id": flipper,
+        "severity": "hard",
+        "job_url": "https://buildkite.com/vllm/ci/builds/1007/steps/canvas?jid=f1007&tab=output",
+    }
+    assert rows[1006]["failing"] == []
+    assert section["group_catalog"][flipper]["name"].endswith("Flipper")
+    assert set(section["group_catalog"]) == {flipper}
+
+    last, previous = section["summary"]["last_24h"], section["summary"]["previous_24h"]
+    # Builds every 6 hours from NOW-2d: four before NOW-1d, four after, plus #1100 on the boundary.
+    assert (previous["builds"], last["builds"]) == (4, 5)
+    assert previous["hard"] == last["hard"] == 2
+    assert main_ci_section.main_ci_shell(section)["previous_24h"] == previous
+
+
+def test_main_ci_flaky_and_retry_lists_alert_on_their_own_criterion():
+    """A group with one flip and three recoveries alerts only in the retry list."""
+    start = NOW - timedelta(days=3)
+    builds = []
+    for index in range(6):
+        at = start + timedelta(hours=8 * index)
+        number = 2000 + index
+        if index == 0:
+            jobs = [_job(f"m{number}", "Mixed", "failed", at)]
+        elif index % 2:
+            jobs = [
+                _job(f"m{number}a", "Mixed", "failed", at, retried=True, retried_in_job_id=f"m{number}b"),
+                _job(f"m{number}b", "Mixed", "passed", at + timedelta(minutes=12), retries_count=1),
+            ]
+        else:
+            jobs = [_job(f"m{number}", "Mixed", "passed", at)]
+        builds.append(_build(number, at, jobs))
+    section = main_ci_section.build_main_ci({"all_main_reliability": _reliability(builds)}, {}, _ts(NOW))
+
+    (flaky,) = section["top_flaky"]
+    (retry,) = section["retry_hotspots"]
+    assert (flaky["flips_window"], flaky["alerting"]) == (1, False)
+    assert (retry["recovered_window"], retry["alerting"]) == (3, True)
+    assert section["summary"]["alerting_flaky_groups"] == 0
+    assert section["summary"]["alerting_retry_groups"] == 1
 
 
 def test_main_ci_section_fails_closed_without_strict_reliability():

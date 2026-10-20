@@ -121,6 +121,11 @@ COMPLETE_JOB_STATES = frozenset(
     | set(cfg.BLOCKED_JOB_STATES)
     | {"expired", "not_run", "skipped"}
 )
+# In a running build a ``blocked`` job can still be unblocked and run.
+SETTLED_JOB_STATES = COMPLETE_JOB_STATES - {"blocked"}
+# Steps that add jobs to a running nightly: the bootstrap pipeline upload and
+# the upload behind the "Run more jobs" block step.
+ROSTER_GROWTH_JOB_PATTERNS = ("bootstrap", "upload")
 FULL_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 _ROUTING_JOB_UUID_RE = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I
@@ -448,6 +453,8 @@ def _scope_nightly_build(build: dict, pipeline_key: str) -> dict:
                 }
         if routes:
             build["_ci_job_routes"] = routes
+        if pipeline_key == "amd" and "amd_scope_completion" not in build:
+            build["amd_scope_completion"] = _amd_scope_completion(build["jobs"])
         build["jobs"] = [job for job in build["jobs"] if pipeline_job_matches_scope(job, pipeline_key)]
     build["job_scope"] = cfg.PIPELINES[pipeline_key].get("job_scope")
     if pipeline_key == "amd":
@@ -711,14 +718,62 @@ def _nightly_test_jobs(build: dict) -> list[dict]:
     ]
 
 
+def _amd_scope_completion(jobs: list) -> dict:
+    """Return whether the full CI roster can still grow and its unsettled non-AMD jobs.
+
+    The roster is closed once an upload step has settled and no block step or
+    upload step is still pending. Superseded attempts are always final, so
+    they never hold the roster open or count as active.
+    """
+    blocked_or_uploading = False
+    uploaded = False
+    non_amd_jobs_active = 0
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        state = str(job.get("state") or "").casefold()
+        if job.get("type") == "manual":
+            blocked_or_uploading = blocked_or_uploading or state == "blocked"
+            continue
+        if job.get("type") != "script":
+            continue
+        settled = state in SETTLED_JOB_STATES
+        if any(pattern in str(job.get("name") or "").casefold() for pattern in ROSTER_GROWTH_JOB_PATTERNS):
+            uploaded = uploaded or settled
+            blocked_or_uploading = blocked_or_uploading or not settled
+        if not settled and not pipeline_job_matches_scope(job, "amd"):
+            non_amd_jobs_active += 1
+    return {
+        "roster_open": blocked_or_uploading or not uploaded,
+        "non_amd_jobs_active": non_amd_jobs_active,
+    }
+
+
 def _is_complete_nightly_build(build: dict) -> bool:
-    """Return whether a nightly has a terminal build and test-job roster."""
-    if build.get("state") not in cfg.TERMINAL_STATES:
-        return False
+    """Return whether a nightly's in-scope test roster is final.
+
+    A terminal build is final once every test job is complete. A running build
+    is final only for the AMD scope, when every current AMD attempt is settled
+    and no block or upload step can still add jobs, so only non-AMD jobs keep
+    it running.
+    """
     test_jobs = _nightly_test_jobs(build)
-    return bool(test_jobs) and all(
-        str(job.get("state") or "").casefold() in COMPLETE_JOB_STATES
-        for job in test_jobs
+    if not test_jobs:
+        return False
+    if build.get("state") in cfg.TERMINAL_STATES:
+        return all(
+            str(job.get("state") or "").casefold() in COMPLETE_JOB_STATES
+            for job in test_jobs
+        )
+    completion = build.get("amd_scope_completion")
+    return (
+        isinstance(completion, dict)
+        and completion.get("roster_open") is False
+        and all(
+            str(job.get("state") or "").casefold() in SETTLED_JOB_STATES
+            for job in build.get("jobs") or []
+            if job.get("type") == "script" and not job.get("retried_in_job_id")
+        )
     )
 
 
@@ -779,12 +834,14 @@ def _shard_catalog_evidence(
     """Return the stable shard-catalog evidence object for any collection state."""
     build = build or {}
     evidence_date = nightly_date(str(build.get("created_at") or ""))
+    running = verified_complete and build.get("state") not in cfg.TERMINAL_STATES
     return {
         "pipeline": "amd",
         "build_number": int(build.get("number") or 0),
         "build_commit": str(build.get("commit") or "").casefold(),
         "build_state": str(build.get("state") or "unavailable"),
         "roster_complete": verified_complete,
+        **({"amd_complete": _is_complete_nightly_build(build)} if running else {}),
         "result_file": (
             f"{evidence_date}_amd.jsonl"
             if verified_complete and evidence_date
@@ -1204,7 +1261,9 @@ def collect_pipeline(
             )
             continue
 
-        verify_candidate = _should_verify_cache_coverage(
+        # A running build is always rehydrated: its roster decides whether its
+        # in-scope evidence is already final.
+        verify_candidate = state not in cfg.TERMINAL_STATES or _should_verify_cache_coverage(
             build_num,
             latest_build_num,
             latest_terminal_build_num,
@@ -1215,9 +1274,7 @@ def collect_pipeline(
         # completeness checks must not discard otherwise valid historical
         # JSONL evidence merely because its list summary had no ``jobs`` key.
         roster_missing = not isinstance(build.get("jobs"), list) or not build["jobs"]
-        if state in cfg.TERMINAL_STATES and (
-            verify_candidate or roster_missing or queue_incomplete
-        ):
+        if verify_candidate or roster_missing or queue_incomplete:
             if queue_incomplete:
                 log.info(
                     "  Build #%d: refreshing queue-incomplete current CI roster",
@@ -1239,7 +1296,7 @@ def collect_pipeline(
                         f"for build #{build_num}; refusing routing inferred from labels"
                     ) from exc
                 log.warning(
-                    "  Build #%d: couldn't refresh terminal roster (%s); "
+                    "  Build #%d: couldn't refresh roster (%s); "
                     "it will not be promoted unless the cached roster is complete",
                     build_num,
                     exc,
@@ -1268,7 +1325,9 @@ def collect_pipeline(
         # If a previous collector run captured the partial jsonl while that
         # job was still running, a naive cache-skip here would permanently
         # omit the soft-fail result. Verify coverage before trusting cache.
-        if date in existing_dates and state in cfg.TERMINAL_STATES:
+        if date in existing_dates and (
+            state in cfg.TERMINAL_STATES or _is_complete_nightly_build(build)
+        ):
             jsonl_path = results_dir / f"{date}_{pipeline_key}.jsonl"
             cached = _load_cached_results(jsonl_path)
             current_cache = [row for row in _current_scope_results(cached, pipeline_key, build)
@@ -1389,7 +1448,7 @@ def collect_pipeline(
         if (
             "jobs" not in build
             or not build["jobs"]
-            or is_running
+            or (is_running and not detail_hydrated_from_api)
             or (needs_log_hydration and not detail_hydrated_from_api)
         ):
             detail = _fetch_build_detail_with_routing_diagnostics(pipeline_key, build_num)
@@ -1562,12 +1621,14 @@ def _compute_pipeline_summaries(
     previous_signal = None
     for number in ordered:
         _, results = results_by_number.get(number, ("", []))
+        build = _build_for(number)
         summary = compute_build_summary(
-            _build_for(number),
+            build,
             results,
             pipeline_key,
             previous_signal if results else None,
             skip_job_patterns=SKIP_JOB_PATTERNS,
+            scope_complete=_is_complete_nightly_build(build),
         )
         summaries.append(summary)
         if results:

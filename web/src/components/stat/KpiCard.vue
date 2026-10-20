@@ -100,8 +100,8 @@ const actionAttrs = computed(() => {
       </CardTitle>
       <div v-else-if="variant === 'default'" class="col-span-full flex flex-wrap items-center gap-x-2 gap-y-1">
         <CardTitle
-          class="font-semibold tabular-nums"
-          :class="[muted && 'text-muted-foreground', display.length > 10 ? 'text-xl @[250px]/card:text-2xl' : 'text-2xl @[250px]/card:text-3xl']"
+          class="tabular-nums"
+          :class="[muted ? 'font-normal text-muted-foreground' : 'font-semibold', display.length > 10 ? 'text-xl @[250px]/card:text-2xl' : 'text-2xl @[250px]/card:text-3xl']"
           data-slot="kpi-value"
         >
           {{ display }}<span v-if="unit && !missing" class="ml-1 text-base font-medium text-muted-foreground">{{ unit }}</span>
@@ -162,7 +162,7 @@ const actionAttrs = computed(() => {
 
     <CardFooter v-if="headline || footnote || action" class="mt-auto flex-col items-start gap-1 px-4 text-sm @[15rem]/card:px-6">
       <div v-if="headline || action" class="flex w-full items-center gap-2 font-medium">
-        <span class="line-clamp-2 min-w-0 flex-1" data-slot="kpi-headline">{{ headline ?? action?.label }}</span>
+        <span class="min-w-0 flex-1" data-slot="kpi-headline">{{ headline ?? action?.label }}</span>
         <component
           :is="action?.href ? ExternalLink : ChevronRight"
           v-if="action"

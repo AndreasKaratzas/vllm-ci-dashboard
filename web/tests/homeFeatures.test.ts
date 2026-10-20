@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { currentSubView, subViewQuery } from '@/components/layout/navigation'
-import { attentionTone, nightlyResultTone, noSignalLabel, passRateAxis, nightlySeries } from '@/domain/home'
+import { rateAxis } from '@/components/charts/chart'
+import { attentionTone, nightlyResultTone, noSignalLabel, nightlySeries, type NightlyCounts } from '@/domain/home'
 import { sourceFreshness } from '@/domain/freshness'
 import { freshnessChip, freshnessDetail } from '@/features/freshness/freshness'
-import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
+import { buildEvidenceDetail, pendingEvidenceDetail } from '@/features/nightly/buildEvidence'
 
 const URL = 'https://buildkite.com/vllm/ci/builds/30005'
 const job = (name: string, state: string, extra = {}) => ({
@@ -73,8 +74,29 @@ describe('build evidence detail', () => {
     const blocked = buildEvidenceDetail({ ...build, has_test_results: false, test_jobs_blocked: 4, failure_movement: undefined })
     expect(blocked.notes?.[0]).toMatchObject({ tone: 'hard' })
     expect(blocked.notes?.[0]?.text).toContain('4 test jobs were dependency-blocked')
-    expect(blocked.stats?.map((s) => s.label)).toEqual(['Job variants observed'])
+    expect(blocked.stats).toEqual([])
     expect(blocked.fields?.find((f) => f.label === 'Test signal')?.value).toBe('Unavailable')
+  })
+
+  it('lists the jobs a running nightly already failed as provisional', () => {
+    const running = { ...build, state: 'failing', has_test_results: false, total_groups: 0, failure_movement: { ...build.failure_movement, available: false } }
+    const detail = buildEvidenceDetail(running, { scope: 'hard' })
+    expect(detail.notes).toEqual([expect.objectContaining({ tone: 'neutral', title: 'Provisional' })])
+    expect(detail.notes![0]!.text).toContain('still running')
+    expect(detail.stats?.map((s) => [s.label, s.value])).toEqual([
+      ['Hard failures', '2'],
+      ['Soft failures', '0'],
+    ])
+    expect(detail.tables![0]!.rows).toEqual(buildEvidenceDetail(build, { scope: 'hard' }).tables![0]!.rows)
+    // Movement stays unavailable until the nightly has results.
+    expect(buildEvidenceDetail(running).tables).toEqual([])
+    const sofar = pendingEvidenceDetail({ latest: running, signal: undefined, running: true, hard: 2, soft: 0 })
+    expect(sofar).toMatchObject({ title: 'Nightly #30005 failures so far', id: 'build-30005-hard' })
+    expect(pendingEvidenceDetail({ latest: running, signal: undefined, running: true, hard: 0, soft: 1 }).id).toBe('build-30005-soft')
+  })
+
+  it('says why its counts differ from the per-group counts of main CI', () => {
+    expect(buildEvidenceDetail(build).footnote).toContain('one final Buildkite attempt per AMD MI test group')
   })
 })
 
@@ -90,12 +112,13 @@ describe('home tones and domains', () => {
   })
 
   it('keeps small pass-rate changes visible and ranks attention severity', () => {
-    expect(passRateAxis(nightlySeries([build]))).toEqual({ domain: [20, 100], ticks: [20, 40, 60, 80, 100] })
-    expect(passRateAxis(nightlySeries([{ ...build, total_groups: 300, failed_groups: [job('a', 'failed')] }]))).toEqual({
+    const rates = (series: NightlyCounts[]) => series.map((row) => row.passRate * 100)
+    expect(rateAxis(rates(nightlySeries([build])))).toEqual({ domain: [20, 100], ticks: [20, 40, 60, 80, 100] })
+    expect(rateAxis(rates(nightlySeries([{ ...build, total_groups: 300, failed_groups: [job('a', 'failed')] }])))).toEqual({
       domain: [97, 100],
       ticks: [97, 98, 99, 100],
     })
-    expect(passRateAxis([])).toEqual({ domain: [0, 100], ticks: [0, 25, 50, 75, 100] })
+    expect(rateAxis([])).toEqual({ domain: [0, 100], ticks: [0, 25, 50, 75, 100] })
     expect(attentionTone([{ severity: 'warning' }, { severity: 'critical' }])).toBe('hard')
     expect(attentionTone([{ severity: 'warning' }])).toBe('soft')
     expect(attentionTone([])).toBe('pass')
@@ -113,7 +136,7 @@ describe('freshness presentation', () => {
 
   it('labels a page chip with the oldest source and the worst state', () => {
     const rows = sourceFreshness(ops, null, NOW).filter((row) => ['analytics', 'ci_health'].includes(row.key))
-    const chip = freshnessChip({ timestamp: '2026-10-17T06:00:00Z', ageMs: 4 * 3_600_000, state: 'stale', sources: rows }, NOW)
+    const chip = freshnessChip({ timestamp: '2026-10-17T06:00:00Z', ageMs: 4 * 3_600_000, state: 'stale', sources: rows, missing: [] }, NOW)
     expect(chip).toMatchObject({ text: 'Collected 4h ago', tone: 'hard' })
     expect(chip?.detail).toContain('CI health 4h ago')
     expect(freshnessChip(null, NOW)).toBeUndefined()

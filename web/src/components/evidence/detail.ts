@@ -1,5 +1,7 @@
 import type { Component } from 'vue'
 import type { ColumnSpec, FilterSpec } from '@/components/table/columns'
+import { rateText } from '@/domain/format'
+import { rateStatus } from '@/lib/palette'
 import type { Tone } from '@/lib/tone'
 
 export interface DetailNote {
@@ -15,6 +17,14 @@ export interface DetailStat {
   tone?: Tone
   /** Status badge label when the tone's default label would misname the state (e.g. "Attention", "Stale"). */
   toneLabel?: string
+  /** Tint the value with its tone instead of adding a badge, e.g. for a failure count. */
+  tint?: boolean
+}
+
+/** A pass-rate stat: quiet at a pass, otherwise badged with the band it falls in ("Below 95%"). */
+export function rateStat(label: string, percent: number | null | undefined, meta?: string): DetailStat {
+  const status = rateStatus(percent)
+  return { label, value: rateText(percent), meta, tone: status?.tone, toneLabel: status?.label }
 }
 
 export interface DetailField {

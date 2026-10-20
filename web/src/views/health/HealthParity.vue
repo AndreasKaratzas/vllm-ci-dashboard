@@ -11,7 +11,7 @@ import StatGrid from '@/components/stat/StatGrid.vue'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import type { SheetStack } from '@/composables/useSheetStack'
 import { parityConfigNote, parityGapAreas, testGroupParityRows, type GapArea } from '@/domain/ciHealth'
-import { integer, type Rec } from '@/domain/format'
+import { integer, rateText, type Rec } from '@/domain/format'
 import { currentTestGroupParity } from '@/domain/health'
 import { statusVar } from '@/lib/palette'
 import { ROUTE_MODE_COLOR, count, parityInventoryDetail, parityTone } from './details'
@@ -122,7 +122,7 @@ const inventoryLinks = computed(() => [
         <KpiCard
           label="Required route coverage"
           :value="requiredRate"
-          :format="(v: number) => `${v.toFixed(1)}%`"
+          :format="rateText"
           :footnote="`${integer(summary.main_required_groups)} required · ${integer(summary.main_optional_only_groups)} optional only · ${integer(summary.main_soft_fail_only_groups)} soft fail only`"
           data-testid="kpi-parity-required"
         >

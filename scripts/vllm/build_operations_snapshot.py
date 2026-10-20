@@ -101,6 +101,7 @@ ORG_SUMMARY_MAX_BYTES = writer_max_bytes("org_summary")
 ORG_SUMMARY_SCHEMA_VERSION = 7
 QUEUE_LIFECYCLE_NAME = "queue_lifecycle.json"
 MAIN_FAILURE_STATE_NAME = "open_ci_main_failure_issues.json"
+DURATION_STATE_NAME = "open_amd_duration_regression_issues.json"
 NIGHTLY_BUILD_LIMIT = 30
 RANKING_LIMIT = 20
 GROUP_HISTORY_LIMIT = 60
@@ -471,8 +472,16 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
     previous_movement_observations: dict[str, tuple[str, dict]] | None = None
     for build in reversed(source_builds):
         build_number = _strict_int(build.get("number") or build.get("build_number"))
-        transition_eligible, ineligible_reason = completed_build_eligibility(build)
         health_build = health_builds.get(build_number) or {}
+        # A finished analytics row outranks an older AMD-complete health generation.
+        amd_complete = health_build.get("amd_complete") is True and not build.get("finished_at")
+        state = build.get("state") or "unknown"
+        if amd_complete:
+            # The collector's AMD-only outcome, as analytics derives it once the build finishes.
+            state = health_build.get("state") or state
+        transition_eligible, ineligible_reason = completed_build_eligibility(
+            {**build, "state": state, "amd_complete": amd_complete}
+        )
         has_test_results = bool(
             health_build.get("has_test_results")
             if "has_test_results" in health_build
@@ -586,7 +595,13 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
             "number": build_number,
             "source_pipeline": pipeline,
             "created_at": build.get("created_at") or "",
-            "state": build.get("state") or "unknown",
+            "state": state,
+            "source_state": (
+                health_build.get("source_state") or build.get("source_state") or build.get("state") or "unknown"
+            ),
+            "amd_complete": amd_complete,
+            "non_amd_jobs_active": int(health_build.get("non_amd_jobs_active") or 0) if amd_complete else 0,
+            "active_retry": health_build.get("active_retry") is True,
             "url": _build_url(pipeline, build),
             "commit": build.get("commit") or build.get("commit_sha") or "",
             "message": build.get("message") or "",
@@ -4055,6 +4070,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         ci_analytics,
         _load_json(data_dir / MAIN_FAILURE_STATE_NAME),
         generated_at or _utc_now(),
+        duration_state=_load_json(data_dir / DURATION_STATE_NAME),
     )
     test_group_parity = loaded.get("test_group_parity") or {}
     if test_group_parity:

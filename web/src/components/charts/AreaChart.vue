@@ -8,6 +8,7 @@ import { ChartContainer, ChartCrosshair, ChartTooltip } from '@/components/ui/ch
 import { CHART_GAP } from '@/lib/palette'
 import { cn } from '@/lib/utils'
 import {
+  CLICKABLE_MARKS,
   chartConfig,
   niceTicks,
   plainNumber,
@@ -112,8 +113,9 @@ const inspectInLegend = computed(() => !!props.onSelect && props.inspectPlacemen
 const legendItems = computed(() => [...props.series, ...(props.bars?.series ?? [])])
 
 // With companion bars both plots share fixed margins and an x domain padded by half a step,
-// so every bar sits exactly under its point on the area.
-const SHARED_MARGIN = { left: 44, right: 12 }
+// so every bar sits exactly under its point on the area. The right margin holds half of the
+// last date label, which sits under the last bar.
+const SHARED_MARGIN = { left: 44, right: 24 }
 const xDomain = computed<[number, number] | undefined>(() => {
   if (!props.bars) return undefined
   const xs = visible.value.map(xValue)
@@ -209,7 +211,7 @@ const barTriggers = { [StackedBar.selectors.bar]: (d: { datum: T }) => bar.toolt
       <SegmentedSelect v-if="ranges?.length" v-model="rangeModel" :items="rangeItems" :label="`${label} range`" :show-label="false" class="w-36 sm:w-auto" />
       <ChartInspect v-if="inspectTop" :items="inspectItems(visible)" :label="label" @select="(i) => select(visible[i])" />
     </div>
-    <div ref="host" role="img" :aria-label="label" :class="onSelect && 'cursor-pointer [&_svg_*]:cursor-pointer'" @click="openHovered">
+    <div ref="host" role="img" :aria-label="label" :class="onSelect && CLICKABLE_MARKS" :data-clickable="onSelect ? '' : undefined" data-slot="area-plot" @click="openHovered">
       <ChartContainer :config="chartConfig(series)" :class="cn('aspect-auto h-[250px] w-full', props.class)" cursor>
         <VisXYContainer
           :data="plotted"
@@ -279,7 +281,8 @@ const barTriggers = { [StackedBar.selectors.bar]: (d: { datum: T }) => bar.toolt
       v-if="bars"
       role="img"
       :aria-label="bars.label"
-      :class="cn('mt-1 border-t border-dashed pt-2', onSelect && '[&_[data-vis-xy-container]_path]:cursor-pointer')"
+      :class="cn('mt-1 border-t border-dashed pt-2', onSelect && CLICKABLE_MARKS)"
+      :data-clickable="onSelect ? '' : undefined"
       data-slot="area-chart-bars"
     >
       <ChartContainer :config="chartConfig(bars.series)" class="aspect-auto h-[120px] w-full">

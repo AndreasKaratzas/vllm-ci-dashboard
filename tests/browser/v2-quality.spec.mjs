@@ -8,6 +8,10 @@ const ROUTES = [
   '/#/',
   '/#/?work=prs',
   '/#/?range=7',
+  '/#/main',
+  '/#/main?window=24h',
+  '/#/main?view=incidents',
+  '/#/main?view=flaky',
   '/#/health',
   '/#/health?view=parity',
   '/#/health?view=coverage',
@@ -47,3 +51,25 @@ for (const theme of ['light', 'dark']) {
     }
   }
 }
+
+// Tables on these routes fit a phone: secondary columns hide below sm instead of scrolling.
+test('phone tables show every visible column without sideways scrolling', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const [route, ids] of [
+    ['/#/', ['nightly-table']],
+    ['/#/main', ['main-builds', 'main-incidents-panel', 'main-flaky-panel']],
+    ['/#/main?view=incidents', ['main-incidents', 'main-pending', 'main-timeline']],
+    ['/#/main?view=flaky', ['main-flaky', 'main-retry']],
+    ['/#/analytics', ['priority']],
+    ['/#/analytics?view=latency', ['latency-table']],
+    ['/#/analytics?view=nightlies', ['nightlies-table']],
+  ]) {
+    await page.goto(route);
+    for (const id of ids) {
+      const tables = page.getByTestId(id).locator('table');
+      await expect(tables.locator('tbody tr').first()).toBeVisible();
+      const overflow = await tables.evaluateAll((nodes) => nodes.map((node) => node.parentElement.scrollWidth - node.parentElement.clientWidth));
+      expect(Math.max(...overflow), `${id} on ${route} scrolls sideways`).toBeLessThanOrEqual(0);
+    }
+  }
+});

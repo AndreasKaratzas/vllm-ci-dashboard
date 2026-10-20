@@ -50,6 +50,8 @@ const severity = computed<Tone>(() => (hard.value ? 'hard' : soft.value ? 'soft'
 const history = computed(() => jobVariantHistory(ops.value?.amd_test_health))
 const logicalTrend = computed(() => logicalHealthHistory(nightlies.value).map((p) => p.rate))
 const failureTrend = computed(() => kpiTrend(history.value.map((p) => p.hard + p.soft), 'down'))
+const passRateTrend = computed(() => kpiTrend(history.value.map((p) => (p.passed / p.observed) * 100), 'up', ' pts'))
+const latestVariants = computed(() => history.value.find((p) => p.number === Number(latestBuild.value)))
 const variantTrend = computed(() => kpiTrend(history.value.map((p) => p.observed)))
 const strip = computed(() => Object.fromEntries(model.value.strip.map((item) => [item.id, item])))
 const logicalPassing = computed(() => Number(counts.value.passing || 0))
@@ -106,6 +108,8 @@ const failureColumns = computed(() => exactJobCatalogColumns(latestBuild.value))
             label="Latest AMD nightly"
             :value="latestBuild ? `#${latestBuild}` : null"
             :status="{ tone: severity }"
+            :spark="passRateTrend.spark"
+            :headline="latestVariants ? `${integer(latestVariants.passed)} of ${integer(latestVariants.observed)} job variants passed` : undefined"
             :footnote="shortDate(summary.latest_observed_at)"
             :action="{ label: 'Inspect nightly evidence', onOpen: openLatest }"
             data-testid="kpi-amd-health-build"

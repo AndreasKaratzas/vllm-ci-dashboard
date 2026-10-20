@@ -9,7 +9,7 @@ import Heatmap from '@/components/charts/Heatmap.vue'
 import ProportionBar from '@/components/charts/ProportionBar.vue'
 import Timeline from '@/components/charts/Timeline.vue'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
-import { barValueTicks, distinctTicks, niceTicks, shortDay, timeTicks, useSeriesInteraction } from '@/components/charts/chart'
+import { CLICKABLE_MARKS, barValueTicks, distinctTicks, niceTicks, ratePercent, shortDay, timeTicks, useSeriesInteraction } from '@/components/charts/chart'
 import { useDragRange } from '@/components/charts/dragRange'
 import { escapeHtml, tooltipHtml } from '@/components/charts/tooltip'
 import { SERIES, statusVar } from '@/lib/palette'
@@ -49,6 +49,12 @@ async function inspect(entry: number) {
   await settle()
   return items.map((item) => text(item))
 }
+
+describe('ratePercent', () => {
+  it('labels pass-rate axes with one decimal at most', () => {
+    expect([100, 99.5, 93.333, 90].map(ratePercent)).toEqual(['100%', '99.5%', '93.3%', '90%'])
+  })
+})
 
 describe('tooltip', () => {
   it('escapes every value it renders', () => {
@@ -127,6 +133,27 @@ describe('useSeriesInteraction', () => {
     chart.track(undefined, undefined)
     chart.selectHovered()
     expect(picked).toEqual([1])
+  })
+})
+
+describe('clickable charts', () => {
+  it('set the Unovis cursor variables on every clickable plot', () => {
+    expect(CLICKABLE_MARKS.split(' ')).toEqual(
+      expect.arrayContaining(['[--vis-area-cursor:pointer]', '[--vis-line-cursor:pointer]', '[--vis-plotband-cursor:pointer]', '[--vis-stacked-bar-cursor:pointer]']),
+    )
+    const bars = { label: 'Failures', series: failures }
+    const clickable = mount(AreaChart<Row>, { props: { rows, x: (r: Row) => r.day, series: rate, bars, label: 'Rate', onSelect: () => {} } })
+    for (const slot of ['area-plot', 'area-chart-bars']) {
+      const plot = clickable.find(`[data-slot=${slot}]`)
+      expect(plot.attributes('data-clickable')).toBe('')
+      expect(plot.classes()).toEqual(expect.arrayContaining(CLICKABLE_MARKS.split(' ')))
+    }
+    const line = mount(LineChart<Row>, { props: { rows, x: (r: Row) => r.day, series: rate, label: 'Rate', onSelect: () => {} } })
+    expect(line.find('[data-slot=line-plot]').classes()).toContain('[--vis-line-cursor:pointer]')
+    const still = mount(AreaChart<Row>, { props: { rows, x: (r: Row) => r.day, series: rate, label: 'Rate' } })
+    expect(still.find('[data-slot=area-plot]').attributes('data-clickable')).toBeUndefined()
+    expect(still.find('[data-slot=area-plot]').classes()).not.toContain('cursor-pointer')
+    for (const wrapper of [clickable, line, still]) wrapper.unmount()
   })
 })
 

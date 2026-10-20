@@ -3,13 +3,17 @@ import { expect } from '@playwright/test';
 
 // Quality gates every page must pass: no page errors or console errors and
 // warnings, a pointer cursor on every visible clickable control (clickable
-// table rows and chart bars included), no horizontal page overflow, and
+// table rows and chart marks included), no horizontal page overflow, and
 // no serious or critical accessibility violations in the current theme.
 
 const CLICKABLE = [
   'button:not(:disabled), [role="tab"], [role="button"], [role="option"], [role="menuitem"], a[href], summary, select',
   'tr[data-clickable] td',
   '[data-slot="bar-plot"][data-clickable] path[class*="-bar"]',
+  '[data-slot="area-chart-bars"][data-clickable] path[class*="-bar"]',
+  '[data-slot="area-plot"][data-clickable] path[class*="-area"]',
+  '[data-slot="area-plot"][data-clickable] rect[class*="-plotband"]',
+  '[data-slot="line-plot"][data-clickable] path[class*="-line"]',
 ].join(', ');
 
 export function collectErrors(page) {

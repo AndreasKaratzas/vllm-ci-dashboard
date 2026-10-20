@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import Donut, { type DonutSlice } from '@/components/charts/Donut.vue'
 import ProportionBar, { type ProportionSegment } from '@/components/charts/ProportionBar.vue'
-import Callout from '@/components/feedback/Callout.vue'
 import KpiCard from '@/components/stat/KpiCard.vue'
 import Sparkline from '@/components/stat/Sparkline.vue'
 import StatGrid from '@/components/stat/StatGrid.vue'
@@ -22,13 +21,15 @@ import {
   sortLogicalRows,
 } from '@/domain/ciHealth'
 import { amdHealthModel } from '@/domain/analytics'
-import { integer, value, type Rec } from '@/domain/format'
+import { integer, rateText, value, type Rec } from '@/domain/format'
 import { currentAmdHealth, hardwareDisplayLabel } from '@/domain/health'
 import { amdMirrorInventoryView, amdMirrorSummary } from '@/domain/mirrors'
-import { amdNightlyPresentation, latestAmd, nightlyFailureCount } from '@/domain/nightly'
+import { latestAmd, nightlyCountLabel, nightlyFailureCount, pendingNightly } from '@/domain/nightly'
 import { exactJobCatalogDetail, exactJobColumns, exactJobDetail, logicalCatalogDetail, type AmdGroupContext } from '@/features/amd-groups/details'
+import MainCiSignal from '@/features/main-ci/MainCiSignal.vue'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
-import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
+import PendingNightlyCallout from '@/features/nightly/PendingNightlyCallout.vue'
+import { buildEvidenceDetail, pendingEvidenceDetail } from '@/features/nightly/buildEvidence'
 import { hardwareColor, statusVar } from '@/lib/palette'
 
 const props = defineProps<{ ops: Rec; sheets: SheetStack }>()
@@ -41,7 +42,7 @@ const latestBuild = computed(() => summary.value.latest_build_number)
 const counts = computed<Rec>(() => summary.value.latest_test_group_counts || {})
 const logical = computed(() => logicalTestGroupPresentation(counts.value))
 const logicalRows = computed<Rec[]>(() => amdLogicalInventory(props.ops.amd_test_health).rows || [])
-const nightly = computed(() => amdNightlyPresentation((amd.value.builds || [])[0] || {}, summary.value, props.ops.generated_at))
+const pending = computed(() => pendingNightly(amd.value.builds))
 const context = computed<AmdGroupContext>(() => ({ amdHealth: props.ops.amd_test_health, latestBuild: latestBuild.value }))
 
 // Logical health: the ring plus its trend over retained nightlies.
@@ -136,11 +137,8 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
 
 <template>
   <div class="flex flex-col gap-4 md:gap-6">
-    <Callout v-if="!nightly.hasSignal" tone="soft" title="Latest nightly has no test signal">
-      Lists and charts use the latest observed main CI AMD test signal
-      <a v-if="summary.latest_build_url" :href="summary.latest_build_url" target="_blank" rel="noopener">#{{ latestBuild }}</a>
-      <span v-else>#{{ value(latestBuild) }}</span>.
-    </Callout>
+    <MainCiSignal />
+    <PendingNightlyCallout v-if="pending" :pending="pending" :on-open="() => sheets.open(pendingEvidenceDetail(pending!))" />
 
     <StatGrid :cols="4">
       <KpiCard
@@ -157,11 +155,11 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
       <KpiCard
         label="Exact job pass rate"
         :value="latestVariants && latestVariants.observed ? (latestVariants.passed / latestVariants.observed) * 100 : null"
-        :format="(v: number) => `${v.toFixed(1)}%`"
+        :format="rateText"
         :spark="variantRate"
         :delta="lastDelta(variantRate, 'up', { unit: ' pts' })"
         :headline="latestVariants ? `${integer(latestVariants.passed)} of ${integer(latestVariants.observed)} job variants passed` : undefined"
-        :footnote="`Across the ${integer(variants.length)} nightlies in the AMD test-health history`"
+        :footnote="`Across ${nightlyCountLabel(variants.length, 'jobs')}`"
         :action="{ label: 'Inspect latest job variants', onOpen: () => sheets.open(exactJobCatalogDetail(amdHealthModel(health).catalogs.variants, latestBuild)) }"
         data-testid="kpi-job-rate"
       />
@@ -200,7 +198,7 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
         <CardHeader>
           <CardTitle as="h2">Nightly failure movement</CardTitle>
           <CardDescription>
-            {{ movement.length }} nightlies compared with their predecessor · {{ movementTotals[0] }} new, {{ movementTotals[1] }} recurring,
+            {{ nightlyCountLabel(movement.length, 'builds') }} compared with their predecessor · {{ movementTotals[0] }} new, {{ movementTotals[1] }} recurring,
             {{ movementTotals[2] }} fixed · fixes are drawn below zero
           </CardDescription>
         </CardHeader>
@@ -238,7 +236,7 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
               <h3 class="text-sm font-medium">Logical pass rate across nightlies</h3>
               <span class="text-xs text-muted-foreground tabular-nums">{{ logicalTrend[0]!.toFixed(1) }}% → {{ logicalTrend.at(-1)!.toFixed(1) }}%</span>
             </div>
-            <Sparkline :values="logicalTrend" :label="`Logical pass rate over ${logicalTrend.length} retained nightlies`" />
+            <Sparkline :values="logicalTrend" :label="`Logical pass rate over ${nightlyCountLabel(logicalTrend.length, 'builds')}`" />
           </div>
         </CardContent>
       </Card>

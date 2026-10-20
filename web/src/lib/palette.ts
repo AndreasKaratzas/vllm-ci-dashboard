@@ -78,12 +78,23 @@ export function hardwareColor(label: unknown): PaletteColor {
   return family ? token(`hw-${family.toLowerCase()}`) : SERIES.muted
 }
 
+/** The pass-rate bands every page shares: pass at or above `pass` percent, soft at or above `soft`, hard below. */
+export const RATE_THRESHOLDS = { pass: 99, soft: 95 } as const
+
 /** Pass at >= 99 %, soft at >= 95 %, hard below; a missing rate is neutral. */
 export function rateTone(percent: number | null | undefined): Tone {
   if (percent === null || percent === undefined || !Number.isFinite(percent)) return 'neutral'
-  if (percent >= 99) return 'pass'
-  if (percent >= 95) return 'soft'
+  if (percent >= RATE_THRESHOLDS.pass) return 'pass'
+  if (percent >= RATE_THRESHOLDS.soft) return 'soft'
   return 'hard'
+}
+
+/** The tone of a rate with the band it falls in ("Below 95%"); pass and a missing rate are quiet, so undefined. */
+export function rateStatus(percent: number | null | undefined): { tone: Tone; label: string } | undefined {
+  const tone = rateTone(percent)
+  if (tone === 'hard') return { tone, label: `Below ${RATE_THRESHOLDS.soft}%` }
+  if (tone === 'soft') return { tone, label: `Below ${RATE_THRESHOLDS.pass}%` }
+  return undefined
 }
 
 export type TonePart = 'badge' | 'text' | 'icon' | 'fill' | 'stroke' | 'surface'

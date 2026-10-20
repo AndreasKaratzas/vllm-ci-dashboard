@@ -4,7 +4,7 @@ import { VisAxis, VisGroupedBar, VisStackedBar, VisTooltip, VisXYContainer } fro
 import { computed, ref } from 'vue'
 import { ChartContainer } from '@/components/ui/chart'
 import { cn } from '@/lib/utils'
-import { barValueTicks, chartConfig, niceTicks, plainNumber, seriesValue, thinTicks, useSeriesInteraction, useTickCount, type ChartRow, type SeriesSpec } from './chart'
+import { CLICKABLE_MARKS, barValueTicks, chartConfig, niceTicks, plainNumber, seriesValue, thinTicks, useSeriesInteraction, useTickCount, type ChartRow, type SeriesSpec } from './chart'
 import ChartInspect from './ChartInspect.vue'
 import Legend from './Legend.vue'
 
@@ -94,7 +94,7 @@ const triggers = computed(() => ({ [barSelector.value]: (d: Indexed | { datum: I
       :aria-label="label"
       :data-clickable="onSelect ? '' : undefined"
       data-slot="bar-plot"
-      :class="onSelect && '[--vis-grouped-bar-cursor:pointer] [--vis-grouped-bar-hover-stroke-color:var(--foreground)] [--vis-grouped-bar-hover-stroke-width:1.5px] [--vis-stacked-bar-cursor:pointer] [--vis-stacked-bar-hover-stroke-color:var(--foreground)] [--vis-stacked-bar-hover-stroke-width:1.5px]'"
+      :class="onSelect && [CLICKABLE_MARKS, '[--vis-grouped-bar-hover-stroke-color:var(--foreground)] [--vis-grouped-bar-hover-stroke-width:1.5px] [--vis-stacked-bar-hover-stroke-color:var(--foreground)] [--vis-stacked-bar-hover-stroke-width:1.5px]']"
     >
       <ChartContainer :config="chartConfig(series)" :class="cn('aspect-auto w-full', !horizontal && 'h-[250px]', props.class)" :style="{ height }">
         <VisXYContainer

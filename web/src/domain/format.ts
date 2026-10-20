@@ -19,6 +19,16 @@ export function percent(num: unknown, den: unknown, digits = 1): string {
   return ((Number(num) / Number(den)) * 100).toFixed(digits) + '%'
 }
 
+/** A percentage with one decimal ("93.3%"), or a dash when there is none. */
+export function rateText(percent: number | null | undefined): string {
+  return percent === null || percent === undefined || !Number.isFinite(percent) ? '—' : `${percent.toFixed(1)}%`
+}
+
+/** "1 event", "3 events". */
+export function counted(count: number, singular: string, plural = `${singular}s`): string {
+  return `${integer(count)} ${count === 1 ? singular : plural}`
+}
+
 export function duration(minutes: unknown): string {
   if (minutes === null || minutes === undefined || minutes === '') return '-'
   if (!Number.isFinite(Number(minutes))) return '-'
@@ -77,4 +87,15 @@ export function observedCountLabel(count: unknown, semantics: string): string {
   const rendered = integer(count)
   if (rendered === '-') return rendered
   return semantics === 'lower_bound' ? '≥' + rendered : rendered
+}
+
+/** A published machine word as a phrase: "soft_confirmed" -> "Soft confirmed"; '' stays ''. */
+export function sentence(value: unknown): string {
+  const text = String(value || '').replace(/_/g, ' ').trim()
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+/** A published machine reason as a sentence: "strict_all_main_reliability_unavailable" -> "Strict all main reliability unavailable". */
+export function reasonText(reason: unknown): string {
+  return sentence(reason) || 'Unavailable'
 }
