@@ -59,8 +59,10 @@ export const ATTRIBUTION_REASON: Record<string, string> = {
   job_never_started: 'The job’s containers never started, on this node alone.',
   start_failure_burst: 'Jobs’ containers never started on three or more nodes within half an hour.',
   build_wide: 'The same build failed on four or more other nodes, and the step never passed.',
-  build_wide_transient: 'The same build failed on four or more other nodes, and the step passed on a retry: a passing outage.',
+  build_wide_transient: 'The same build failed broadly, and the step passed on a retry: a passing outage.',
+  upstream_build_wide: 'Many of the same build’s CUDA jobs failed too: the commit is broken on every accelerator.',
   failed_on_retry_elsewhere: 'The automatic retry failed on another node too.',
+  upstream_mirror_failed: 'The CUDA job this AMD job mirrors failed on the same commit, and the AMD job never passed.',
   group_fails_elsewhere: 'The test group also failed on other nodes within a day.',
   group_not_passing_elsewhere: 'The test group passed on no other node within a day.',
   node_repeats: 'Unexplained failures of two or more test groups on this node within three days.',
@@ -423,6 +425,8 @@ export interface AgentModel {
 /** The collector's published attribution thresholds (see AgentAbout). */
 export interface AttributionRules {
   buildWideOtherNodes: number
+  upstreamSharePct: number
+  upstreamMinJobs: number
   outlierFailures: number
   recurrenceHours: number
   repeatHours: number
@@ -434,8 +438,12 @@ export interface AttributionRules {
 function attributionRules(raw: unknown): AttributionRules {
   const rules = (raw && typeof raw === 'object' ? raw : {}) as Rec
   const count = (value: unknown, fallback: number) => (Number.isSafeInteger(value) && (value as number) > 0 ? (value as number) : fallback)
+  const share = (value: unknown, fallback: number) =>
+    typeof value === 'number' && value > 0 && value <= 1 ? Math.round(value * 100) : fallback
   return {
     buildWideOtherNodes: count(rules.build_wide_min_other_nodes, 4),
+    upstreamSharePct: share(rules.upstream_build_wide_min_share, 30),
+    upstreamMinJobs: count(rules.upstream_min_jobs, 20),
     outlierFailures: count(rules.outlier_min_failures, 3),
     recurrenceHours: count(rules.recurrence_window_hours, 24),
     repeatHours: count(rules.node_repeat_window_hours, 72),

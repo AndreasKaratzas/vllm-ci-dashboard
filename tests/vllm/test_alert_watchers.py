@@ -1358,6 +1358,8 @@ def test_agent_health_issue_body_links_each_exact_buildkite_attempt():
     assert "ops_agent_node=gpu-chi-1" in body
     assert "at least two failing attempts attributed to the node" in body
     assert "Of 3 failing attempts in the window, 2 are attributed to a node, 1 to build-wide breakage" in body
+    assert "30% or more of the build's CUDA jobs failed too" in body
+    assert "the CUDA job it mirrors failed on the same commit while the AMD job never passed" in body
     assert "node (different groups fail only on this node)" in body
     assert "node (agent lost mid-job)" in body
     assert "every terminal ci/main attempt" in body

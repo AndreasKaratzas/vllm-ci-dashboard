@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   AGENT_ATTRIBUTIONS,
+  ATTRIBUTION_REASON,
   accountingSignal,
   agentAttribution,
   agentAttributionBreakdown,
@@ -247,6 +248,14 @@ describe('agentFleetVerdict', () => {
 })
 
 describe('failure attribution', () => {
+  it('reads the published rules, including the share of CUDA jobs that makes a build broken', () => {
+    const rules = (raw: unknown) => agentHealthModel({ ...fixture, attribution_rules: raw }).rules
+    expect(rules({ upstream_build_wide_min_share: 0.3, upstream_min_jobs: 20 })).toMatchObject({ upstreamSharePct: 30, upstreamMinJobs: 20 })
+    expect(rules({ upstream_build_wide_min_share: 0.45, upstream_min_jobs: 50 })).toMatchObject({ upstreamSharePct: 45, upstreamMinJobs: 50 })
+    expect(rules({ upstream_build_wide_min_share: 3, upstream_min_jobs: -1 })).toMatchObject({ upstreamSharePct: 30, upstreamMinJobs: 20 })
+    expect(Object.keys(ATTRIBUTION_REASON)).toEqual(expect.arrayContaining(['upstream_build_wide', 'upstream_mirror_failed']))
+  })
+
   it('reads each run’s attribution and keeps unknown values unexplained', () => {
     const { model } = series({ window: '14d' })
     expect(model.failing.every((run) => AGENT_ATTRIBUTIONS.includes(run.attribution))).toBe(true)

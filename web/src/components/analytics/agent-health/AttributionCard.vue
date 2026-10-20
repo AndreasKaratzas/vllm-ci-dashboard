@@ -32,8 +32,8 @@ const summary = computed(() => {
 const RULES: [string, string[]][] = [
   ['Node', ['agent_lost', 'node_repeats']],
   ['Unexplained', ['isolated', 'job_never_started']],
-  ['Build-wide', ['build_wide']],
-  ['Test or code', ['failed_on_retry_elsewhere', 'group_fails_elsewhere', 'group_not_passing_elsewhere']],
+  ['Build-wide', ['upstream_build_wide', 'build_wide']],
+  ['Test or code', ['failed_on_retry_elsewhere', 'upstream_mirror_failed', 'group_fails_elsewhere', 'group_not_passing_elsewhere']],
   ['Shared infrastructure', ['agent_loss_burst', 'start_failure_burst', 'build_wide_transient']],
 ]
 </script>

@@ -77,7 +77,7 @@ from vllm.ci.analytics_cache import (
 )
 from vllm.ci.log_parser import node_from_agent
 from vllm.constants import AGENT_HEALTH_NODE_SUSPECT, amd_gpu_hardware
-from vllm.pipelines import _job_queue, is_cpu_only_job
+from vllm.pipelines import _job_queue, is_cpu_only_job, is_upstream_cuda_ci_job
 from vllm.dashboard_storage_budget import writer_max_bytes
 from vllm.pipelines import (
     BK_ORG as VLLM_ORG,
@@ -126,6 +126,14 @@ OUTLIER_MIN_FAILURES = 3
 OUTLIER_MIN_FAILURE_RATE = 0.75
 OUTLIER_MAX_PEER_FAILURE_RATE = 0.10
 OUTLIER_MIN_PEERS = 10
+# CUDA jobs run the same commit in the same build. When this share of its (at
+# least UPSTREAM_MIN_JOBS) final CUDA attempts failed, the commit is broken for
+# every accelerator and the AMD failures beside it are not the nodes' fault.
+UPSTREAM_MIN_JOBS = 20
+UPSTREAM_BUILD_WIDE_MIN_SHARE = 0.3
+# An inline AMD mirror's step key is the upstream key with this prefix
+# (vllm.main_ci_definitions.amd_source_steps).
+AMD_MIRROR_KEY_PREFIX = "amd-"
 # A test group failing on another node within this window is a test or code
 # problem, not a property of the node.
 RECURRENCE_WINDOW = timedelta(hours=24)
@@ -253,6 +261,8 @@ def _observe(slug: str, build: dict, job: dict, nightly_re: re.Pattern | None) -
         "is_main": is_main,
         "day": day,
         "group": str(job.get("name") or "").strip(),
+        "step_key": str(job.get("step_key") or ""),
+        "commit": str(build.get("commit") or ""),
         "state": state,
         "build_canceled": build_canceled,
         "build_number": build.get("number"),
@@ -266,6 +276,26 @@ def _observe(slug: str, build: dict, job: dict, nightly_re: re.Pattern | None) -
         "started_at": started,
         "finished_at": str(job.get("finished_at") or "").strip(),
     }
+
+
+def _upstream_context(build: dict) -> dict:
+    """Summarize the CUDA jobs of one build for the AMD failures beside them.
+
+    ``jobs``/``failed`` count final executed attempts; ``failed_steps`` holds
+    the step keys with any failing attempt.
+    """
+    jobs = failed = 0
+    failed_steps = set()
+    for job in build.get("jobs") or []:
+        if not is_upstream_cuda_ci_job(job) or _is_non_execution_job(job) or not job.get("started_at"):
+            continue
+        state = _run_state(job)
+        if state in ("hard", "soft") and job.get("step_key"):
+            failed_steps.add(str(job["step_key"]))
+        if state in ("pass", "soft", "hard") and not (job.get("retried") or job.get("retried_in_job_id")):
+            jobs += 1
+            failed += state == "hard"
+    return {"jobs": jobs, "failed": failed, "failed_steps": frozenset(failed_steps)}
 
 
 def _incremental_slices(
@@ -709,6 +739,7 @@ def _fetch_pipeline_observations(
                         _SOURCE_SCOPE_INDEXES.clear()
                         _SOURCE_SCOPE_INDEXES.update(retained)
         observations = []
+        upstream = _upstream_context(build)
         build_created = _aware_timestamp(build.get("created_at"))
         if day_basis == "build-created" and (
             build_created is None or not created_from <= build_created < query_time
@@ -724,6 +755,7 @@ def _fetch_pipeline_observations(
                 if day_basis == "build-created":
                     assert build_created is not None
                     row["day"] = build_created.strftime("%Y-%m-%d")
+                row["upstream"] = upstream
                 observations.append(row)
         return {"number": build["number"], "created_at": build["created_at"], "observations": observations}
 
@@ -784,18 +816,26 @@ def _attribute_failures(obs: list[dict]) -> None:
       within BURST_WINDOW. Otherwise a lost agent is node/medium and a job that
       never started is unexplained, and all of a node's jobs that never started
       count as one test group toward ``node_repeats``.
+    - ``upstream_build_wide``: at least UPSTREAM_BUILD_WIDE_MIN_SHARE of the
+      build's (at least UPSTREAM_MIN_JOBS) final CUDA attempts failed, so the
+      commit is broken on every accelerator. Build/high.
     - ``build_wide``: the build's BUILD_WIDE_MIN_FAILING_STEPS or more failing
       steps span BUILD_WIDE_MIN_OTHER_NODES nodes besides this one; one node
-      cannot cause that. Build/high, or
-      infra/medium ``build_wide_transient`` when the step passed on a retry
-      (an outage such as a Hugging Face Hub error, not a code regression).
-      Never applies to the build's outlier nodes, which fail at least
-      OUTLIER_MIN_FAILURES and OUTLIER_MIN_FAILURE_RATE of their jobs in the
-      build while at most OUTLIER_MAX_PEER_FAILURE_RATE of the (at least
-      OUTLIER_MIN_PEERS) jobs running beside them on other nodes fail. Their
-      test groups failing elsewhere does not explain them either.
+      cannot cause that. Build/high.
+      Either is infra/medium ``build_wide_transient`` when the step passed on
+      a retry (an outage such as a Hugging Face Hub error, not a code
+      regression). Neither applies to the build's outlier nodes, which fail
+      at least OUTLIER_MIN_FAILURES and OUTLIER_MIN_FAILURE_RATE of their
+      jobs in the build while at most OUTLIER_MAX_PEER_FAILURE_RATE of the
+      (at least OUTLIER_MIN_PEERS) jobs running beside them on other nodes
+      fail. Their test groups failing elsewhere or on CUDA does not explain
+      them either.
     - test/high ``failed_on_retry_elsewhere``: another attempt of the same step
       failed on a different node.
+    - test/high ``upstream_mirror_failed``: the CUDA step this AMD step mirrors
+      failed in the same build or in another collected build of the same
+      commit, and the AMD step never passed (a pass on a retry points back
+      at the node).
     - test ``group_fails_elsewhere``: the test group failed on another node in
       another build within RECURRENCE_WINDOW (high with two or more nodes).
     - test/medium ``group_not_passing_elsewhere``: the group did not pass on any
@@ -868,6 +908,25 @@ def _attribute_failures(obs: list[dict]) -> None:
 
     build_outliers = {build: outliers(build) for build in build_nodes}
 
+    def upstream_broken(row: dict) -> bool:
+        context = row.get("upstream") or {}
+        jobs = context.get("jobs", 0)
+        return jobs >= UPSTREAM_MIN_JOBS and context.get("failed", 0) >= UPSTREAM_BUILD_WIDE_MIN_SHARE * jobs
+
+    commit_failed_steps: dict[str, set] = defaultdict(set)
+    for r in obs:
+        if r.get("commit") and r.get("upstream"):
+            commit_failed_steps[r["commit"]].update(r["upstream"]["failed_steps"])
+
+    def mirror_failed(row: dict) -> bool:
+        key = row.get("step_key") or ""
+        if not key.startswith(AMD_MIRROR_KEY_PREFIX):
+            return False
+        mirror = key[len(AMD_MIRROR_KEY_PREFIX):]
+        return mirror in (row.get("upstream") or {}).get("failed_steps", ()) or (
+            mirror in commit_failed_steps.get(row.get("commit") or "", ())
+        )
+
     def near(rows: list[dict], row: dict, window: timedelta) -> list[dict]:
         at = started[id(row)]
         return [other for other in rows if abs(started[id(other)] - at) <= window]
@@ -895,15 +954,19 @@ def _attribute_failures(obs: list[dict]) -> None:
                 ("infra", "high", "start_failure_burst") if burst(never_started, r)
                 else ("unknown", "low", "job_never_started")
             )
-        elif not outlier and len(build_steps[build]) >= BUILD_WIDE_MIN_FAILING_STEPS and (
-            len(build_nodes[build] - {r["node"]}) >= BUILD_WIDE_MIN_OTHER_NODES
-        ):
+        elif not outlier and (upstream_broken(r) or (
+            len(build_steps[build]) >= BUILD_WIDE_MIN_FAILING_STEPS
+            and len(build_nodes[build] - {r["node"]}) >= BUILD_WIDE_MIN_OTHER_NODES
+        )):
             verdict = (
                 ("infra", "medium", "build_wide_transient") if step(r) in passed_steps
+                else ("build", "high", "upstream_build_wide") if upstream_broken(r)
                 else ("build", "high", "build_wide")
             )
         elif any(other["node"] != r["node"] for other in step_failures[step(r)]):
             verdict = ("test", "high", "failed_on_retry_elsewhere")
+        elif not outlier and step(r) not in passed_steps and mirror_failed(r):
+            verdict = ("test", "high", "upstream_mirror_failed")
         elif not outlier and elsewhere:
             verdict = ("test", "high" if len(elsewhere) >= 2 else "medium", "group_fails_elsewhere")
         elif not outlier and not any(
@@ -1248,6 +1311,8 @@ def _assemble(
             "build_wide_min_failing_steps": BUILD_WIDE_MIN_FAILING_STEPS,
             "build_wide_min_other_nodes": BUILD_WIDE_MIN_OTHER_NODES,
             "outlier_min_failures": OUTLIER_MIN_FAILURES,
+            "upstream_min_jobs": UPSTREAM_MIN_JOBS,
+            "upstream_build_wide_min_share": UPSTREAM_BUILD_WIDE_MIN_SHARE,
             "recurrence_window_hours": int(RECURRENCE_WINDOW.total_seconds() // 3600),
             "node_repeat_window_hours": int(NODE_REPEAT_WINDOW.total_seconds() // 3600),
             "node_repeat_min_groups": NODE_REPEAT_MIN_GROUPS,
