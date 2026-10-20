@@ -62,6 +62,12 @@ from vllm.pipelines import is_amd_ci_job, is_cpu_only_job  # noqa: E402
 from vllm.ci.nightly_latency import (  # noqa: E402
     build_current_nightly_latency, project_public_nightly_latency,
 )
+from vllm.publication_surfaces import (  # noqa: E402
+    MANIFEST_SOURCE_SURFACES,
+    PUBLICATION_SURFACE_LABELS,
+    UNAVAILABLE_SOURCE_REASON,
+    declared_unavailable_surfaces,
+)
 from vllm.queue_section_projection import compact_queue_section  # noqa: E402
 from vllm.reviewed_definition_labels import resolve_reviewed_definition_labels  # noqa: E402
 
@@ -219,6 +225,36 @@ def _load_json(path: Path) -> dict:
     except (json.JSONDecodeError, OSError, UnicodeError):
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def _unavailable_publication(data_dir: Path) -> list[dict]:
+    """Surfaces the publication selector declared unavailable, with their sources.
+
+    This couples every Operations build to the selector's publication_state.json
+    in the same data directory: a build without it (a preview or local run)
+    declares nothing. A malformed declaration also publishes nothing here; the
+    dashboard audit rejects that publication state as a global failure.
+    """
+    state = _load_json(data_dir / "publication_state.json")
+    try:
+        surfaces = declared_unavailable_surfaces(state)
+    except ValueError:
+        return []
+    rows = []
+    for surface in sorted(surfaces):
+        reason = state["unavailable_reasons"].get(surface)
+        reason = reason if isinstance(reason, dict) else {}
+        rows.append({
+            "surface": surface,
+            "label": PUBLICATION_SURFACE_LABELS.get(surface, surface),
+            "since": state["unavailable_since"].get(surface),
+            "reason": reason.get("reason"),
+            "codes": list(reason.get("codes") or []),
+            "sources": sorted(
+                name for name, owner in MANIFEST_SOURCE_SURFACES.items() if owner == surface
+            ),
+        })
+    return rows
 
 
 def _is_current_queue_snapshot(row: Any) -> bool:
@@ -4170,6 +4206,15 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     }
     if main_ci.get("unavailable_reason"):
         sources["main_ci"]["unavailable_reason"] = main_ci["unavailable_reason"]
+    # A surface whose candidate and last-known-good data both failed the audit
+    # has no trustworthy collection time; its sources say so explicitly.
+    unavailable = _unavailable_publication(data_dir)
+    for row in unavailable:
+        for name in row["sources"]:
+            if name in sources:
+                sources[name]["timestamp"] = None
+                sources[name]["unavailable_reason"] = UNAVAILABLE_SOURCE_REASON
+    publication = {"publication": {"unavailable": unavailable}} if unavailable else {}
 
     return {
         "schema_version": 2,
@@ -4189,7 +4234,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         "ownership": ownership,
         "queue": queue,
         "omni": omni,
-    }
+    } | publication
 
 
 def _compact_nightly(nightly: dict, build_limit: int | None = None) -> dict:
@@ -4476,7 +4521,7 @@ def _operations_shell(payload: dict) -> dict:
     return {
         key: payload.get(key)
         for key in ("schema_version", "hardware_scope", "generated_at", "sources", "home", "attention")
-    } | {
+    } | ({"publication": payload["publication"]} if "publication" in payload else {}) | {
         "core_generated_at": _core_generated_at(payload.get("sources") or {}),
         "nightly": nightly,
         "main_ci": main_ci_shell(payload.get("main_ci") or {}),

@@ -155,6 +155,11 @@ PUBLICATION_STATUS_FIELDS = frozenset({
     "fallback_surface_count",
     "fresh_degraded_surface_count",
 })
+# Present only while the selector publishes surfaces as unavailable.
+PUBLICATION_STATUS_OPTIONAL_FIELDS = frozenset({
+    "unavailable_surfaces",
+    "unavailable_surface_count",
+})
 PUBLICATION_SURFACE_LABELS = frozenset({
     "Agent health",
     "CI analytics",
@@ -1739,7 +1744,30 @@ def check_site_health(
             )
             expected_fields = PUBLICATION_STATUS_FIELDS
             missing_fields = sorted(expected_fields - payload.keys())
-            unexpected_fields = sorted(payload.keys() - expected_fields)
+            unexpected_fields = sorted(
+                payload.keys() - expected_fields - PUBLICATION_STATUS_OPTIONAL_FIELDS
+            )
+            unavailable_surfaces = payload.get("unavailable_surfaces")
+            unavailable_count = payload.get("unavailable_surface_count")
+            optional_present = PUBLICATION_STATUS_OPTIONAL_FIELDS & payload.keys()
+            if optional_present and (
+                optional_present != PUBLICATION_STATUS_OPTIONAL_FIELDS
+                or not isinstance(unavailable_surfaces, list)
+                or not unavailable_surfaces
+                or not all(isinstance(item, str) for item in unavailable_surfaces)
+                or unavailable_surfaces != sorted(set(unavailable_surfaces))
+                or not isinstance(affected_surfaces, list)
+                or not all(isinstance(item, str) for item in affected_surfaces)
+                or not set(unavailable_surfaces) <= set(affected_surfaces)
+                or not _is_nonnegative_int(unavailable_count)
+                or unavailable_count != len(unavailable_surfaces)
+            ):
+                reasons.append(
+                    _reason(
+                        "publication-contract",
+                        "Publication unavailable surfaces are malformed.",
+                    )
+                )
             if missing_fields or unexpected_fields:
                 reasons.append(
                     _reason(

@@ -56,8 +56,11 @@ from vllm.publication_surfaces import (  # noqa: E402
     SURFACE_CONTRACT_VERSION,
     SURFACE_SPECS,
     SurfaceSpec,
+    UNAVAILABLE_SOURCE_REASON,
+    declared_unavailable_codes,
     fallback_dependency_closure,
     ignored_watcher_state_paths,
+    unavailable_finding_surfaces,
 )
 from vllm.dashboard_storage_budget import group_max_bytes, writer_max_bytes  # noqa: E402
 from vllm.constants import AGENT_HEALTH_ATTRIBUTIONS, AGENT_HEALTH_NODE_SUSPECT  # noqa: E402
@@ -878,6 +881,7 @@ class DashboardAudit:
             else self.root / PUBLICATION_STATE_RELATIVE
         )
         self._fallback_surfaces_cache: frozenset[str] | None = None
+        self._unavailable_codes: dict[str, frozenset[str]] = {}
 
     def run(self) -> AuditReport:
         # Validate persisted fallback attestation even when no Operations source
@@ -902,7 +906,39 @@ class DashboardAudit:
         self.audit_dns_failures()
         self.audit_frontend_contracts()
         self.audit_workflows()
+        self.accept_unavailable_surfaces()
         return self.report
+
+    def unavailable_surfaces(self) -> frozenset[str]:
+        """Attested fallback surfaces that the selector published as unavailable."""
+        self.fallback_surfaces()
+        return frozenset(self._unavailable_codes)
+
+    def accept_unavailable_surfaces(self) -> None:
+        """Downgrade errors owned only by attested unavailable surfaces.
+
+        Those surfaces failed in both the candidate and last-known-good data
+        and are published as explicitly unavailable, so the defects declared
+        for them are degradations. An undeclared code on such a surface, and
+        every global, unattributed or byte-budget finding, still fails.
+        """
+        self.fallback_surfaces()
+        declared = self._unavailable_codes
+        if not declared:
+            return
+        for finding in self.report.findings:
+            if finding.severity != "error":
+                continue
+            surfaces = unavailable_finding_surfaces(finding)
+            if surfaces and all(
+                finding.code in declared.get(surface, frozenset())
+                for surface in surfaces
+            ):
+                finding.severity = "degradation"
+                finding.context = {
+                    **finding.context,
+                    "unavailable_surfaces": sorted(surfaces),
+                }
 
     def rel(self, path: Path) -> str:
         try:
@@ -1275,6 +1311,7 @@ class DashboardAudit:
 
         degraded_raw = state.get("degraded_surfaces")
         degraded_since = state.get("degraded_since")
+        declared_unavailable: dict[str, frozenset[str]] = {}
         manifest = state.get("restored_manifest")
         restored_paths = state.get("restored_paths")
 
@@ -1441,6 +1478,10 @@ class DashboardAudit:
             degraded_set = set(degraded_raw)
             fresh_set = set(fresh_raw)
             fallback_set = set(fallback_raw)
+            try:
+                declared_unavailable = declared_unavailable_codes(state)
+            except ValueError as exc:
+                return reject(str(exc))
             mode_sets_are_valid = {
                 "current": not fresh_set and not fallback_set,
                 "degraded": bool(fresh_set) and not fallback_set,
@@ -1746,7 +1787,7 @@ class DashboardAudit:
         fallback_surfaces -= set(RETIRED_SURFACES)
         now = datetime.now(timezone.utc)
         valid = True
-        for surface in sorted(fallback_surfaces):
+        for surface in sorted(fallback_surfaces - set(declared_unavailable)):
             since = _parse_timestamp(fallback_since[surface])
             age_hours = (now - since).total_seconds() / 3600 if since else float("inf")
             if age_hours > PUBLICATION_FALLBACK_MAX_AGE_HOURS:
@@ -1763,6 +1804,11 @@ class DashboardAudit:
         self._fallback_surfaces_cache = (
             frozenset(fallback_surfaces) if valid else frozenset()
         )
+        self._unavailable_codes = {
+            surface: codes
+            for surface, codes in declared_unavailable.items()
+            if surface in self._fallback_surfaces_cache
+        }
         return self._fallback_surfaces_cache
 
     def audit_publication_surface_files(self) -> None:
@@ -2478,6 +2524,13 @@ class DashboardAudit:
                 source = _mapping(sources.get(source_name))
                 source_at = _parse_timestamp(source.get("timestamp"))
                 if source_at is None:
+                    # An attested unavailable surface publishes its sources
+                    # without a clock on purpose.
+                    if (
+                        source.get("unavailable_reason") == UNAVAILABLE_SOURCE_REASON
+                        and SOURCE_SURFACES.get(source_name) in self.unavailable_surfaces()
+                    ):
+                        continue
                     self.error(
                         "operations-source-timestamp",
                         f"operations source {source_name} has no valid timestamp",

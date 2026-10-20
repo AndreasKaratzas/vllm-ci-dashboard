@@ -471,6 +471,188 @@ OPERATIONS_FINDING_SURFACES: dict[str, frozenset[str]] = {
 }
 
 
+# Audit codes that prove code, workflow, public-site, bundle, budget or
+# publication-state contracts. No data restore can repair them, so they block
+# publication even when their path happens to name a surface-owned file.
+GLOBAL_FINDING_CODES = frozenset({
+    "github-home-bundle-budget",
+    "missing-active-frontend-asset",
+    "missing-consumer",
+    "missing-producer",
+    "private-analytics-cache-ignore",
+    "private-analytics-cache-publication",
+    "private-analytics-lineage",
+    "public-analytics-materialization",
+    "public-analytics-projection",
+    "public-manifest-invalid",
+    "public-manifest-projection",
+    "public-manifest-projections",
+    "publication-fallback-expired",
+    "publication-fallback-manifest-mismatch",
+    "publication-state-blocked",
+    "publication-state-invalid",
+    "retired-frontend-asset",
+    "workflow-cache-bust",
+    "workflow-gh-pages-cancel",
+    "workflow-gh-pages-concurrency",
+    "workflow-hourly-step-missing",
+    "workflow-hourly-step-order",
+    "workflow-private-analytics-cache-boundary",
+    "workflow-private-analytics-cache-feedback",
+    "workflow-private-analytics-cache-key",
+    "workflow-private-analytics-cache-order",
+    "workflow-private-analytics-cache-restore",
+    "workflow-private-analytics-cache-save",
+    "workflow-private-analytics-cache-staging",
+    "workflow-public-analytics-boundary",
+    "workflow-public-analytics-feedback",
+    "workflow-retired-producer",
+    "workflow-stale-gh-pages-sync",
+}) | frozenset(
+    code for code, owners in OPERATIONS_FINDING_SURFACES.items() if not owners
+)
+
+# File-level parse, shape and retention codes. They belong to the surface that
+# owns their path; an unowned path stays a global stop.
+PATH_ROUTED_FINDING_CODES = frozenset({
+    "ci-core-object",
+    "ci-core-result-evidence",
+    "ci-core-result-missing",
+    "ci-core-runtime-commit",
+    "data-shape",
+    "empty-jsonl",
+    "invalid-json",
+    "invalid-jsonl-row",
+    "missing-data-file",
+    "missing-data-keys",
+    "missing-json",
+    "missing-jsonl",
+    "publication-source-missing",
+    "publication-source-shape",
+    "public-file-budget",
+    "storage-retention-invalid",
+    "test-result-retention-invalid",
+})
+PATH_ROUTED_FINDING_CODE_PREFIXES = ("root-test-results-",)
+
+# Byte bounds may roll a surface back to its last-known-good bytes, but an
+# unavailable surface still publishes those bytes, so they never qualify.
+NEVER_UNAVAILABLE_FINDING_CODES = frozenset({"storage-retention-invalid"})
+
+_PREFIX_ROUTES = (
+    (("ci-health-", "matrix-", "parity-matrix-", "definition-parity-", "shard-"), "ci_core"),
+    (("analytics-",), "ci_analytics"),
+    (("current-parity-", "current-mirror-", "current-runtime-", "root-test-results-current-"), "ci_core"),
+    (("latency-",), "ci_analytics"),
+    (("queue-lifecycle-",), "queue_lifecycle"),
+    (("dns-health-",), "dns_health"),
+    (("queue-",), "queue"),
+    (("ci-pr-", "linked-ci-pr-", "rocm-pr-", "ci-custom-tag", "rocm-custom-tag", "home-", "project-issue-"), "github_home"),
+)
+
+
+def finding_code_route(code: str) -> str | None:
+    """Classify how ``finding_surfaces`` attributes a finding code.
+
+    - ``global``: never attributed; the finding always blocks.
+    - ``path``: the surface that owns the finding's path; an unowned or
+      missing path blocks.
+    - ``context``: an owned path, else the surface of ``context["source"]``.
+    - ``code``: an owned path, else the code's own surface table.
+    - ``None``: unknown, so the finding blocks whatever its path.
+    """
+    if code in GLOBAL_FINDING_CODES:
+        return "global"
+    if code in PATH_ROUTED_FINDING_CODES or code.startswith(PATH_ROUTED_FINDING_CODE_PREFIXES):
+        return "path"
+    if code in CONTEXTUAL_OPERATIONS_FINDING_CODES or code.startswith("operations-source-"):
+        return "context"
+    if code in OPERATIONS_FINDING_SURFACES or _prefix_owner(code):
+        return "code"
+    return None
+
+
+def _prefix_owner(code: str) -> str | None:
+    for prefixes, owner in _PREFIX_ROUTES:
+        if code.startswith(prefixes):
+            return owner
+    return None
+
+
+# Manifest ``shell.sources`` keys whose producer is one publication surface.
+MANIFEST_SOURCE_SURFACES = {
+    **SOURCE_SURFACES,
+    "main_ci": "ci_analytics",
+    "perf_eval": "perf_eval",
+}
+UNAVAILABLE_SOURCE_REASON = "publication_surface_unavailable"
+
+# Public names of publication surfaces, for publication_status and the
+# manifest's unavailable rows. "ci" names the schema-v1 monolithic surface.
+PUBLICATION_SURFACE_LABELS = {
+    "agent_health": "Agent health",
+    "ci": "CI health",
+    "ci_analytics": "CI analytics",
+    "ci_core": "CI core health",
+    "dns_health": "DNS health",
+    "github_home": "Project activity",
+    "perf_eval": "Performance evaluation",
+    "queue": "Queue health",
+    "queue_capacity": "Queue capacity",
+    "queue_lifecycle": "Queue lifecycle",
+    "queue_omni": "Omni queue surge",
+    "queue_workload": "Queue workload mapping",
+}
+
+
+def declared_unavailable_codes(state: Any) -> dict[str, frozenset[str]]:
+    """Return each surface a selector state publishes as unavailable, with its audit codes.
+
+    An unavailable surface keeps its hash-attested last-known-good bytes, so it
+    must also be a fallback surface. Only the declared codes may be accepted on
+    it. Malformed declarations raise ValueError.
+    """
+    if not isinstance(state, dict) or "unavailable_surfaces" not in state:
+        return {}
+    raw = state.get("unavailable_surfaces")
+    fallback = state.get("fallback_surfaces")
+    since = state.get("unavailable_since")
+    reasons = state.get("unavailable_reasons")
+    if (
+        not isinstance(raw, list)
+        or not raw
+        or not all(isinstance(surface, str) and surface in SURFACE_SPECS for surface in raw)
+        or raw != sorted(set(raw))
+        or not isinstance(fallback, list)
+        or not set(raw) <= set(fallback)
+        or not isinstance(since, dict)
+        or set(since) != set(raw)
+        or not isinstance(reasons, dict)
+        or set(reasons) != set(raw)
+        or not all(_valid_unavailable_reason(reasons[surface]) for surface in raw)
+    ):
+        raise ValueError("publication state declares invalid unavailable surfaces")
+    return {surface: frozenset(reasons[surface]["codes"]) for surface in raw}
+
+
+def _valid_unavailable_reason(reason: Any) -> bool:
+    codes = reason.get("codes") if isinstance(reason, dict) else None
+    return (
+        isinstance(reason, dict)
+        and isinstance(reason.get("reason"), str)
+        and bool(reason["reason"])
+        and isinstance(codes, list)
+        and bool(codes)
+        and all(isinstance(code, str) and code for code in codes)
+        and codes == sorted(set(codes))
+    )
+
+
+def declared_unavailable_surfaces(state: Any) -> frozenset[str]:
+    """Return the surfaces a selector state publishes as unavailable."""
+    return frozenset(declared_unavailable_codes(state))
+
+
 def _matches(path: str, pattern: str) -> bool:
     return PurePosixPath(path).match(pattern)
 
@@ -492,14 +674,17 @@ def surface_for_path(path: str) -> str | None:
 def finding_surfaces(finding: Any) -> frozenset[str]:
     """Route an audit finding to source transactions, or return a hard stop.
 
-    An empty result means the finding is global or unknown and must not be
-    hidden by restoring data.  Paths under code/config/docs always win over a
-    coincidentally similar error-code prefix.
+    Dispatches on ``finding_code_route``. An empty result means the finding is
+    global, unknown or unowned and must not be hidden by restoring data. Paths
+    under code/config/docs always win over a coincidentally similar code prefix.
     """
     path = str(getattr(finding, "path", "") or "")
     code = str(getattr(finding, "code", "") or "")
     context = getattr(finding, "context", {}) or {}
 
+    route = finding_code_route(code)
+    if route is None or route == "global":
+        return frozenset()
     if path:
         owner = surface_for_path(path)
         if owner:
@@ -509,40 +694,23 @@ def finding_surfaces(finding: Any) -> frozenset[str]:
         if path.startswith("data/") and path not in GLOBAL_DATA_PATHS:
             # Unknown data has no safe atomic rollback contract.
             return frozenset()
-
-    if code in CONTEXTUAL_OPERATIONS_FINDING_CODES or code.startswith(
-        "operations-source-"
-    ):
+    if route == "path":
+        return frozenset()
+    if route == "context":
         owner = SOURCE_SURFACES.get(str(context.get("source") or ""))
         return frozenset({owner}) if owner else frozenset()
-    if code.startswith("operations-"):
-        # Unknown derived codes are global hard stops until their lineage is
-        # explicitly added above and covered by the exhaustiveness test.
-        return OPERATIONS_FINDING_SURFACES.get(code, frozenset())
+    if code in OPERATIONS_FINDING_SURFACES:
+        return OPERATIONS_FINDING_SURFACES[code]
+    owner = _prefix_owner(code)
+    return frozenset({owner}) if owner else frozenset()
 
-    prefix_routes = (
-        (
-            (
-                "ci-health-",
-                "matrix-",
-                "parity-matrix-",
-                "definition-parity-",
-                "shard-",
-            ),
-            "ci_core",
-        ),
-        (("analytics-",), "ci_analytics"),
-        (("current-parity-", "current-mirror-", "current-runtime-", "root-test-results-current-"), "ci_core"),
-        (("latency-",), "ci_analytics"),
-        (("queue-lifecycle-",), "queue_lifecycle"),
-        (("dns-health-",), "dns_health"),
-        (("queue-",), "queue"),
-        (("ci-pr-", "linked-ci-pr-", "rocm-pr-", "ci-custom-tag", "rocm-custom-tag", "home-", "project-issue-"), "github_home"),
-    )
-    for prefixes, owner in prefix_routes:
-        if any(code.startswith(prefix) for prefix in prefixes):
-            return frozenset({owner})
-    return frozenset()
+
+def unavailable_finding_surfaces(finding: Any) -> frozenset[str]:
+    """Return the surfaces a finding may mark unavailable, or none if it must block."""
+    code = str(getattr(finding, "code", "") or "")
+    if code in NEVER_UNAVAILABLE_FINDING_CODES or code.endswith("-budget"):
+        return frozenset()
+    return finding_surfaces(finding)
 
 
 def public_manifest_ownership_path(relative: str) -> str:

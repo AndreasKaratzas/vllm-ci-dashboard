@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { effectScope, type EffectScope } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MANIFEST, publish, QUEUE_LIVE, sectionPath, SOURCES, STATUS } from './publication'
+import { MANIFEST, manifestOf, publish, QUEUE_LIVE, sectionPath, SOURCES, STATUS } from './publication'
 import { elapse, installServer } from './server'
 
 type UseDataset = typeof import('@/composables/useDataset')
@@ -243,7 +243,8 @@ describe('useDataset', () => {
       await vi.advanceTimersByTimeAsync(FIVE_MINUTES)
       await flush()
     }
-    expect(server.count(MANIFEST)).toBe(11)
+    // One read by the first load, which checks the perf surface, then one per poll.
+    expect(server.count(MANIFEST)).toBe(12)
     expect(perf.data.value?.calls).toBe(1)
     await vi.advanceTimersByTimeAsync(FIVE_MINUTES)
     await flush()
@@ -265,6 +266,62 @@ describe('useDataset', () => {
     mount(() => datasets.useDataset({ sections: ['nightly'] }))
     await flush()
     expect(health.data.value?.nightly.label).toBe(`nightly@${G2}`)
+  })
+})
+
+describe('unavailable publication surfaces', () => {
+  function declare(generatedAt: string, unavailable: object[]) {
+    publish(server, { generatedAt, sources: SOURCES })
+    const manifest = manifestOf({ generatedAt, sources: SOURCES })
+    server.set(MANIFEST, { ...manifest, shell: { ...manifest.shell, publication: { unavailable } } })
+  }
+  const PERF = { surface: 'perf_eval', label: 'Performance evaluation', since: G1, codes: ['perf-eval-shape'], sources: ['perf_eval'] }
+  // DNS health has no shell source, so only its surface key names it.
+  const DNS = { surface: 'dns_health', label: 'DNS health', since: G1, codes: ['dns-health-window'], sources: [] }
+  const ANALYTICS = { surface: 'ci_analytics', label: 'CI analytics', since: G2, codes: ['analytics-build-count'], sources: ['analytics', 'main_ci'] }
+
+  it('shows a dataset of an unavailable surface as unavailable, without fetching it, until the surface returns', async () => {
+    const { DATASETS } = await import('@/data/sources')
+    const perfPath = DATASETS.perf_eval.paths[0]
+    server.set(perfPath, { generated_at: G1 })
+    const pages = JSON.parse(readFileSync(resolve(__dirname, '../fixtures/dns_pages.json'), 'utf8'))
+    for (const path of DATASETS.dns.paths) server.set(path, pages)
+    declare(G1, [PERF, DNS])
+    const perf = mount(() => datasets.useDataset('perf_eval'))
+    const dns = mount(() => datasets.useDataset('dns'))
+    await elapse(400)
+    expect(perf.data.value).toBeNull()
+    expect(perf.error.value).toMatch(/^Unavailable: the latest Performance evaluation data and its last-known-good snapshot both failed validation \(perf-eval-shape\)/)
+    expect(dns.data.value).toBeNull()
+    expect(dns.error.value).toMatch(/DNS health data/)
+    expect(server.count(perfPath)).toBe(0)
+    for (const path of DATASETS.dns.paths) expect(server.count(path)).toBe(0)
+
+    declare(G2, [])
+    await vi.advanceTimersByTimeAsync(FIVE_MINUTES)
+    await elapse(400)
+    expect(perf.error.value).toBeNull()
+    expect(perf.data.value?.generated_at).toBe(G1)
+    expect(dns.error.value).toBeNull()
+    expect(dns.data.value?.generated_at).toBe(pages.generated_at)
+  })
+
+  it('replaces a shown section once its surface is declared unavailable and reloads it on recovery', async () => {
+    const nightly = mount(() => wrappers.useOperationSections(['nightly']))
+    await flush()
+    expect(nightly.data.value?.nightly.label).toBe(`nightly@${G1}`)
+
+    declare(G2, [ANALYTICS])
+    await vi.advanceTimersByTimeAsync(FIVE_MINUTES)
+    await flush()
+    expect(nightly.data.value).toBeNull()
+    expect(nightly.error.value).toMatch(/CI analytics data and its last-known-good snapshot both failed validation/)
+
+    declare(G3, [])
+    await vi.advanceTimersByTimeAsync(FIVE_MINUTES)
+    await flush()
+    expect(nightly.error.value).toBeNull()
+    expect(nightly.data.value?.nightly.label).toBe(`nightly@${G3}`)
   })
 })
 
