@@ -54,10 +54,14 @@ def normalize_outcome(value: Any) -> str:
 
 
 def completed_build_eligibility(build: Mapping[str, Any]) -> tuple[bool, str]:
-    """Return whether a Buildkite row may advance incident state and why not."""
+    """Return whether a Buildkite row may advance incident state and why not.
+
+    ``amd_complete`` rows have final AMD jobs, so they need no ``finished_at``
+    while the build still runs only non-AMD jobs.
+    """
     if str(build.get("state") or "").strip().lower() not in COMPLETED_BUILD_STATES:
         return False, "build_state_not_completed"
-    if not str(build.get("finished_at") or "").strip():
+    if not str(build.get("finished_at") or "").strip() and build.get("amd_complete") is not True:
         return False, "finished_at_missing"
     return True, ""
 
