@@ -30,6 +30,7 @@ import { buildEvidenceDetail, pendingEvidenceDetail } from '@/features/nightly/b
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
 import LatestNightlyCallout from '@/features/nightly/LatestNightlyCallout.vue'
 import { trendPointDetail } from '@/features/main-ci/details'
+import SlowdownsNotice from '@/features/slowdowns/SlowdownsNotice.vue'
 import MainCiKpis from '@/features/main-ci/MainCiKpis.vue'
 import MainCiTrendCard from '@/features/main-ci/MainCiTrendCard.vue'
 import { useMainCi } from '@/features/main-ci/useMainCi'
@@ -65,20 +66,11 @@ const nightly = computed(() =>
 )
 const series = computed(() => nightlySeries(builds.value))
 const passRate = computed(() => passRateTrend(builds.value))
-const passRateFootnote = computed(() => {
-  const latest = passRate.value?.latest
-  if (!latest) return undefined
-  const text = `${integer(latest.passed)} of ${integer(latest.total)} job variants passed in #${latest.number}`
-  return notice.value?.state.kind === 'amd-complete' && Number(notice.value.latest.number) === latest.number ? `${text} · ${notice.value.state.detail}` : text
-})
 const parity = computed<Rec>(() => currentTestGroupParity(ops.value?.test_group_parity).summary || {})
 const retentionMessage = computed(() => ciHealthPublicationRetentionMessage(amd.value))
-// Main CI slowdowns come from the manifest shell, so they need no section download.
-const slowdownCount = computed(() => mainCi.summary.value?.activeSlowdowns ?? 0)
-const attention = computed<Rec[]>(() => [
-  ...(ops.value?.attention || []).filter((item: Rec) => !HOME_EXCLUDED_ATTENTION.includes(item.kind)),
-  ...(slowdownCount.value ? [{ kind: 'main_slowdowns', severity: 'warning', count: slowdownCount.value }] : []),
-])
+const attention = computed<Rec[]>(() =>
+  (ops.value?.attention || []).filter((item: Rec) => !HOME_EXCLUDED_ATTENTION.includes(item.kind)),
+)
 const freshness = useFreshness().chip([...HOME_INPUTS, ...areaSources('home')], 'Home data')
 // The headline count carries the outcome; the footnote keeps the build's counts and Buildkite state.
 const nightlyFootnote = computed(() => nightly.value.meta.replace(`; ${nightly.value.movementLabel}`, ''))
@@ -115,7 +107,6 @@ function openBuildNumber(number: number) {
 function inspectAttention(item: Rec) {
   if (item.kind === 'amd_logical_groups_not_fully_passing') void router.push({ name: 'health' })
   else if (item.kind === 'omni_waiting') void router.push({ name: 'omni' })
-  else if (item.kind === 'main_slowdowns') void router.push({ name: 'analytics', query: { view: 'slowdowns' } })
   else if (latestBuild.value.number) {
     const scope = item.kind === 'nightly_hard_failures' ? 'hard' : item.kind === 'nightly_soft_failures' ? 'soft' : undefined
     openBuild(latestBuild.value, scope, attentionLabel(item))
@@ -186,6 +177,7 @@ watch(sheets.stack, (stack) => {
             flaky: { label: 'Open flaky groups', to: { name: 'main', query: { view: 'flaky' } } },
           }"
         />
+        <SlowdownsNotice />
         <MainCiTrendCard v-if="mainCi.loaded.value" :record="mainCi.ctx.value.record" @select="openMainPoint" />
         <AsyncBoundary v-else :loading="!mainCi.error.value" :error="mainCi.error.value" skeleton="chart" @retry="mainCi.retry" />
       </template>
@@ -229,7 +221,7 @@ watch(sheets.stack, (stack) => {
             :delta="passRate.deltaPoints !== null ? { value: Number(passRate.deltaPoints.toFixed(1)), goodWhen: 'up', text: pointsText(passRate.deltaPoints) } : undefined"
             :spark="series.map((row) => row.passRate * 100)"
             headline="Open nightly evidence"
-            :footnote="passRateFootnote"
+            :footnote="`${integer(passRate.latest.passed)} of ${integer(passRate.latest.total)} job variants passed in #${passRate.latest.number}`"
             :action="{ label: 'Open nightly evidence', onOpen: () => openBuildNumber(passRate!.latest.number) }"
             data-testid="kpi-pass-rate"
           />
@@ -257,7 +249,7 @@ watch(sheets.stack, (stack) => {
             :unit="attention.length === 1 ? 'signal' : 'signals'"
             :status="attention.length ? { tone: attentionTone(attention), label: 'Active' } : undefined"
             :headline="attention.length ? 'Review active signals' : undefined"
-            :footnote="attention.length ? attentionLabel(attention[0]!) : 'No active AMD nightly, route or slowdown signals'"
+            :footnote="attention.length ? attentionLabel(attention[0]!) : 'No active AMD nightly or route signals'"
             :action="attention.length ? { label: 'Review active signals', onOpen: showAttention } : undefined"
             data-testid="kpi-attention"
           >

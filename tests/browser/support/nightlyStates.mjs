@@ -35,7 +35,8 @@ export function nightlyInState(nightly, kind) {
     ...extra,
   });
   if (kind === 'amd-complete') Object.assign(head, { source_state: 'failing', amd_complete: true, non_amd_jobs_active: 1 });
-  else if (kind === 'awaiting') pipeline.builds.unshift(next({ state: 'failing', source_state: 'failing', failed_groups: failed(2, number) }));
+  else if (kind === 'awaiting')
+    pipeline.builds.unshift(next({ state: 'failing', source_state: 'failing', failed_groups: failed(2, number), amd_step_count: 6, amd_steps_active: 2 }));
   else if (kind === 'retry') pipeline.builds.unshift(next({ state: 'failing', source_state: 'failing', active_retry: true }));
   else if (kind === 'blocked') pipeline.builds.unshift(next({ state: 'failed', source_state: 'failed', test_jobs_blocked: 6 }));
   else if (kind === 'no-results') pipeline.builds.unshift(next({ state: 'failed', source_state: 'failed', failed_groups: failed(1, number) }));

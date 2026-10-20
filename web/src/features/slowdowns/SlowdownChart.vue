@@ -91,7 +91,7 @@ const inspectItems = computed<InspectItem[]>(() => points.value.map((point) => (
       </ChartContainer>
     </div>
     <p class="text-xs text-muted-foreground">
-      Dashed lines: the level before ({{ minutes(row.baselineMins) }}) and since ({{ minutes(row.recentMins) }}). Each dot is one completed main build where every job of the step passed.
+      Dashed lines: the job minutes before ({{ minutes(row.baselineMins) }}) and since ({{ minutes(row.recentMins) }}). Each dot is one completed main build where every job of the step passed.
     </p>
   </div>
 </template>

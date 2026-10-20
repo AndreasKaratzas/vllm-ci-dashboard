@@ -1,12 +1,13 @@
 import { shortDayTime } from '@/components/charts/chart'
 import type { Detail, DetailField } from '@/components/evidence/detail'
 import { hardwareCell, link, type ColumnSpec } from '@/components/table/columns'
-import { age, integer } from '@/domain/format'
+import { age, integer, shortDate } from '@/domain/format'
 import { groupLabel } from '@/domain/mainCi'
 import {
   causeLabel,
   causeShort,
   changeLabel,
+  commitRange,
   increaseLabel,
   levelsLabel,
   levelsText,
@@ -39,20 +40,20 @@ export function slowdownColumns(open: (row: Slowdown) => void, nowMs: number, { 
       label: 'Increase',
       numeric: true,
       value: (row) => row.increaseMins,
-      cell: (row) => ({ text: increaseLabel(row), tone: slowdownTone(row), nowrap: true }),
+      cell: (row) => ({ text: increaseLabel(row), tone: slowdownTone(row), nowrap: true, sub: `since ${age(row.onset.createdAt, nowMs)}` }),
     },
     {
       id: 'since',
       label: 'Since',
       value: (row) => row.onset.createdAt,
-      cell: (row) => ({ ...link(changeLabel(row), row.onset.url, true), sub: age(row.onset.createdAt, nowMs) }),
+      cell: (row) => ({ ...link(changeLabel(row), row.onset.url, true), sub: shortDate(row.onset.createdAt) }),
       class: 'hidden whitespace-nowrap sm:table-cell',
     },
     {
       id: 'cause',
       label: 'Change',
       value: (row) => causeShort(row),
-      cell: (row) => link(causeShort(row), row.compareUrl || null),
+      cell: (row) => ({ ...link(commitRange(row) ?? causeShort(row), row.compareUrl || null, !!commitRange(row)), sub: commitRange(row) ? causeShort(row) : undefined }),
       class: 'hidden xl:table-cell',
     },
   ]
@@ -74,7 +75,7 @@ export function slowdownDetail(row: Slowdown, data: Pick<Slowdowns, 'issue' | 'r
     id: `slowdown:${row.id}`,
     title: slowdownName(row),
     subtitle: [row.hardware.toUpperCase(), row.queue, `slower since #${row.onset.number}, ${age(row.onset.createdAt, nowMs)}`].filter(Boolean).join(' · '),
-    description: causeLabel(row) + '.',
+    description: `${causeLabel(row)}${commitRange(row) ? `: ${commitRange(row)}` : ''}.`,
     stats: [
       { label: 'Before', value: minutes(row.baselineMins), meta: `${integer(row.baselineRuns)} runs` },
       { label: 'Now', value: minutes(row.recentMins), meta: `${integer(row.recentRuns)} runs` },
@@ -83,7 +84,7 @@ export function slowdownDetail(row: Slowdown, data: Pick<Slowdowns, 'issue' | 'r
     ],
     sections: [
       {
-        title: 'Wall time per build',
+        title: 'Job minutes per build',
         meta: `${integer(before)} sampled runs before, ${integer(row.samples.length - before)} since`,
         component: SlowdownChart,
         props: { row },
@@ -96,7 +97,7 @@ export function slowdownDetail(row: Slowdown, data: Pick<Slowdowns, 'issue' | 'r
       buildField('First slow build', row.onset),
       buildField('Latest rise', row.lastRise && row.lastRise.number !== row.onset.number ? row.lastRise : null),
       buildField('Latest build', row.latest),
-      { label: 'vLLM commits', value: row.compareUrl ? changeLabel(row) : null, href: row.compareUrl || undefined },
+      { label: row.cause === 'environment' ? 'vLLM commit' : 'vLLM commits', value: commitRange(row), href: row.compareUrl || undefined, mono: true },
       { label: 'Shards per build', value: row.jobs > 1 ? integer(row.jobs) : null },
       { label: 'First detected', value: row.firstDetectedAt ? `${shortDayTime(Date.parse(row.firstDetectedAt))} UTC` : null },
     ],

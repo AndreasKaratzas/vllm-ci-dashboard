@@ -1,4 +1,4 @@
-import { integer, value, type Rec, type Tone } from './format'
+import { integer, shortSha, value, type Rec, type Tone } from './format'
 import { currentAmdHealth } from './health'
 import { nightlyFailureMovement } from './nightly'
 
@@ -309,7 +309,7 @@ export function parityConfigNote(summary: Rec, source: Rec): string {
         (Number.isFinite(Number(rate)) ? ` (${Number(rate).toFixed(1)}%)` : '') +
         `; ${integer(summary.main_optional_only_groups)} are optional only and ${integer(summary.main_soft_fail_only_groups)} are soft fail only. `) +
     'These are source configuration flags; individual nightly scheduling and blocking outcomes are separate.' +
-    (/^[0-9a-f]{40}$/.test(commit) ? ` Source: main CI at ${commit.slice(0, 12)}.` : '')
+    (/^[0-9a-f]{40}$/.test(commit) ? ` Source: main CI at ${shortSha(commit)}.` : '')
   )
 }
 

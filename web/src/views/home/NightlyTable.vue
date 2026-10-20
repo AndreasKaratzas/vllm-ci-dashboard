@@ -35,7 +35,10 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
     id: 'build',
     label: 'Build',
     value: (build) => Number(build.number || 0),
-    cell: (build) => link(`#${build.number}`, exactPipelineBuildUrl(build, 'ci'), true),
+    cell: (build) => {
+      const state = nightlyState(build)
+      return { ...link(`#${build.number}`, exactPipelineBuildUrl(build, 'ci'), true), sub: state?.kind === 'amd-complete' ? state.label : undefined }
+    },
     class: 'whitespace-nowrap',
   },
   {
@@ -52,9 +55,11 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
     value: (build) => nightlyCounts(build)?.passRate ?? -1,
     cell: (build) => {
       const counts = nightlyCounts(build)
-      const state = nightlyState(build)
-      if (!counts) return { text: state?.label ?? 'No test signal', tone: state?.tone ?? 'neutral' }
-      return rateCell(counts.passRate * 100, [`${integer(counts.passed)} / ${integer(counts.total)}`, state?.label].filter(Boolean).join(' · '))
+      if (!counts) {
+        const state = nightlyState(build)
+        return { text: state?.label ?? 'No test signal', tone: state?.tone ?? 'neutral' }
+      }
+      return rateCell(counts.passRate * 100, `${integer(counts.passed)} / ${integer(counts.total)}`)
     },
     class: 'sm:whitespace-nowrap',
   },

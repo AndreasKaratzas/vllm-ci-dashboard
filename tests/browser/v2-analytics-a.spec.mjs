@@ -314,7 +314,7 @@ test.describe('CI Analytics Slowdowns', () => {
     const since = rows.first().getByRole('link', { name: /#31013 → #31014/ });
     await expect(since).toHaveAttribute('href', 'https://buildkite.com/vllm/ci/builds/31014');
     await expect(since).toHaveAttribute('target', '_blank');
-    const compare = rows.first().getByRole('link', { name: 'vLLM commits' });
+    const compare = rows.first().getByRole('link', { name: /^[0-9a-f]{12}…[0-9a-f]{12}$/ });
     await expect(compare).toHaveAttribute('href', /^https:\/\/github\.com\/vllm-project\/vllm\/compare\/[0-9a-f]{40}\.\.\.[0-9a-f]{40}$/);
     await expect(compare).toHaveAttribute('target', '_blank');
 
@@ -335,6 +335,10 @@ test.describe('CI Analytics Slowdowns', () => {
     await expect(sheet.locator('[data-slot="slowdown-plot"]')).toBeVisible();
     await expect(sheet.locator('[data-slot="slowdown-plot"] g[class*="-point"]:not([class*="-point-group"])')).toHaveCount(28);
     await expect(sheet).toContainText('Slower from here');
+    // Routed Alpha rose twice: the latest rise is a field and a second marker.
+    await expect(sheet.locator('[data-slot="slowdown-plot"]')).toContainText('Latest rise');
+    await expect(sheet.getByRole('link', { name: /^#31018 · / })).toHaveAttribute('href', 'https://buildkite.com/vllm/ci/builds/31018');
+    await expect(sheet.getByRole('link', { name: /^[0-9a-f]{12}…[0-9a-f]{12}$/ })).toHaveAttribute('href', /vllm-project\/vllm\/compare/);
     await expect(sheet.getByRole('link', { name: /First slow build/ })).toHaveAttribute('href', 'https://buildkite.com/vllm/ci/builds/31014');
     await expect(sheet.getByRole('link', { name: /Compare vLLM commits/ })).toHaveAttribute('href', /vllm-project\/vllm\/compare/);
     await sheet.getByRole('button', { name: 'Inspect Sampled builds' }).click();
@@ -343,12 +347,15 @@ test.describe('CI Analytics Slowdowns', () => {
 
   test('the latency tab, Main CI and Home point to slowdowns', async ({ page }) => {
     await page.goto('/#/analytics?view=latency');
-    await page.getByTestId('latency-slowdowns').getByRole('link', { name: /Open slowdowns/ }).click();
+    await page.getByTestId('slowdowns-notice').getByRole('link', { name: /Open slowdowns/ }).click();
     await expect(page).toHaveURL(/view=slowdowns/);
     await page.goto('/#/main');
     await expect(page.getByTestId('main-slowdowns-panel').locator('tbody tr')).toHaveCount(2);
+    // On Home the slowdowns are a main CI signal, so they sit with main and not in the nightly's attention list.
     await page.goto('/#/');
-    await page.getByTestId('attention-row').filter({ hasText: 'running slower' }).click();
+    await expect(page.getByTestId('home-main').getByTestId('slowdowns-notice')).toContainText('2 AMD test steps on main are running slower than before');
+    await expect(page.getByTestId('attention-row').filter({ hasText: 'running slower' })).toHaveCount(0);
+    await page.getByTestId('home-main').getByRole('link', { name: /Open slowdowns/ }).click();
     await expect(page).toHaveURL(/#\/analytics\?view=slowdowns$/);
   });
 
@@ -359,6 +366,10 @@ test.describe('CI Analytics Slowdowns', () => {
     await page.goto('/#/analytics?view=slowdowns');
     await expect(page.getByTestId('slowdowns-unavailable')).toContainText('did not evaluate the builds of this collection');
     await expect(page.getByTestId('slowdowns-unavailable')).toContainText('duration_watcher_state_stale');
+    await expect(page.getByTestId('slowdowns-unavailable').getByRole('link', { name: /Data Collection runs/ })).toHaveAttribute(
+      'href',
+      'https://github.com/AndreasKaratzas/vllm-ci-dashboard/actions/workflows/hourly-master.yml',
+    );
   });
 
   test('fits a phone without sideways scrolling', async ({ page }) => {
@@ -366,6 +377,14 @@ test.describe('CI Analytics Slowdowns', () => {
     await page.goto('/#/analytics?view=slowdowns');
     await expect(page.getByTestId('slowdowns-active').locator('tbody tr')).toHaveCount(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+    // The onset age stays visible with the increase, and wrapped step names stay clear of the minute axis.
+    await expect(page.getByTestId('slowdowns-active').locator('tbody tr').first()).toContainText(/since \d+d ago/);
+    const plot = page.getByTestId('slowdowns-chart').locator('[data-slot="bar-plot"]');
+    await expect(plot.locator('text').filter({ hasText: /^\d+m$/ }).first()).toBeVisible();
+    const boxes = await plot.locator('text').evaluateAll((nodes) => nodes.map((node) => ({ text: node.textContent, ...node.getBoundingClientRect().toJSON() })));
+    const axisTop = Math.min(...boxes.filter((box) => /^\d+m$/.test(box.text)).map((box) => box.top));
+    const labelBottom = Math.max(...boxes.filter((box) => /Attention|Routed/.test(box.text)).map((box) => box.bottom));
+    expect(labelBottom).toBeLessThanOrEqual(axisTop);
   });
 });
 

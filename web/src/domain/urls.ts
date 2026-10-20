@@ -1,5 +1,9 @@
 import type { Rec } from './format'
 
+export const DASHBOARD_REPO = 'https://github.com/AndreasKaratzas/vllm-ci-dashboard'
+/** The hourly Data Collection runs, which run every watcher and publish the snapshot. */
+export const DATA_COLLECTION_RUNS_URL = `${DASHBOARD_REPO}/actions/workflows/hourly-master.yml`
+
 function pipelineUrlMatches(url: unknown, pipeline: string, requireJob: boolean, expectedBuild: unknown): boolean {
   if (!url || !pipeline) return false
   try {

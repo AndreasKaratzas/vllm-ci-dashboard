@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import Callout from '@/components/feedback/Callout.vue'
 import { useDataset } from '@/composables/useDataset'
 import { statusDetails, viewFor } from '@/data/publicationStatus'
+import { DASHBOARD_REPO, DATA_COLLECTION_RUNS_URL } from '@/domain/urls'
 
 const { data, error } = useDataset('publication_status')
 // An unreadable status file is itself a reason to warn, even when an older status loaded.
@@ -11,10 +12,9 @@ const payload = computed<unknown>(() => (error.value ? { mode: 'unavailable', st
 
 const view = computed(() => (payload.value === undefined ? null : viewFor(payload.value)))
 const details = computed(() => statusDetails(payload.value))
-const REPO = 'https://github.com/AndreasKaratzas/vllm-ci-dashboard'
 const LINKS = [
-  { label: 'Refresh failure details', url: `${REPO}/issues?q=is%3Aissue%20is%3Aopen%20%22Hourly%20validation%20failure%22` },
-  { label: 'Refresh history', url: `${REPO}/actions/workflows/hourly-master.yml` },
+  { label: 'Refresh failure details', url: `${DASHBOARD_REPO}/issues?q=is%3Aissue%20is%3Aopen%20%22Hourly%20validation%20failure%22` },
+  { label: 'Refresh history', url: DATA_COLLECTION_RUNS_URL },
 ]
 </script>
 

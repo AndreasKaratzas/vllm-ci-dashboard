@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { integer, type Rec } from '@/domain/format'
+import { integer, shortSha, type Rec } from '@/domain/format'
 import { currentTestGroupParity } from '@/domain/health'
 import { mirrorCommit } from '@/domain/mirrors'
 import type { HealthViewId } from './views'
@@ -38,7 +38,7 @@ const commit = computed(() => mirrorCommit((props.ops?.test_group_parity || {}).
     <p>This physical configuration count is separate from runtime logical groups and from upstream route coverage.</p>
     <p v-if="commit">
       <a :href="`https://github.com/vllm-project/vllm/commit/${commit}`" target="_blank" rel="noopener" class="font-medium text-foreground underline-offset-4 hover:underline">
-        Scanned commit {{ String(commit).slice(0, 12) }}
+        Scanned commit {{ shortSha(commit) }}
       </a>
     </p>
   </template>

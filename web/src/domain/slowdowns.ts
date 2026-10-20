@@ -1,9 +1,9 @@
-import { age, duration, type Rec, type Tone } from './format'
+import { age, duration, reasonText, shortSha, type Rec, type Tone } from './format'
 
 /**
  * AMD MI test-step slowdowns on main (`main_ci.slowdowns`), exactly as the duration watcher holds
- * them. One row is one Buildkite step on one queue; its minutes are the summed wall time of the
- * step's jobs (its shards) per completed main build.
+ * them. One row is one Buildkite step on one queue; its minutes are its job minutes: the run time of
+ * the step's jobs (its shards) summed per completed main build, so not wall time when it has shards.
  */
 
 export type SlowdownStatus = 'active' | 'settled'
@@ -186,6 +186,17 @@ export function slowdowns(mainCi: Rec | null | undefined): Slowdowns {
   }
 }
 
+const UNAVAILABLE: Record<string, string> = {
+  duration_watcher_state_unavailable: 'The duration watcher has not published its state for this collection.',
+  duration_watcher_state_stale: 'The duration watcher did not evaluate the builds of this collection.',
+  slowdowns_unpublished: 'This snapshot does not publish slowdowns yet.',
+}
+
+/** Why the slowdowns block is unavailable, as a sentence. */
+export function unavailableText(reason: string | null): string {
+  return UNAVAILABLE[reason ?? ''] ?? `${reasonText(reason)}.`
+}
+
 /** Active slowdowns ask for attention; settled ones (no further increase for 14 days) are the new normal. */
 export function slowdownTone(row: Slowdown): Tone {
   return row.status === 'active' ? 'soft' : 'neutral'
@@ -225,12 +236,19 @@ export function changeLabel(row: Slowdown): string {
   return row.lastGood ? `#${row.lastGood.number} → #${row.onset.number}` : `#${row.onset.number}`
 }
 
+/** The vLLM commits from the last fast build to the first slow one, e.g. "5c8952e1a2b3…c008d9d4e5f6"; one SHA when both ran it. */
+export function commitRange(row: Slowdown): string | null {
+  const bad = shortSha(row.onset.commit)
+  const good = shortSha(row.lastGood?.commit)
+  return bad ? (good && good !== bad ? `${good}…${bad}` : bad) : null
+}
+
 /** The Buildkite page of one sampled build, on the pipeline the onset build links to. */
 export function sampleUrl(row: Slowdown, build: number): string {
   return /\/builds\/\d+/.test(row.onset.url) ? row.onset.url.replace(/\/builds\/\d+/, `/builds/${build}`) : ''
 }
 
-/** Agent minutes the slowdowns add to a main build that runs every slowed step (steps run in parallel, so not wall time). */
+/** Job minutes the slowdowns add to a main build that runs every slowed step (steps run in parallel, so not wall time). */
 export function addedMinutes(rows: Slowdown[]): number {
   return rows.reduce((sum, row) => sum + row.increaseMins, 0)
 }
@@ -247,7 +265,7 @@ export function slowdownSearchText(row: Slowdown): string {
 export function rulesText(value: SlowdownRules): string[] {
   const pct = (fraction: number) => `${Math.round(fraction * 100)}%`
   return [
-    'One signal per Buildkite step and queue: the summed wall time of its jobs in each completed main build where all of them passed. Queue wait is excluded.',
+    'One signal per Buildkite step and queue: its job minutes (the run time of its jobs, summed across shards) in each completed main build where all of them passed. Queue wait is excluded.',
     "Only builds with the step's current shard count are compared, so automatic shard re-layouts never count as slowdowns.",
     `A slowdown is a level at least ${minutes(value.alertMinMins)} and ${pct(value.alertMinFraction)} (or ${minutes(value.alertLargeMins)}) above the level before it and ${value.sigmas} standard errors, held by ${pct(value.consistency)} of its runs, without the step returning to the earlier level since.`,
     `It opens once the new level has ${value.minRecentRuns} runs over ${value.minLevelHours} hours and the slowdown is ${value.minSlowdownHours} hours old (the level before it needs ${value.minBaselineRuns} runs), so self-recovering infrastructure events stay out.`,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { amdCompleteLabel, amdNightlyPresentation, nightlyState } from '@/domain/nightly'
+import { amdCompleteLabel, amdNightlyPresentation, amdProgress, nightlyState, nightlyStateBadge, pendingState } from '@/domain/nightly'
 import { buildEvidenceDetail } from '@/features/nightly/buildEvidence'
 
 const NOW = Date.parse('2026-10-20T15:00:00Z')
@@ -51,6 +51,24 @@ describe('AMD-complete nightlies', () => {
       meta: '#96078 - an AMD job was retried; results return once the retry settles; latest test signal #96001',
     })
     expect(nightlyState(retrying)?.label).toBe('AMD retry running')
+  })
+
+  it('counts failing and canceling builds without results as awaiting them', () => {
+    const pending = (extra: object) => ({ number: 96078, has_test_results: false, total_groups: 0, ...extra })
+    expect(nightlyState(pending({ state: 'failing' }))).toMatchObject({ kind: 'awaiting', detail: 'Buildkite is running the AMD jobs; no parsed results yet' })
+    expect(nightlyState(pending({ state: 'canceling' }))).toMatchObject({ kind: 'awaiting', detail: 'Buildkite is canceling the build; no parsed results yet' })
+    expect(nightlyState(pending({ state: 'running', amd_step_count: 6, amd_steps_active: 2 }))?.detail).toBe(
+      'Buildkite is running the AMD jobs; 4 of 6 AMD steps final; no parsed results yet',
+    )
+    expect(nightlyState(pending({ state: 'canceled' }))).toMatchObject({ kind: 'no-results', label: 'No test signal' })
+    expect([amdProgress(pending({ amd_step_count: 6, amd_steps_active: 0 })), amdProgress(pending({ amd_steps_active: 2 }))]).toEqual([null, null])
+  })
+
+  it('badges a nightly by why it has no results, else by its Buildkite state with the AMD-complete note', () => {
+    expect(nightlyStateBadge({ number: 1, state: 'failing', has_test_results: false })).toMatchObject({ label: 'Awaiting results', tone: 'info' })
+    expect(nightlyStateBadge(amdComplete())).toEqual({ label: 'Failed', tone: 'hard', detail: 'AMD jobs complete · build still running (2 non-AMD jobs)' })
+    expect(nightlyStateBadge({ ...amdComplete(), amd_complete: false, state: 'passed' })).toEqual({ label: 'Passed', tone: 'pass', detail: undefined })
+    expect(pendingState(nightlyState(amdComplete()))).toBeNull()
   })
 
   it('keeps the AMD outcome apart from the Buildkite state on the evidence sheet', () => {

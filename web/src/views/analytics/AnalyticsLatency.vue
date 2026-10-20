@@ -1,25 +1,21 @@
 <script setup lang="ts">
-import { ChevronRight } from '@lucide/vue'
 import { computed, h } from 'vue'
-import { RouterLink } from 'vue-router'
 import BarChart from '@/components/charts/BarChart.vue'
 import { plainNumber, type SeriesSpec } from '@/components/charts/chart'
 import SheetStack from '@/components/evidence/SheetStack.vue'
 import AsyncBoundary from '@/components/feedback/AsyncBoundary.vue'
-import Callout from '@/components/feedback/Callout.vue'
 import EmptyState from '@/components/feedback/EmptyState.vue'
 import KpiCard from '@/components/stat/KpiCard.vue'
 import StatGrid from '@/components/stat/StatGrid.vue'
 import type { ColumnSpec } from '@/components/table/columns'
 import DataTable from '@/components/table/DataTable.vue'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useOperationSections } from '@/composables/useOperations'
 import { useSheetStack } from '@/composables/useSheetStack'
 import { useSubviewHeader } from '@/composables/useSubviewHeader'
 import { analyticsObservedAt, latencyComparison, latencyLabel, latencyModel, latencySideDuration, observedNightliesLabel } from '@/domain/analytics'
-import { counted, duration, integer, shortDate, type Rec } from '@/domain/format'
-import { mainCiRecord, mainCiSummary } from '@/domain/mainCi'
+import { duration, integer, shortDate, type Rec } from '@/domain/format'
+import SlowdownsNotice from '@/features/slowdowns/SlowdownsNotice.vue'
 import { SERIES } from '@/lib/palette'
 import AnalyticsAbout from './AnalyticsAbout.vue'
 import { latencyDetail, latencyTitle } from './latencyDetail'
@@ -30,7 +26,6 @@ const sheets = useSheetStack()
 const comparison = computed(() => latencyComparison(ops.value))
 const model = computed(() => latencyModel(comparison.value))
 const open = (row: Rec) => sheets.open(latencyDetail(row, comparison.value))
-const slowdownCount = computed(() => mainCiSummary(mainCiRecord(ops.value))?.activeSlowdowns ?? 0)
 
 useSubviewHeader(() => ({
   observedAt: ops.value ? analyticsObservedAt('latency', ops.value, {}) : undefined,
@@ -83,14 +78,7 @@ const columns: ColumnSpec<Rec>[] = [
 <template>
   <AsyncBoundary :loading="loading && !ops" :error="error" @retry="retry">
     <div class="flex flex-col gap-4 md:gap-6" data-testid="analytics-latency">
-      <Callout v-if="slowdownCount" tone="soft" :title="`${counted(slowdownCount, 'AMD test step')} on main ${slowdownCount === 1 ? 'is' : 'are'} running slower than before`" data-testid="latency-slowdowns">
-        The nightly medians below do not show when a step became slower; Slowdowns lists each one with its onset build and commit range.
-        <template #action>
-          <Button variant="outline" size="sm" as-child>
-            <RouterLink :to="{ name: 'analytics', query: { view: 'slowdowns' } }">Open slowdowns <ChevronRight /></RouterLink>
-          </Button>
-        </template>
-      </Callout>
+      <SlowdownsNotice>The nightly medians below do not show when a step became slower; Slowdowns lists each one with its onset build and commit range.</SlowdownsNotice>
       <EmptyState
         v-if="!comparison.available"
         title="AMD MI nightly latency unavailable"

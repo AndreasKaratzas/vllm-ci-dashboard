@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { addedMinutes, causeShort, levelsText, sampleUrl, slowdowns } from '@/domain/slowdowns'
+import { shortDate } from '@/domain/format'
+import { addedMinutes, causeShort, commitRange, levelsText, sampleUrl, slowdowns } from '@/domain/slowdowns'
 import { slowdownColumns, slowdownDetail, slowdownName } from '@/features/slowdowns/details'
 import fixture from '../fixtures/main_ci_slowdowns.json'
 
@@ -22,12 +23,12 @@ describe('slowdown table and sheet', () => {
     const columns = slowdownColumns(open, NOW, { compact: true })
     expect(columns.map((column) => column.id)).toEqual(['step', 'increase', 'since'])
     const [step, increase, since] = columns.map((column) => column.cell!(single!))
-    expect(increase).toMatchObject({ text: '+3.4m (+45%)', tone: 'soft' })
-    expect(since).toMatchObject({ text: '#94275 → #94303', href: single!.onset.url, sub: '8d ago' })
+    expect(increase).toMatchObject({ text: '+3.4m (+45%)', tone: 'soft', sub: 'since 8d ago' })
+    expect(since).toMatchObject({ text: '#94275 → #94303', href: single!.onset.url, sub: shortDate(single!.onset.createdAt) })
     step!.onOpen!()
     expect(open).toHaveBeenCalledWith(single)
     const full = slowdownColumns(open, NOW)
-    expect(full.find((column) => column.id === 'cause')!.cell!(single!)).toMatchObject({ text: 'vLLM commits', href: single!.compareUrl })
+    expect(full.find((column) => column.id === 'cause')!.cell!(single!)).toMatchObject({ text: commitRange(single!), href: single!.compareUrl, mono: true, sub: 'vLLM commits' })
     expect(full.every((column) => column.id === 'step' || column.id === 'increase' || column.class?.startsWith('hidden'))).toBe(true)
   })
 
@@ -45,5 +46,17 @@ describe('slowdown table and sheet', () => {
     expect(detail.sources!.map((source) => source.label)).toEqual(['First slow build', 'Compare vLLM commits', 'Issue #553'])
     expect(detail.fields!.find((field) => field.label === 'Last fast build')).toMatchObject({ href: single!.lastGood!.url })
     expect(slowdownDetail(data.settled[0]!, data, NOW).sources!.at(-1)!.url).toBe('')
+  })
+
+  it('names the commits around the onset by SHA, and the latest rise only when it differs from the onset', () => {
+    const range = `${single!.lastGood!.commit.slice(0, 12)}…${single!.onset.commit.slice(0, 12)}`
+    expect(commitRange(single!)).toBe(range)
+    expect(commitRange({ ...single!, lastGood: { ...single!.lastGood!, commit: single!.onset.commit } })).toBe(single!.onset.commit.slice(0, 12))
+    const detail = slowdownDetail(single!, data, NOW)
+    expect(detail.fields!.find((field) => field.label === 'vLLM commits')).toMatchObject({ value: range, href: single!.compareUrl })
+    expect(detail.description).toContain(range)
+    const field = (row: typeof single) => slowdownDetail(row!, data, NOW).fields!.find((f) => f.label === 'Latest rise')!.value
+    expect(field({ ...single!, lastRise: single!.onset })).toBeNull()
+    expect(field({ ...single!, lastRise: { ...single!.latest!, createdAt: '' } })).toBe(`#${single!.latest!.number}`)
   })
 })

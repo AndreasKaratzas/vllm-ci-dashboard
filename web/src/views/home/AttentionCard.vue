@@ -22,7 +22,7 @@ const severity = (item: Rec) => {
       <CardDescription>{{ items.length ? `${items.length} active signals · open one for its evidence` : 'Nothing needs attention right now' }}</CardDescription>
     </CardHeader>
     <CardContent>
-      <EmptyState v-if="!items.length" :icon="CircleCheck" title="All clear" description="No AMD nightly, route or slowdown signal is active." />
+      <EmptyState v-if="!items.length" :icon="CircleCheck" title="All clear" description="No AMD nightly or route signal is active." />
       <ul v-else class="flex flex-col divide-y rounded-lg border">
         <li v-for="item in items" :key="item.kind">
           <button

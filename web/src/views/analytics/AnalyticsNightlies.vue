@@ -15,9 +15,9 @@ import { useClock } from '@/composables/useClock'
 import { useSubviewHeader } from '@/composables/useSubviewHeader'
 import { analyticsObservedAt, nightliesModel } from '@/domain/analytics'
 import { movementBuilds } from '@/domain/ciHealth'
-import { integer, shortDate, toneForState, value, type Rec } from '@/domain/format'
+import { integer, shortDate, value, type Rec } from '@/domain/format'
 import { currentAmdHealth } from '@/domain/health'
-import { amdNightlyPresentation, hasTestSignal, latestAmd, latestNightly, nightlyCountLabel, nightlyFailureCount, nightlyState, signalNightly } from '@/domain/nightly'
+import { amdNightlyPresentation, hasTestSignal, latestAmd, latestNightly, nightlyCountLabel, nightlyFailureCount, nightlyStateBadge, pendingState, signalNightly } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
 import { buildEvidenceDetail, pendingEvidenceDetail } from '@/features/nightly/buildEvidence'
@@ -40,7 +40,7 @@ const now = useClock()
 const presentation = computed(() =>
   amdNightlyPresentation(latest.value, currentAmdHealth(ops.value?.amd_test_health).summary || {}, ops.value?.generated_at, now.value),
 )
-const latestStatus = computed(() => (notice.value && notice.value.state.kind !== 'amd-complete' ? notice.value.state : presentation.value))
+const latestStatus = computed(() => pendingState(notice.value?.state) ?? presentation.value)
 const open = (build: Rec, scope?: Movement) => sheets.open(buildEvidenceDetail(build, { scope }))
 
 useSubviewHeader(() => ({
@@ -58,10 +58,6 @@ const MOVEMENT: { key: Movement; label: string; column: string; goodWhen: 'up' |
   { key: 'fixed', label: 'Fixed', column: 'Fixed', goodWhen: 'up', meta: 'Failed previously and passed now' },
 ]
 const latestCount = (key: Movement) => (signal.value ? nightlyFailureCount(signal.value, key) : null)
-const stateLabel = (state: unknown) => {
-  const text = value(state, 'unknown')
-  return text.charAt(0).toUpperCase() + text.slice(1)
-}
 
 const countCell = (build: Rec, key: Movement): CellSpec => {
   const count = nightlyFailureCount(build, key)
@@ -81,10 +77,8 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
     label: 'State',
     value: (row) => value(row.state, 'unknown'),
     cell: (row) => {
-      const state = nightlyState(row)
-      return state && state.kind !== 'amd-complete'
-        ? badge(state.label, state.tone)
-        : { ...badge(stateLabel(row.state), toneForState(row.state)), sub: state?.detail }
+      const state = nightlyStateBadge(row)
+      return { ...badge(state.label, state.tone), sub: state.detail }
     },
     class: 'hidden sm:table-cell',
   },
@@ -116,7 +110,7 @@ const columns = computed<ColumnSpec<Rec>[]>(() => [
           label="Latest nightly"
           :value="latest.number ? `#${latest.number}` : null"
           :status="latest.number ? { tone: latestStatus.tone, label: latestStatus.label } : undefined"
-          :footnote="latest.created_at ? [shortDate(latest.created_at), notice?.state.kind === 'amd-complete' ? notice.state.detail : ''].filter(Boolean).join(' · ') : 'No completed nightly'"
+          :footnote="latest.created_at ? shortDate(latest.created_at) : 'No completed nightly'"
           :action="latest.number ? { label: 'Inspect nightly evidence', onOpen: () => open(latest) } : undefined"
           data-testid="kpi-nightly-latest"
         />

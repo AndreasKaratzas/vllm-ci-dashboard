@@ -243,13 +243,20 @@ def _median(values: list[float]) -> float:
     return ordered[middle] if len(ordered) % 2 else (ordered[middle - 1] + ordered[middle]) / 2
 
 
-def _slowdown(key: str, name: str, hardware: str, runs: list[dict], onset: int, levels: tuple[float, float],
-              jobs: int = 1, status: str = "active") -> dict:
-    """One duration-watcher row over (number, commit, created_at) runs; the step is slower from runs[onset]."""
-    timed = [{**run, "wall_mins": round((levels[index >= onset]) + _jitter(f"{key}/{run['number']}", 0.6), 1)}
+def _slowdown(key: str, name: str, hardware: str, runs: list[dict], onset: int, levels: tuple[float, ...],
+              jobs: int = 1, status: str = "active", rise: int | None = None) -> dict:
+    """One duration-watcher row over (number, commit, created_at) runs; the step is slower from runs[onset]
+    and, given a third level, rose again from runs[rise]."""
+    rise = onset if rise is None else rise
+
+    def level(index: int) -> float:
+        return levels[0] if index < onset else levels[-1] if index >= rise else levels[1]
+
+    timed = [{**run, "wall_mins": round(level(index) + _jitter(f"{key}/{run['number']}", 0.6), 1)}
              for index, run in enumerate(runs)]
     before, since = timed[:onset], timed[onset:]
-    baseline, recent = (round(_median([run["wall_mins"] for run in rows]), 2) for rows in (before, since))
+    baseline = round(_median([run["wall_mins"] for run in before]), 2)
+    recent = round(_median([run["wall_mins"] for run in timed[rise:]]), 2)
 
     def ref(run: dict) -> dict:
         return {"build_number": run["number"], "build_url": f"https://buildkite.com/vllm/ci/builds/{run['number']}",
@@ -261,13 +268,13 @@ def _slowdown(key: str, name: str, hardware: str, runs: list[dict], onset: int, 
         "signal_id": sha1(f"{key}/{hardware}".encode()).hexdigest()[:20],
         "name": f":amd: ({hardware.upper()}) {name}", "step_key": key, "hardware": hardware, "queue": f"amd_{hardware}_1",
         "jobs": jobs, "status": status,
-        "baseline_mins": baseline, "baseline_runs": len(before), "recent_mins": recent, "recent_runs": len(since),
+        "baseline_mins": baseline, "baseline_runs": len(before), "recent_mins": recent, "recent_runs": len(timed[rise:]),
         "increase_mins": round(recent - baseline, 1), "increase_pct": round((recent - baseline) / baseline * 100, 1),
         "noise_mins": 0.42,
         "onset": ref(since[0]), "last_good": ref(before[-1]),
         "likely_cause": "environment" if same_commit else "vllm_change",
         "compare_url": "" if same_commit else f"https://github.com/vllm-project/vllm/compare/{before[-1]['commit']}...{since[0]['commit']}",
-        "last_rise": ref(since[0]), "latest": ref(since[-1]),
+        "last_rise": ref(timed[rise]), "latest": ref(since[-1]),
         "first_detected_at": (datetime.fromisoformat(since[0]["created_at"]) + timedelta(hours=50)).isoformat(),
         "samples": [[run["number"], run["created_at"], run["wall_mins"]] for run in before[-20:] + thinned],
     }
@@ -289,7 +296,8 @@ def duration_state(mains: list[dict]) -> dict:
               "created_at": (september + timedelta(hours=6 * index)).isoformat()} for index in range(40)]
     basic = older + runs("basic-models")
     rows = [
-        _slowdown("routed-alpha", "Routed Alpha", "mi300", alpha, len(alpha) // 2, (24.8, 31.6)),
+        # Routed Alpha rose twice: the sheet marks both the onset and the latest rise.
+        _slowdown("routed-alpha", "Routed Alpha", "mi300", alpha, len(alpha) // 2, (24.8, 28.9, 31.6), rise=len(alpha) * 2 // 3),
         _slowdown("attention", "Attention Kernels", "mi300", attention, len(attention) * 2 // 3, (18.2, 22.1), jobs=2),
         _slowdown("basic-models", "Basic Models (Other)", "mi300", basic, 21, (12.4, 15.3), status="settled"),
     ]

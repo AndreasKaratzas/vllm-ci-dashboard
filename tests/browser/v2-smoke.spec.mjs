@@ -17,7 +17,7 @@ test.describe('Home', () => {
     await expect(page.getByTestId('kpi-pass-rate')).toContainText('66.7%');
     await expect(page.getByTestId('kpi-parity')).toContainText('90.9%');
     await expect(page.getByTestId('kpi-parity')).toContainText('1 missing');
-    await expect(page.getByTestId('kpi-attention')).toContainText('3');
+    await expect(page.getByTestId('kpi-attention')).toContainText('2');
     await expect(page.getByTestId('nightly-trend')).toContainText('AMD nightly pass rate');
     await expect(page.getByTestId('nightly-trend').getByRole('img', { name: 'AMD nightly pass rate' })).toBeVisible();
     await expect(page.getByTestId('nightly-movement-chart')).toBeVisible();
@@ -51,7 +51,7 @@ test.describe('Home', () => {
   test('needs-attention signals drill into the latest nightly or route to their view', async ({ page }) => {
     await page.goto('/');
     const signals = page.getByTestId('attention-row');
-    await expect(signals).toHaveCount(3);
+    await expect(signals).toHaveCount(2);
     await signals.filter({ hasText: 'Hard-failed groups' }).click();
     await expect(page.getByRole('dialog')).toContainText('Hard-failed groups in the latest AMD nightly');
     await page.keyboard.press('Escape');

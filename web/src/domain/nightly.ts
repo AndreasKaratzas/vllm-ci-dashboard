@@ -1,4 +1,4 @@
-import { integer, value, type Rec, type Tone } from './format'
+import { counted, integer, sentence, toneForState, value, type Rec, type Tone } from './format'
 
 export const OPS_SNAPSHOT_MAX_AGE_MS = 3 * 60 * 60 * 1000
 const CONFIRMED_INCIDENT_POLICY_ID = 'confirmed-incidents-v1'
@@ -317,17 +317,27 @@ export function signalNightly(builds: Rec[] | null | undefined): Rec | undefined
   return (builds || []).find(hasTestSignal)
 }
 
-/** Buildkite is still running the build ('failing' is a running build with a failed job). */
+/** Buildkite is still running the build ('failing' runs with a failed job, 'canceling' stops its jobs). */
 export function nightlyRunning(build: Rec | null | undefined): boolean {
   const state = String(build?.state || '').toLowerCase()
-  return state === 'failing' || IN_PROGRESS_STATES.includes(state)
+  return state === 'failing' || state === 'canceling' || IN_PROGRESS_STATES.includes(state)
+}
+
+/** AMD steps (shards collapsed) already final in a running nightly, e.g. { final: 180, total: 234 }; null when not published. */
+export function amdProgress(build: Rec | null | undefined): { final: number; total: number } | null {
+  const total = Number(build?.amd_step_count || 0)
+  const active = Number(build?.amd_steps_active || 0)
+  return total > 0 && active > 0 && active <= total ? { final: total - active, total } : null
 }
 
 /**
  * Why a nightly's results are not the plain final outcome of a finished build: its AMD jobs are final
  * while Buildkite still runs it ('amd-complete'), or it has no AMD results because its AMD jobs still
  * run ('awaiting'), an AMD job is being retried ('retry'), its AMD jobs never started ('blocked') or it
- * finished without parsed AMD results ('no-results'). Labels match amdNightlyPresentation.
+ * ended without parsed AMD results ('no-results'). Every page labels a nightly without results by
+ * this. amdNightlyPresentation keeps the classic renderer's labels (pinned by the parity goldens), which
+ * differ: only IN_PROGRESS_STATES count as running there, so a 'failing' or 'canceling' build without
+ * results reads 'No test signal', and an old snapshot reads 'Snapshot stale'.
  */
 export type NightlyStateKind = 'amd-complete' | 'awaiting' | 'retry' | 'blocked' | 'no-results'
 
@@ -346,11 +356,35 @@ export function nightlyState(build: Rec | null | undefined): NightlyState | null
     return complete ? { kind: 'amd-complete', label: 'AMD jobs complete', tone: 'info', detail: complete } : null
   }
   const blocked = Number(build.test_jobs_blocked || 0)
-  if (blocked) return { kind: 'blocked', label: 'Infra blocked', tone: 'hard', detail: `${integer(blocked)} AMD test jobs never started` }
+  if (blocked) return { kind: 'blocked', label: 'Infra blocked', tone: 'hard', detail: `${counted(blocked, 'AMD test job')} never started` }
   if (build.active_retry === true)
     return { kind: 'retry', label: 'AMD retry running', tone: 'info', detail: 'An AMD job was retried; results return once the retry settles' }
-  if (nightlyRunning(build)) return { kind: 'awaiting', label: 'Awaiting results', tone: 'info', detail: 'Buildkite is running the AMD jobs; no parsed results yet' }
+  if (nightlyRunning(build)) {
+    const progress = amdProgress(build)
+    const canceling = String(build.state).toLowerCase() === 'canceling'
+    return {
+      kind: 'awaiting',
+      label: 'Awaiting results',
+      tone: 'info',
+      detail:
+        (canceling ? 'Buildkite is canceling the build' : 'Buildkite is running the AMD jobs') +
+        (progress ? `; ${integer(progress.final)} of ${counted(progress.total, 'AMD step')} final` : '') +
+        '; no parsed results yet',
+    }
+  }
   return { kind: 'no-results', label: 'No test signal', tone: 'soft', detail: 'Finished without parsed AMD test results' }
+}
+
+/** The state a nightly shows in place of its outcome: why it has no results yet; null once it has them. */
+export function pendingState(state: NightlyState | null | undefined): NightlyState | null {
+  return state && state.kind !== 'amd-complete' ? state : null
+}
+
+/** A nightly's state badge: why it has no results, else its Buildkite state with the AMD-complete note. */
+export function nightlyStateBadge(build: Rec): { label: string; tone: Tone; detail?: string } {
+  const state = nightlyState(build)
+  const pending = pendingState(state)
+  return pending ?? { label: sentence(value(build.state, 'unknown')), tone: toneForState(build.state), detail: state?.detail }
 }
 
 /** The newest nightly whenever its state needs saying, with the nightly the counts come from. */

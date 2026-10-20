@@ -64,7 +64,6 @@ const ATTENTION_LABELS: Record<string, string> = {
   nightly_soft_failures: 'Soft-failed groups in the latest AMD nightly',
   amd_logical_groups_not_fully_passing: 'AMD logical test groups not passing every route',
   omni_waiting: 'Omni jobs waiting across the fleet',
-  main_slowdowns: 'AMD test steps on main running slower than before',
 }
 
 export function attentionLabel(item: Rec): string {

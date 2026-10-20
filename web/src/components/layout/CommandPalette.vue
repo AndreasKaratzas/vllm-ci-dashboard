@@ -20,6 +20,7 @@ import { nightlyResultTone } from '@/domain/home'
 import { buildOutcome, buildTone, groupLabel, mainBuilds, mainIncidents } from '@/domain/mainCi'
 import { latestAmd } from '@/domain/nightly'
 import { perfModels, perfQuery, perfState } from '@/domain/perf'
+import { DASHBOARD_REPO } from '@/domain/urls'
 import { logicalGroupDetail } from '@/features/amd-groups/details'
 import { useFreshness } from '@/features/freshness/useFreshness'
 import { toneClasses, TONE_LABEL } from '@/lib/palette'
@@ -83,7 +84,6 @@ function openGroup(row: Rec) {
   freshness.sheets.open(logicalGroupDetail(row, { amdHealth, latestBuild: (amdHealth?.summary || {}).latest_build_number }))
 }
 
-const REPO = 'https://github.com/AndreasKaratzas/vllm-ci-dashboard'
 const BUILDKITE = 'https://buildkite.com/vllm/amd-ci'
 
 function go(to: RouteLocationRaw) {
@@ -189,7 +189,7 @@ function run(action: () => void) {
         </CommandItem>
         <CommandItem value="action data freshness sources" @select="run(freshness.open)"><Clock /> Show data freshness</CommandItem>
         <CommandItem value="action open buildkite amd ci" @select="visit(BUILDKITE)"><Activity /> Open Buildkite AMD CI</CommandItem>
-        <CommandItem value="action open dashboard repository github" @select="visit(REPO)"><FolderGit2 /> Open dashboard repository</CommandItem>
+        <CommandItem value="action open dashboard repository github" @select="visit(DASHBOARD_REPO)"><FolderGit2 /> Open dashboard repository</CommandItem>
       </CommandGroup>
       <CommandGroup v-if="work?.issues.length" heading="Issues">
         <CommandItem v-for="issue in work.issues" :key="issue.number" :value="`issue #${issue.number} ${issue.title}`" @select="visit(issue.html_url)">

@@ -13,11 +13,11 @@ const PAGES = [
 ];
 
 const STATES = [
-  ['amd-complete', 'Nightly #30005: AMD jobs complete · build still running (1 non-AMD job)', 'Every AMD job is final'],
-  ['awaiting', 'Nightly #30006 is still running its AMD jobs', 'with 2 hard failures so far. Counts come from #30005'],
+  ['amd-complete', 'Nightly #30005: AMD jobs complete · build still running (1 non-AMD job)', 'the build stays open only for 1 job on other hardware.'],
+  ['awaiting', 'Nightly #30006 is still running its AMD jobs', '4 of 6 AMD steps final, with 2 hard failures so far. Counts come from #30005'],
   ['retry', 'Nightly #30006 is re-running an AMD job', 'results return once the retry settles. Counts come from #30005'],
   ['blocked', 'Nightly #30006 has no AMD test results', '6 AMD test jobs never started. Counts come from #30005'],
-  ['no-results', 'Nightly #30006 has no AMD test results', 'It finished without parsed AMD test results; 1 job variant failed.'],
+  ['no-results', 'Nightly #30006 has no AMD test results', 'Finished without parsed AMD test results; 1 job variant failed.'],
 ];
 
 for (const [kind, title, body] of STATES) {
@@ -43,9 +43,16 @@ for (const [kind, title, body] of STATES) {
       await expect(page.getByTestId('kpi-nightly')).toContainText('#30005 - 4 pass - 0 soft - 2 hard');
       const first = page.getByTestId('nightly-table').locator('tbody tr').first();
       if (kind === 'amd-complete') {
-        await expect(page.getByTestId('kpi-pass-rate')).toContainText('AMD jobs complete · build still running (1 non-AMD job)');
         await expect(page.getByTestId('kpi-nightly')).toContainText('AMD jobs complete · build still running');
-        await expect(first).toContainText('4 / 6 · AMD jobs complete');
+        await expect(first.locator('td').first()).toContainText('AMD jobs complete');
+        // The note sits under the build, so the AMD-complete row's pass rate lines up with the rows below.
+        const rates = page.getByTestId('nightly-table').locator('tbody tr td:nth-child(3)');
+        await expect(rates.first()).toHaveText(/^66\.7%\s*4 \/ 6$/);
+        const right = async (row) => {
+          const box = await rates.nth(row).locator('[data-slot="cell"] > :first-child').boundingBox();
+          return box.x + box.width;
+        };
+        expect(Math.abs((await right(0)) - (await right(1)))).toBeLessThan(1);
       } else {
         await expect(first).toContainText('#30006');
         await expect(first).toContainText({ awaiting: 'Awaiting results', retry: 'AMD retry running', blocked: 'Infra blocked', 'no-results': 'No test signal' }[kind]);

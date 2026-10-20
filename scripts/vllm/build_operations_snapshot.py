@@ -613,6 +613,12 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
             "transition_eligible": transition_eligible,
             "transition_ineligible_reason": ineligible_reason or None,
             "test_job_count": int(health_build.get("test_job_count") or 0),
+            # AMD steps (shards collapsed) and those still running or waiting, while Buildkite runs the build.
+            "amd_step_count": int(health_build.get("job_count") or 0),
+            "amd_steps_active": (
+                int(health_build.get("jobs_running") or 0) + int(health_build.get("jobs_waiting") or 0)
+                if health_build.get("is_running") is True and not build.get("finished_at") else 0
+            ),
             "test_jobs_blocked": int(health_build.get("test_jobs_blocked") or 0),
             "unique_test_groups": int(
                 health_build.get("unique_test_groups") or 0

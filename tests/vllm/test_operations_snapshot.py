@@ -2890,6 +2890,20 @@ def test_nightly_nonterminal_builds_hold_state_without_advancing_streak():
     ]
 
 
+def test_running_nightly_publishes_its_amd_step_progress():
+    running = _build(18, "2026-04-21", [])
+    running.update(state="running", finished_at=None)
+    health = {"builds": [{"number": 18, "has_test_results": False, "is_running": True,
+                          "job_count": 234, "jobs_running": 40, "jobs_waiting": 14}]}
+
+    row = ops._nightly_pipeline("ci", {"builds": [running]}, health)["builds"][0]
+    assert (row["amd_step_count"], row["amd_steps_active"]) == (234, 54)
+
+    finished = {**running, "state": "failed", "finished_at": "2026-04-21T20:00:00Z"}
+    row = ops._nightly_pipeline("ci", {"builds": [finished]}, health)["builds"][0]
+    assert (row["amd_step_count"], row["amd_steps_active"]) == (234, 0)
+
+
 def test_amd_complete_running_nightly_matches_its_finished_projection():
     name = "mi300_1: Shared build"
 
