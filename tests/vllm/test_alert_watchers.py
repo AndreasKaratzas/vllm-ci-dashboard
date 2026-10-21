@@ -1344,6 +1344,41 @@ def test_agent_main_watcher_accepts_exact_scope_and_preserves_observation_clock(
     assert "every terminal ci/main attempt" in reconciliations[0]["body"]
 
 
+def test_agent_health_issue_body_refreshes_on_new_counts_but_not_on_each_collection(monkeypatch):
+    payload = {"failing_runs": [
+        _agent_row("gpu1", "a", "2026-07-17T10:00:00Z", build=1, job="a"),
+        _agent_row("gpu1", "b", "2026-07-17T10:05:00Z", build=2, job="b"),
+    ]}
+    client = FakeIssueClient()
+    state = [agent._default_state()]
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "AndreasKaratzas/vllm-ci-dashboard")
+    monkeypatch.setattr(agent, "_read_payload", lambda: payload)
+    monkeypatch.setattr(agent, "_current_main_scope", lambda _: True)
+    monkeypatch.setattr(agent, "_is_fresh", lambda *_: True)
+    monkeypatch.setattr(agent, "_read_state", lambda: state[-1])
+    monkeypatch.setattr(agent, "_write_state", state.append)
+    monkeypatch.setattr(agent, "GitHubIssueClient", lambda *_: client)
+
+    def run(run_id, generated_at):
+        monkeypatch.setenv("GITHUB_RUN_ID", run_id)
+        payload["generated_at"] = generated_at
+        assert agent.run() == 0
+
+    run("1", "2026-07-17T12:00:00Z")
+    run("2", "2026-07-17T13:00:00Z")
+    assert len(client.opened) == 1
+    assert client.updated == []
+
+    payload["failing_runs"].append(
+        _agent_row("gpu2", "c", "2026-07-17T13:10:00Z", build=3, job="c", attribution="build", reason="build_wide")
+    )
+    run("3", "2026-07-17T14:00:00Z")
+    assert len(client.updated) == 1
+    assert "Of 3 failing attempts in the window" in client.updated[0][2]
+    assert "2026-07-17T14:00:00Z" in client.updated[0][2]
+
+
 def test_alert_payload_freshness_fails_closed():
     now = datetime(2026, 7, 17, 12, 0, tzinfo=timezone.utc)
 
