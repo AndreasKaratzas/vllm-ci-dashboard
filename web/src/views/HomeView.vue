@@ -22,14 +22,15 @@ import { HOME_EXCLUDED_ATTENTION, attentionLabel, currentAmdHealth, currentTestG
 import { attentionTone, nightlySeries, passRateTrend } from '@/domain/home'
 import { movementBuilds } from '@/domain/ciHealth'
 import { buildsBetween, type TrendPoint } from '@/domain/mainCi'
-import { amdNightlyPresentation, ciHealthPublicationRetentionMessage, latestAmd, nightlyCountLabel, pendingNightly, signalNightly } from '@/domain/nightly'
+import { amdNightlyPresentation, ciHealthPublicationRetentionMessage, latestAmd, latestNightly, nightlyCountLabel, signalNightly } from '@/domain/nightly'
 import { exactPipelineBuildUrl } from '@/domain/urls'
 import { useFreshness } from '@/features/freshness/useFreshness'
 import { statusVar } from '@/lib/palette'
 import { buildEvidenceDetail, pendingEvidenceDetail } from '@/features/nightly/buildEvidence'
 import NightlyMovementChart from '@/features/nightly/NightlyMovementChart.vue'
-import PendingNightlyCallout from '@/features/nightly/PendingNightlyCallout.vue'
+import LatestNightlyCallout from '@/features/nightly/LatestNightlyCallout.vue'
 import { trendPointDetail } from '@/features/main-ci/details'
+import SlowdownsNotice from '@/features/slowdowns/SlowdownsNotice.vue'
 import MainCiKpis from '@/features/main-ci/MainCiKpis.vue'
 import MainCiTrendCard from '@/features/main-ci/MainCiTrendCard.vue'
 import { useMainCi } from '@/features/main-ci/useMainCi'
@@ -57,7 +58,7 @@ const builds = computed<Rec[]>(() => amd.value.builds || [])
 const latestBuild = computed<Rec>(() => builds.value[0] || {})
 const latestUrl = computed(() => exactPipelineBuildUrl(latestBuild.value, 'ci'))
 // While the newest nightly has no test results, every count comes from the newest one that has.
-const pending = computed(() => pendingNightly(builds.value))
+const notice = computed(() => latestNightly(builds.value))
 const signalBuild = computed<Rec>(() => signalNightly(builds.value) || latestBuild.value)
 const signalUrl = computed(() => exactPipelineBuildUrl(signalBuild.value, 'ci'))
 const nightly = computed(() =>
@@ -176,6 +177,7 @@ watch(sheets.stack, (stack) => {
             flaky: { label: 'Open flaky groups', to: { name: 'main', query: { view: 'flaky' } } },
           }"
         />
+        <SlowdownsNotice />
         <MainCiTrendCard v-if="mainCi.loaded.value" :record="mainCi.ctx.value.record" @select="openMainPoint" />
         <AsyncBoundary v-else :loading="!mainCi.error.value" :error="mainCi.error.value" skeleton="chart" @retry="mainCi.retry" />
       </template>
@@ -196,7 +198,7 @@ watch(sheets.stack, (stack) => {
           </Button>
         </div>
         <Callout v-if="retentionMessage" tone="soft" title="Partial history">{{ retentionMessage }}</Callout>
-        <PendingNightlyCallout v-if="pending" :pending="pending" :on-open="() => sheets.open(pendingEvidenceDetail(pending!))" />
+        <LatestNightlyCallout v-if="notice" :nightly="notice" :on-open="() => sheets.open(pendingEvidenceDetail(notice!))" />
 
         <StatGrid>
           <KpiCard

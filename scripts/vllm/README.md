@@ -501,7 +501,8 @@ From that one cohort:
   retry-recovery thresholds in `config/ci_flakiness_thresholds.json` and closes
   its issue when none remain.
 - `amd_duration_regression_watcher.py` lists test steps whose wall time rose
-  by a sustained step since a change (rules in `scripts/vllm/ci/README.md`).
+  by a sustained step since a change (rules in `scripts/vllm/ci/README.md`);
+  its issue links the CI Analytics Slowdowns view.
 - `operations_v2/main_ci.json` (bounded to 1.5 MiB) publishes per-build
   summaries, the watchers' incidents, timeline and slowdowns, flaky groups,
   retry hotspots and daily/hourly pass-rate series. `shell.sources.main_ci` carries the cohort's

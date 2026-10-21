@@ -43,6 +43,7 @@ export const SUB_VIEWS: Record<SubViewPage, SubViews> = {
     items: [
       { value: 'groups', label: 'AMD test health' },
       { value: 'latency', label: 'AMD nightly latency' },
+      { value: 'slowdowns', label: 'Slowdowns' },
       { value: 'nightlies', label: 'AMD nightlies' },
       { value: 'dns', label: 'DNS health' },
       { value: 'agent-health', label: 'CI agent health' },

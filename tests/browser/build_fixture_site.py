@@ -131,6 +131,7 @@ HEADLINES = (
     "[Model] Add tool-call parser for a new chat template (#61{:03d})",
 )
 WATCHER_ISSUE = 512
+DURATION_ISSUE = 553
 
 
 def main_commit(slot: int) -> str:
@@ -232,6 +233,81 @@ def watcher_state(reliability: dict, nightlies: list[dict], mains: list[dict]) -
     }
 
 
+def _jitter(key: str, spread: float) -> float:
+    return (int(sha1(key.encode()).hexdigest()[:8], 16) / 0xFFFFFFFF - 0.5) * 2 * spread
+
+
+def _median(values: list[float]) -> float:
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    return ordered[middle] if len(ordered) % 2 else (ordered[middle - 1] + ordered[middle]) / 2
+
+
+def _slowdown(key: str, name: str, hardware: str, runs: list[dict], onset: int, levels: tuple[float, ...],
+              jobs: int = 1, status: str = "active", rise: int | None = None) -> dict:
+    """One duration-watcher row over (number, commit, created_at) runs; the step is slower from runs[onset]
+    and, given a third level, rose again from runs[rise]."""
+    rise = onset if rise is None else rise
+
+    def level(index: int) -> float:
+        return levels[0] if index < onset else levels[-1] if index >= rise else levels[1]
+
+    timed = [{**run, "wall_mins": round(level(index) + _jitter(f"{key}/{run['number']}", 0.6), 1)}
+             for index, run in enumerate(runs)]
+    before, since = timed[:onset], timed[onset:]
+    baseline = round(_median([run["wall_mins"] for run in before]), 2)
+    recent = round(_median([run["wall_mins"] for run in timed[rise:]]), 2)
+
+    def ref(run: dict) -> dict:
+        return {"build_number": run["number"], "build_url": f"https://buildkite.com/vllm/ci/builds/{run['number']}",
+                "commit": run["commit"], "created_at": run["created_at"]}
+
+    same_commit = before[-1]["commit"] == since[0]["commit"]
+    thinned = since if len(since) <= 40 else [since[round(index * (len(since) - 1) / 39)] for index in range(40)]
+    return {
+        "signal_id": sha1(f"{key}/{hardware}".encode()).hexdigest()[:20],
+        "name": f":amd: ({hardware.upper()}) {name}", "step_key": key, "hardware": hardware, "queue": f"amd_{hardware}_1",
+        "jobs": jobs, "status": status,
+        "baseline_mins": baseline, "baseline_runs": len(before), "recent_mins": recent, "recent_runs": len(timed[rise:]),
+        "increase_mins": round(recent - baseline, 1), "increase_pct": round((recent - baseline) / baseline * 100, 1),
+        "noise_mins": 0.42,
+        "onset": ref(since[0]), "last_good": ref(before[-1]),
+        "likely_cause": "environment" if same_commit else "vllm_change",
+        "compare_url": "" if same_commit else f"https://github.com/vllm-project/vllm/compare/{before[-1]['commit']}...{since[0]['commit']}",
+        "last_rise": ref(timed[rise]), "latest": ref(since[-1]),
+        "first_detected_at": (datetime.fromisoformat(since[0]["created_at"]) + timedelta(hours=50)).isoformat(),
+        "samples": [[run["number"], run["created_at"], run["wall_mins"]] for run in before[-20:] + thinned],
+    }
+
+
+def duration_state(mains: list[dict]) -> dict:
+    """The duration watcher's state: two active slowdowns on fixture steps and one settled since September.
+    Only main builds are sampled: their numbers rise with time, as Buildkite's do, unlike the fixture nightlies'."""
+    every = sorted(mains, key=lambda build: build["created_at"])
+
+    def runs(step: str) -> list[dict]:
+        return [{"number": build["number"], "commit": build["commit"], "created_at": build["created_at"]}
+                for build in every if any(job["step"]["key"] == step and job["state"] == "passed" for job in build["jobs"])]
+
+    alpha, attention = runs("routed-alpha"), runs("attention")
+    # A September retry on the same commit made Basic Models slower; it has not risen since, so it settled.
+    september = datetime(2026, 9, 12, 2, tzinfo=timezone.utc)
+    older = [{"number": 29800 + index, "commit": main_commit(-1 - index // 2 * 2),
+              "created_at": (september + timedelta(hours=6 * index)).isoformat()} for index in range(40)]
+    basic = older + runs("basic-models")
+    rows = [
+        # Routed Alpha rose twice: the sheet marks both the onset and the latest rise.
+        _slowdown("routed-alpha", "Routed Alpha", "mi300", alpha, len(alpha) // 2, (24.8, 28.9, 31.6), rise=len(alpha) * 2 // 3),
+        _slowdown("attention", "Attention Kernels", "mi300", attention, len(attention) * 2 // 3, (18.2, 22.1), jobs=2),
+        _slowdown("basic-models", "Basic Models (Other)", "mi300", basic, 21, (12.4, 15.3), status="settled"),
+    ]
+    return {
+        "schema_version": 1, "incident_state_version": 2, "hardware_scope": "amd_mi_gpu", "last_run": GENERATED_AT,
+        "issue": {"number": DURATION_ISSUE}, "suppressed": False,
+        "active": {row["signal_id"]: row for row in rows},
+    }
+
+
 def seed_current_ci(data_dir: Path) -> None:
     raw = raw_nightlies()
     builds = summarize_pipeline_builds("ci", raw)
@@ -248,6 +324,7 @@ def seed_current_ci(data_dir: Path) -> None:
     )
     write_json(data_dir / "analytics.json", {"ci": analytics})
     write_json(data_dir / operations.MAIN_FAILURE_STATE_NAME, watcher_state(analytics["all_main_reliability"], raw, mains))
+    write_json(data_dir / operations.DURATION_STATE_NAME, duration_state(mains))
     latest = raw[0]
     reference = {
         "build_number": latest["number"], "branch": "main", "commit": SOURCE_SHA,

@@ -1,5 +1,5 @@
 // Perf Eval page decisions over data/vllm/perf_eval/perf_eval.json.
-import { integer, shortDate, value, type Rec, type Tone } from './format'
+import { integer, shortDate, shortSha, value, type Rec, type Tone } from './format'
 
 export const PERF_SOURCE = 'data/vllm/perf_eval/perf_eval.json'
 export const PERF_PIPELINE_URL = 'https://buildkite.com/vllm/perf-eval'
@@ -277,7 +277,7 @@ export function perfModelDetail(model: Rec): PerfDetail {
     fields: present([
       { label: 'Nightlies', value: integer(model.nightly_count) },
       { label: 'Hardware', value: (model.devices || []).join(', ') },
-      { label: 'Latest commit', value: latest.vllm_commit ? String(latest.vllm_commit).slice(0, 12) : null },
+      { label: 'Latest commit', value: latest.vllm_commit ? shortSha(latest.vllm_commit) : null },
       { label: 'Latest image', value: latest.image },
     ]),
     sources: sources([

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { counted, rateText, reasonText } from '@/domain/format'
 import { nightlyCounts, nightlySeries, passRateTrend } from '@/domain/home'
-import { hasTestSignal, nightlyCountLabel, nightlyRunning, pendingNightly, signalNightly } from '@/domain/nightly'
+import { hasTestSignal, latestNightly, nightlyCountLabel, nightlyRunning, nightlyState, signalNightly } from '@/domain/nightly'
 
 const build = (number: number, total: number, hard: number, soft: number, extra = {}) => ({
   number,
@@ -52,11 +52,39 @@ describe('the nightly every page counts from', () => {
   })
 
   it('names a newer nightly without results and the failures already in it', () => {
-    expect(pendingNightly(history)).toMatchObject({ latest: { number: 4 }, signal: { number: 2 }, running: true, hard: 2, soft: 1 })
-    expect(pendingNightly([build(5, 0, 0, 0, { has_test_results: false, state: 'failed' }), ...history])).toMatchObject({ running: false, hard: 0 })
-    expect(pendingNightly(history.slice(2))).toBeNull()
-    expect(pendingNightly([])).toBeNull()
+    expect(latestNightly(history)).toMatchObject({ latest: { number: 4 }, state: { kind: 'awaiting' }, signal: { number: 2 }, hard: 2, soft: 1 })
+    expect(latestNightly([build(5, 0, 0, 0, { has_test_results: false, state: 'failed' }), ...history])).toMatchObject({ state: { kind: 'no-results' }, hard: 0 })
+    expect(latestNightly(history.slice(2))).toBeNull()
+    expect(latestNightly([])).toBeNull()
     expect([nightlyRunning({ state: 'failing' }), nightlyRunning({ state: 'Running' }), nightlyRunning({ state: 'failed' }), nightlyRunning(null)]).toEqual([true, true, false, false])
+  })
+
+  it('names an AMD-complete nightly with results as its own signal', () => {
+    const complete = build(6, 100, 1, 0, { state: 'failed', source_state: 'failing', amd_complete: true, non_amd_jobs_active: 1 })
+    expect(latestNightly([complete, ...history])).toMatchObject({ latest: { number: 6 }, signal: { number: 6 }, state: { kind: 'amd-complete', tone: 'info' } })
+    expect(latestNightly([{ ...complete, source_state: 'failed' }, ...history])).toBeNull()
+  })
+
+  it('gives every reason a nightly has no results one label and tone', () => {
+    const none = { has_test_results: false, total_groups: 0 }
+    expect(
+      [
+        { ...none, state: 'failing' },
+        { ...none, state: 'failing', active_retry: true },
+        { ...none, state: 'failed', test_jobs_blocked: 3 },
+        { ...none, state: 'failed' },
+        build(7, 100, 0, 0),
+        null,
+      ].map((row) => nightlyState(row) && [nightlyState(row)!.kind, nightlyState(row)!.label, nightlyState(row)!.tone]),
+    ).toEqual([
+      ['awaiting', 'Awaiting results', 'info'],
+      ['retry', 'AMD retry running', 'info'],
+      ['blocked', 'Infra blocked', 'hard'],
+      ['no-results', 'No test signal', 'soft'],
+      null,
+      null,
+    ])
+    expect(nightlyState({ ...none, state: 'failed', test_jobs_blocked: 3 })!.detail).toBe('3 AMD test jobs never started')
   })
 
   it('labels a nightly count with the history it comes from', () => {

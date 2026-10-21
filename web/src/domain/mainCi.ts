@@ -62,6 +62,8 @@ export interface MainCiSummary {
   activeIncidents: number | null
   hardIncidents: number | null
   pendingSoft: number | null
+  /** Test steps on main that became sustainably slower; null when the duration watcher did not evaluate this cohort. */
+  activeSlowdowns: number | null
   flakyGroups: number | null
   alertingFlaky: number | null
   retryGroups: number | null
@@ -154,6 +156,7 @@ export function mainCiSummary(record: Rec | null | undefined): MainCiSummary | n
     activeIncidents: num(flat.active_incidents),
     hardIncidents: num(flat.hard_incidents),
     pendingSoft: num(flat.pending_soft),
+    activeSlowdowns: num(flat.active_slowdowns),
     flakyGroups: num(flat.flaky_groups),
     alertingFlaky: num(flat.alerting_flaky_groups),
     retryGroups: num(flat.retry_hotspot_groups),

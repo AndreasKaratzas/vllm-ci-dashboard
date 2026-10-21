@@ -1,5 +1,5 @@
 import { toneForState, type Rec, type Tone } from './format'
-import { hasTestSignal, nightlyFailureCount } from './nightly'
+import { hasTestSignal, nightlyFailureCount, nightlyState } from './nightly'
 
 export interface NightlyCounts {
   number: number
@@ -48,18 +48,11 @@ export function passRateTrend(builds: Rec[]): { latest: NightlyCounts; deltaPoin
   return { latest, deltaPoints: previous ? (latest.passRate - previous.passRate) * 100 : null }
 }
 
-/** Tone of a nightly's outcome: hard or soft failures, a pass, or no test signal. */
+/** Tone of a nightly's outcome: hard or soft failures, a pass, or the tone of why it has no results. */
 export function nightlyResultTone(build: Rec | null | undefined): Tone {
   const counts = nightlyCounts(build)
-  if (!counts) return Number(build?.test_jobs_blocked || 0) ? 'hard' : 'neutral'
+  if (!counts) return nightlyState(build)?.tone ?? 'neutral'
   return counts.hard ? 'hard' : counts.soft ? 'soft' : 'pass'
-}
-
-/** Why a nightly has no pass rate, or null when it has one. */
-export function noSignalLabel(build: Rec | null | undefined): string | null {
-  if (nightlyCounts(build)) return null
-  if (Number(build?.test_jobs_blocked || 0)) return 'Infra blocked'
-  return build?.active_retry === true ? 'AMD retry running' : 'No test signal'
 }
 
 /** The most severe tone across attention signals; none active is a pass. */

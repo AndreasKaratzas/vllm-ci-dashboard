@@ -332,6 +332,15 @@ test.describe('CI Health AMD mirrors matches the golden page facts', () => {
   });
 });
 
+test('the underlined group names in the route matrix and the mirror inventory open their sheets', async ({ page }) => {
+  for (const [route, id] of [['/#/health?view=coverage', 'route-matrix'], ['/#/health?view=mirrors', 'mirror-inventory']]) {
+    await page.goto(route);
+    await page.getByTestId(id).locator('tbody tr').first().locator('td button').first().click();
+    await expect(sheets(page)).toHaveCount(1);
+    await closeSheets(page);
+  }
+});
+
 // Every main drill-down sheet passes the same gates as the pages.
 const drillRow = (page) => topSheet(page).locator('tbody tr').first().click();
 const SHEETS = [

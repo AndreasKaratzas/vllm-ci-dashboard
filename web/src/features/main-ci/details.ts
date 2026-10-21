@@ -1,7 +1,7 @@
 import { rateStat, type Detail, type DetailField, type DetailNote, type DetailStat } from '@/components/evidence/detail'
 import { shortDayTime } from '@/components/charts/chart'
 import { badge, hardwareCell, link, rateCell, text, type CellSpec, type ColumnSpec } from '@/components/table/columns'
-import { age, counted, integer, rateText, sentence, shortDate, toneForState, type Rec } from '@/domain/format'
+import { age, counted, integer, rateText, sentence, shortDate, shortSha, toneForState, type Rec } from '@/domain/format'
 import {
   buildOutcome,
   buildTone,
@@ -31,7 +31,6 @@ export interface MainCiContext {
   builds: MainBuild[]
 }
 
-const shortSha = (sha: string) => sha.slice(0, 12)
 const at = (iso: string) => (iso ? shortDayTime(Date.parse(iso)) : null)
 
 const countCell = (count: number, tone?: 'hard' | 'soft'): CellSpec => ({ text: integer(count), muted: !count, tone: count ? tone : undefined })

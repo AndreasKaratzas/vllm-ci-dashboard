@@ -100,8 +100,7 @@ LABEL_SPECS = [
     ("automated", "6f42c1", "Managed by dashboard automation"),
     ("workstream:dev", "1d76db", "AMD CI test-area development"),
 ]
-# The Analytics latency tab is where step durations and these slowdowns live.
-DASHBOARD_URL = "https://andreaskaratzas.github.io/vllm-ci-dashboard/#/analytics?view=latency"
+DASHBOARD_URL = "https://andreaskaratzas.github.io/vllm-ci-dashboard/#/analytics?view=slowdowns"
 _SHARD_SUFFIX = re.compile(r"\s+shard\s*\d+(?:\s*/\s*\d+)?\s*$", re.IGNORECASE)
 
 

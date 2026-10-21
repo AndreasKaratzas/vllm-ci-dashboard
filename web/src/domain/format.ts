@@ -89,6 +89,11 @@ export function observedCountLabel(count: unknown, semantics: string): string {
   return semantics === 'lower_bound' ? '≥' + rendered : rendered
 }
 
+/** A commit SHA as every page shows it: its first 12 characters. */
+export function shortSha(sha: unknown): string {
+  return String(sha || '').slice(0, 12)
+}
+
 /** A published machine word as a phrase: "soft_confirmed" -> "Soft confirmed"; '' stays ''. */
 export function sentence(value: unknown): string {
   const text = String(value || '').replace(/_/g, ' ').trim()

@@ -12,6 +12,7 @@ import AnalyticsDns from './analytics/AnalyticsDns.vue'
 import AnalyticsGroups from './analytics/AnalyticsGroups.vue'
 import AnalyticsLatency from './analytics/AnalyticsLatency.vue'
 import AnalyticsNightlies from './analytics/AnalyticsNightlies.vue'
+import AnalyticsSlowdowns from './analytics/AnalyticsSlowdowns.vue'
 
 interface AnalyticsSubview {
   description: string
@@ -31,6 +32,11 @@ const INFO: Record<string, AnalyticsSubview> = {
     description: 'Recent main CI AMD MI test-group timing against the upstream baseline.',
     component: AnalyticsLatency,
     source: 'analytics',
+  },
+  slowdowns: {
+    description: 'AMD MI test steps on main that became sustainably slower, and the change that slowed them.',
+    component: AnalyticsSlowdowns,
+    source: 'main_ci',
   },
   nightlies: {
     description: 'Main CI AMD MI nightly outcomes and their failing test groups.',

@@ -740,7 +740,7 @@ export function nightliesModel(nightly: Rec): NightliesModel {
   return { name: nightlyDisplayName(nightly), latest: builds[0] || {}, rows: builds }
 }
 
-export function nightlyCountLabel(build: Rec, key: 'new' | 'recurring' | 'fixed'): string {
+export function movementCountText(build: Rec, key: 'new' | 'recurring' | 'fixed'): string {
   const count = nightlyFailureCount(build, key)
   return count === null ? '-' : integer(count)
 }

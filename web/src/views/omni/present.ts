@@ -129,6 +129,8 @@ export const PHONE_COLUMNS = {
   'Omni GPU-slot requests': 'sm',
   'GPU-hours': 'sm',
   'Omni GPU-hours': 'sm',
+  Analysis: 'md',
+  Source: 'sm',
 } as const
 
 function toTable(table: DetailTable<Rec>): SheetTable<Rec> {

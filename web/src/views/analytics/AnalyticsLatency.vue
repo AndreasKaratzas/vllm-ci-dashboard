@@ -15,6 +15,7 @@ import { useSheetStack } from '@/composables/useSheetStack'
 import { useSubviewHeader } from '@/composables/useSubviewHeader'
 import { analyticsObservedAt, latencyComparison, latencyLabel, latencyModel, latencySideDuration, observedNightliesLabel } from '@/domain/analytics'
 import { duration, integer, shortDate, type Rec } from '@/domain/format'
+import SlowdownsNotice from '@/features/slowdowns/SlowdownsNotice.vue'
 import { SERIES } from '@/lib/palette'
 import AnalyticsAbout from './AnalyticsAbout.vue'
 import { latencyDetail, latencyTitle } from './latencyDetail'
@@ -77,6 +78,7 @@ const columns: ColumnSpec<Rec>[] = [
 <template>
   <AsyncBoundary :loading="loading && !ops" :error="error" @retry="retry">
     <div class="flex flex-col gap-4 md:gap-6" data-testid="analytics-latency">
+      <SlowdownsNotice>The nightly medians below do not show when a step became slower; Slowdowns lists each one with its onset build and commit range.</SlowdownsNotice>
       <EmptyState
         v-if="!comparison.available"
         title="AMD MI nightly latency unavailable"
