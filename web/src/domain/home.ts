@@ -12,13 +12,13 @@ export interface NightlyCounts {
   passRate: number
 }
 
-/** Pass/hard/soft counts for a nightly with test signal, by the classic fallback rule. */
+/** Final-attempt pass/hard/soft counts of a nightly with test signal; null without a published passed count. */
 export function nightlyCounts(build: Rec | null | undefined): NightlyCounts | null {
-  if (!build || !hasTestSignal(build)) return null
+  if (!build || !hasTestSignal(build) || typeof build.passed_groups !== 'number') return null
   const total = Number(build.total_groups)
   const hard = Array.isArray(build.failed_groups) ? build.failed_groups.length : 0
   const soft = Array.isArray(build.soft_failed_groups) ? build.soft_failed_groups.length : 0
-  const passed = Math.max(0, total - hard - soft)
+  const passed = build.passed_groups
   return {
     number: Number(build.number || 0),
     createdAt: String(build.created_at || ''),

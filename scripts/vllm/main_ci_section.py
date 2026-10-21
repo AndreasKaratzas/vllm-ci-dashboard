@@ -28,6 +28,14 @@ RETRY_HOTSPOT_LIMIT = 30
 HEADLINE_MAX_CHARS = 160
 AMD_COUNT_KEYS = ("passed", "soft", "hard", "unknown", "not_run", "retried")
 FAILING_CODES = {"f": "hard", "s": "soft"}
+# A window's hard jobs are concentrated when at most CONCENTRATED_MAX_BUILDS
+# builds carry at least CONCENTRATED_MIN_SHARE of them and the newest
+# CONCENTRATED_GREEN_BUILDS AMD builds have no hard job and every group that
+# hard-failed in those builds has passed since: a contained event, not
+# sustained breakage.
+CONCENTRATED_MAX_BUILDS = 3
+CONCENTRATED_MIN_SHARE = 0.8
+CONCENTRATED_GREEN_BUILDS = 10
 
 
 def _iso(value: datetime) -> str:
@@ -129,7 +137,19 @@ def _build_rows(reliability: dict, failing: dict[int, list[dict]]) -> list[dict]
     return rows
 
 
-def _day_totals(builds: list[dict], start: datetime, end: datetime) -> dict:
+def _recovered_groups(reliability: dict) -> set[str]:
+    """Groups whose newest pass or hard failure in the cohort is a pass."""
+    recovered = set()
+    for group in reliability.get("groups") or []:
+        if not isinstance(group, dict):
+            continue
+        codes = [code for _, code in main_flakiness._history(group) if code != "s"]
+        if codes and codes[-1] in main_flakiness.PASS_CODES:
+            recovered.add(str(group.get("group_id") or ""))
+    return recovered
+
+
+def _day_totals(builds: list[dict], start: datetime, end: datetime, recovered: set[str] | None = None) -> dict:
     """AMD job totals of the builds created in [start, end)."""
     day = [
         row
@@ -152,6 +172,36 @@ def _day_totals(builds: list[dict], start: datetime, end: datetime) -> dict:
         "soft": jobs["soft"],
         "hard": jobs["hard"],
         "pass_rate": round(jobs["passed"] / total * 100, 2) if total else None,
+        "hard_concentration": _hard_concentration(counted, jobs, recovered) if recovered is not None else None,
+    }
+
+
+def _hard_concentration(counted: list[dict], jobs: dict, recovered: set[str]) -> dict | None:
+    """The few builds holding a window's hard jobs, when they are concentrated and every hard group passed since."""
+    verdicts = [row for row in counted if row["amd"]["passed"] + row["amd"]["soft"] + row["amd"]["hard"]]
+    top = sorted((row for row in verdicts if row["amd"]["hard"]), key=lambda row: -row["amd"]["hard"])
+    top = top[:CONCENTRATED_MAX_BUILDS]
+    hard = sum(row["amd"]["hard"] for row in top)
+    newest = verdicts[:CONCENTRATED_GREEN_BUILDS]
+    if (
+        not hard
+        or hard < CONCENTRATED_MIN_SHARE * jobs["hard"]
+        or len(newest) < CONCENTRATED_GREEN_BUILDS
+        or any(row["amd"]["hard"] for row in newest)
+        or any(
+            failing["group_id"] not in recovered
+            for row in counted
+            for failing in row["failing"]
+            if failing["severity"] == "hard"
+        )
+    ):
+        return None
+    passed = jobs["passed"] - sum(row["amd"]["passed"] for row in top)
+    rest = passed + jobs["soft"] - sum(row["amd"]["soft"] for row in top) + jobs["hard"] - hard
+    return {
+        "builds": sorted(row["number"] for row in top),
+        "hard": hard,
+        "pass_rate_without": round(passed / rest * 100, 2) if rest else None,
     }
 
 
@@ -438,6 +488,7 @@ def build_main_ci(
     retry = (analytics_ci or {}).get("main_retry_analysis") or {}
     retry_summary = retry.get("summary") if isinstance(retry.get("summary"), dict) else {}
     day = timedelta(days=1)
+    recovered = _recovered_groups(scoped)
     latest = builds[0] if builds else None
     cohort = reliability.get("cohort") or {}
     return {
@@ -471,7 +522,7 @@ def build_main_ci(
                 if latest
                 else None
             ),
-            "last_24h": _day_totals(builds, now - day, now),
+            "last_24h": _day_totals(builds, now - day, now, recovered),
             "previous_24h": _day_totals(builds, now - 2 * day, now - day),
             "active_incidents": len(incidents["active"]),
             "hard_incidents": sum(row["severity"] == "hard" for row in incidents["active"]),

@@ -70,6 +70,12 @@ export function attentionLabel(item: Rec): string {
   return ATTENTION_LABELS[item.kind] || String(item.kind).replace(/_/g, ' ')
 }
 
+/** Later evidence that softened a signal, e.g. a later scheduled full run that passed every hard-failed group. */
+export function attentionEvidence(item: Rec): string {
+  const later = item.passed_later
+  return later?.number ? `All passed in later ${later.kind || 'scheduled'} run #${later.number}` : ''
+}
+
 /** Home omits queue-derived signals; those live on their own views. */
 export const HOME_EXCLUDED_ATTENTION = [
   'queue_waiting',

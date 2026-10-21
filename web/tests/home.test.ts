@@ -7,14 +7,17 @@ const build = (number: number, total: number, hard: number, soft: number, extra 
   number,
   created_at: `2026-10-0${number % 9}T09:00:00Z`,
   total_groups: total,
+  passed_groups: total - hard - soft,
   failed_groups: Array.from({ length: hard }, (_, i) => ({ name: `h${i}` })),
   soft_failed_groups: Array.from({ length: soft }, (_, i) => ({ name: `s${i}` })),
   ...extra,
 })
 
 describe('home KPIs', () => {
-  it('counts passes as total minus hard and soft', () => {
+  it('counts the published final-attempt passes, not total minus failures', () => {
     expect(nightlyCounts(build(5, 100, 3, 2))).toMatchObject({ passed: 95, hard: 3, soft: 2, passRate: 0.95 })
+    expect(nightlyCounts(build(5, 100, 3, 2, { passed_groups: 90 }))).toMatchObject({ passed: 90, total: 100, passRate: 0.9 })
+    expect(nightlyCounts(build(5, 100, 3, 2, { passed_groups: undefined }))).toBeNull()
   })
 
   it('treats builds without test signal as absent', () => {

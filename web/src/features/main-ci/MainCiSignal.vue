@@ -6,8 +6,7 @@ import StatusBadge from '@/components/feedback/StatusBadge.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { counted, integer, rateText } from '@/domain/format'
-import { buildOutcome, buildTone } from '@/domain/mainCi'
-import { rateStatus } from '@/lib/palette'
+import { buildOutcome, buildTone, dayRateStatus } from '@/domain/mainCi'
 import { useMainCi } from './useMainCi'
 
 // Main CI is the source of truth; pages built from the nightly lead with its headline and link to it.
@@ -15,6 +14,7 @@ const mainCi = useMainCi()
 const summary = computed(() => (mainCi.summary.value?.available ? mainCi.summary.value : null))
 const latest = computed(() => mainCi.builds.value[0] ?? summary.value?.latest ?? null)
 const rate = computed(() => summary.value?.last24h?.passRate ?? null)
+const rateBadge = computed(() => dayRateStatus(summary.value?.last24h))
 const active = computed(() => summary.value?.activeIncidents ?? 0)
 const hard = computed(() => summary.value?.hardIncidents ?? 0)
 </script>
@@ -35,7 +35,7 @@ const hard = computed(() => summary.value?.hardIncidents ?? 0)
         <span class="text-xs text-muted-foreground">AMD pass rate, 24h</span>
         <span class="flex flex-wrap items-center gap-2">
           <span class="text-xl font-semibold tabular-nums" :class="rate === null && 'text-muted-foreground'">{{ rateText(rate) }}</span>
-          <StatusBadge v-if="rateStatus(rate)" :tone="rateStatus(rate)!.tone" :label="rateStatus(rate)!.label" />
+          <StatusBadge v-if="rateBadge" :tone="rateBadge.tone" :label="rateBadge.label" />
         </span>
       </div>
       <div class="flex flex-col gap-1">

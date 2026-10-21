@@ -429,6 +429,36 @@ def test_main_ci_builds_name_their_failing_groups_and_days_meet_end_to_end():
     assert main_ci_section.main_ci_shell(section)["previous_24h"] == previous
 
 
+def test_main_ci_day_names_hard_jobs_concentrated_in_a_few_builds_only_while_main_is_green():
+    def run(number, hours_ago, failing):
+        at = NOW - timedelta(hours=hours_ago)
+        return _build(number, at, [
+            _job(f"j{number}-{index}", f"Group {index}", "failed" if index < failing else "passed", at)
+            for index in range(9)
+        ])
+
+    def merge(number, hours_ago):
+        at = NOW - timedelta(hours=hours_ago)
+        return _build(number, at, [_job(f"j{number}-8", "Group 8", "passed", at)])
+
+    broken = [run(3000, 20, 8), run(3001, 19, 8), run(3002, 18, 8), run(3003, 17, 1)]
+    green = [run(3010 + index, 10 - index, 0) for index in range(10)]
+    merges_skipping_broken_groups = [merge(3010 + index, 10 - index) for index in range(10)]
+
+    def concentration(builds):
+        section = main_ci_section.build_main_ci({"all_main_reliability": _reliability(builds)}, {}, _ts(NOW))
+        return section["summary"]["last_24h"]["hard_concentration"]
+
+    assert concentration(broken + green) == {"builds": [3000, 3001, 3002], "hard": 24, "pass_rate_without": 98.99}
+    assert concentration(broken + green + [run(3020, 0.5, 1)]) is None
+    assert concentration(broken + green[1:]) is None
+    assert concentration(broken + merges_skipping_broken_groups) is None
+    unrecovered_outside_top = _build(3005, NOW - timedelta(hours=15), [
+        _job("j3005-99", "Group 99", "failed", NOW - timedelta(hours=15)),
+    ])
+    assert concentration(broken + [unrecovered_outside_top] + green) is None
+
+
 def test_main_ci_flaky_and_retry_lists_alert_on_their_own_criterion():
     """A group with one flip and three recoveries alerts only in the retry list."""
     start = NOW - timedelta(days=3)

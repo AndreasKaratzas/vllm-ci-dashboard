@@ -44,6 +44,7 @@ from vllm.ci.incident_transitions import (  # noqa: E402
     completed_build_eligibility,
 )
 from vllm.ci import analyzer as ci_analyzer  # noqa: E402
+from vllm.ci.main_flakiness import PASS_CODES  # noqa: E402
 from vllm.ci.models import (  # noqa: E402
     AMD_OBSERVED_UNIQUE_TEST_GROUPS_COUNT_BASIS,
     TestResult,
@@ -58,7 +59,11 @@ from vllm.ci.reliability_history import (  # noqa: E402
 from vllm.config_parity import (  # noqa: E402
     extract_amd_runtime_group_key_map_from_report,
 )
-from vllm.pipelines import is_amd_ci_job, is_cpu_only_job  # noqa: E402
+from vllm.pipelines import (  # noqa: E402
+    is_amd_ci_job,
+    is_cpu_only_job,
+    upstream_scheduled_gating_kind,
+)
 from vllm.ci.nightly_latency import (  # noqa: E402
     build_current_nightly_latency, project_public_nightly_latency,
 )
@@ -641,9 +646,14 @@ def _nightly_pipeline(pipeline: str, analytics: dict, health: dict | None = None
             "url": _build_url(pipeline, build),
             "commit": build.get("commit") or build.get("commit_sha") or "",
             "message": build.get("message") or "",
+            # Final attempt per strict group; total_jobs also counts retried attempts.
             "total_groups": (
-                build.get("total_jobs") or len(build.get("jobs") or [])
+                len(observations) or build.get("total_jobs") or 0
                 if has_test_results else 0
+            ),
+            "passed_groups": (
+                sum(outcome == "passed" for outcome, _ in observations.values())
+                if has_test_results and observations else None
             ),
             "has_test_results": has_test_results,
             "transition_eligible": transition_eligible,
@@ -3504,12 +3514,55 @@ def _utc_iso(value: datetime | None) -> str | None:
     return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _later_scheduled_pass(build: dict, all_main: dict | None) -> dict | None:
+    """The newest later scheduled full main run that passed every hard-failed group of ``build``.
+
+    None when no such run exists or any main build after it hard-failed one of those groups again.
+    """
+    number = _strict_int(build.get("number"))
+    failed = {row.get("group_id") for row in build.get("failed_groups") or []}
+    if number is None or not failed or not validate_all_main_reliability(all_main, "ci"):
+        return None
+    passed: dict[int, set] = defaultdict(set)
+    refailed: set[int] = set()
+    for group in all_main.get("groups") or []:
+        if group.get("group_id") not in failed:
+            continue
+        history = group.get("outcome_history") or {}
+        for build_number, code in zip(history.get("builds") or [], history.get("results") or ""):
+            if code in PASS_CODES:
+                passed[build_number].add(group["group_id"])
+            elif code == "f":
+                refailed.add(build_number)
+    later = sorted(
+        (
+            row for row in all_main.get("builds") or []
+            if (_strict_int(row.get("number")) or 0) > number
+            and upstream_scheduled_gating_kind(row.get("message"))
+        ),
+        key=lambda row: (str(row.get("created_at") or ""), row["number"]),
+    )
+    passing = [index for index, row in enumerate(later) if passed[row["number"]] >= failed]
+    if not passing:
+        return None
+    newest = later[passing[-1]]
+    if any(build_number > newest["number"] for build_number in refailed):
+        return None
+    return {
+        "number": newest["number"],
+        "kind": upstream_scheduled_gating_kind(newest.get("message")),
+        "created_at": newest.get("created_at") or "",
+        "url": newest.get("url") or "",
+    }
+
+
 def _attention(
     nightly: dict,
     reliability: dict,
     queue: dict,
     omni: dict,
     amd_test_health: dict | None = None,
+    all_main: dict | None = None,
 ) -> list[dict]:
     items = []
     amd_builds = (nightly.get("pipelines") or [{}])[0].get("builds") or []
@@ -3521,13 +3574,15 @@ def _attention(
             "count": int(latest["test_jobs_blocked"]),
         })
     # Current severity must come from the current outcome, not movement alone.
-    # A newly soft-failing group is warning-level, while a recurring hard
-    # failure must remain critical.
+    # A newly soft-failing group is warning-level, and a hard failure stays
+    # critical until a later scheduled full main run passes every such group.
     if latest.get("failed_groups"):
+        passed_later = _later_scheduled_pass(latest, all_main)
         items.append({
             "kind": "nightly_hard_failures",
-            "severity": "critical",
+            "severity": "warning" if passed_later else "critical",
             "count": len(latest["failed_groups"]),
+            **({"passed_later": passed_later} if passed_later else {}),
         })
     if latest.get("soft_failed_groups"):
         items.append({
@@ -4153,6 +4208,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         queue,
         omni,
         amd_test_health,
+        ci_analytics.get("all_main_reliability"),
     )
     status = "critical" if any(row["severity"] == "critical" for row in attention) else (
         "attention" if any(row["severity"] == "warning" for row in attention) else "healthy"

@@ -4,7 +4,7 @@ import EmptyState from '@/components/feedback/EmptyState.vue'
 import StatusBadge from '@/components/feedback/StatusBadge.vue'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { integer, toneForState, type Rec } from '@/domain/format'
-import { attentionLabel } from '@/domain/health'
+import { attentionEvidence, attentionLabel } from '@/domain/health'
 
 defineProps<{ items: Rec[] }>()
 const emit = defineEmits<{ inspect: [Rec] }>()
@@ -33,6 +33,7 @@ const severity = (item: Rec) => {
           >
             <span class="flex min-w-0 flex-1 flex-col gap-1.5">
               <span class="text-sm font-medium">{{ attentionLabel(item) }}</span>
+              <span v-if="attentionEvidence(item)" class="text-xs text-muted-foreground" data-testid="attention-evidence">{{ attentionEvidence(item) }}</span>
               <StatusBadge :tone="toneForState(item.severity)" :label="severity(item)" class="w-fit" />
             </span>
             <span class="text-2xl font-semibold tabular-nums">{{ integer(item.count) }}</span>

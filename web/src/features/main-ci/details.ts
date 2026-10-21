@@ -5,6 +5,8 @@ import { age, counted, integer, rateText, sentence, shortDate, shortSha, toneFor
 import {
   buildOutcome,
   buildTone,
+  concentrationText,
+  dayRateStatus,
   eventTone,
   failingGroups,
   groupLabel,
@@ -278,7 +280,12 @@ export function trendPointDetail(point: TrendPoint, builds: MainBuild[], label: 
     title: `Main builds · ${label}`,
     subtitle: `${counted(point.builds, 'build')} · ${integer(point.greenBuilds)} without a hard AMD failure`,
     stats: [
-      rateStat('AMD pass rate', point.passRate, `${integer(point.passed)} of ${integer(point.passed + point.soft + point.hard)} jobs`),
+      rateStat(
+        'AMD pass rate',
+        point.passRate,
+        `${integer(point.passed)} of ${integer(point.passed + point.soft + point.hard)} jobs${point.concentration ? ` · ${concentrationText(point.concentration)}` : ''}`,
+        dayRateStatus(point),
+      ),
       countStat('Passed jobs', point.passed),
       countStat('Hard failures', point.hard, 'hard', 'jobs'),
       countStat('Soft failures', point.soft, 'soft', 'jobs'),
