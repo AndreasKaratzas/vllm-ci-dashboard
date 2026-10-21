@@ -18,7 +18,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `ci_main_failure_watcher.py` | Reconciles one upstream `ci`/`main` failure issue and retains bisect candidate bounds per strict group | Hourly after analytics collection |
 | `ci_flakiness_watcher.py` | Reconciles one issue listing AMD MI groups whose final outcome flips, or whose hard failures are rescued by retries, at or above `config/ci_flakiness_thresholds.json` on `ci`/`main` | Every reserved full collection after analytics |
 | `main_pulse.py` | Lists `ci` branch=main builds finished since its durable cursor, applies their AMD MI jobs through the main-failure watcher's transitions on top of the published watcher state, and opens or updates the managed issue while an incident is active; `export-overlay` hands its newer observations to the collection watcher | Every `queue-monitor.yml` trigger, admitted at most every ten minutes by its own ledger |
-| `ci_area_regression_watcher.py` | Maps every exact AMD matrix definition to its owned test-area rotation and reconciles one state-owned dashboard issue per area with confirmed incidents | Hourly after matrix collection |
+| `ci_area_regression_watcher.py` | Maps every exact AMD matrix definition to its owned test-area rotation and reconciles one state-owned dashboard issue per area with confirmed incidents; incidents that also failed on CUDA or broke build-wide in their nightly (`.cache/cuda_evidence.json` from `collect_agent_health.py`) are warnings | Hourly after matrix collection |
 | `ensure_ci_operations_labels.py` | Ensures managed and workstream labels exist before issue watchers run | Every canonical collection |
 | `sync_ci_operations_project.py` | Adds open managed dashboard issues to the linked AMD CI Operations Project, split by workstream labels | Hourly after issue reconciliation |
 | `audit_dashboard_data.py` | Cross-checks generated data, frontend assumptions, and deploy workflow ordering before publishing | Every two hours via `hourly-master.yml` + local debugging |
@@ -239,6 +239,7 @@ collect_ownership_parity.py --> data/vllm/ci/ownership_config_parity.json
 config_parity.py          --> data/vllm/ci/config_parity.json
 amd_test_matrix.json + config_parity.json + ownership_config_parity.json
                          + config/vllm_ci_ownership.json
+                         + .cache/cuda_evidence.json (collect_agent_health.py)
                            --> ci_area_regression_watcher.py
                            --> ci_ownership.json
                            --> open_ci_area_regression_issues.json (private state)

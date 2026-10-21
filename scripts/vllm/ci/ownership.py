@@ -805,7 +805,7 @@ def build_ownership_status(
     }
 
 
-def _target_signal_key(target: dict) -> str:
+def target_signal_key(target: dict) -> str:
     target_id = str(target.get("id") or "").strip()
     if target_id:
         return target_id
@@ -1012,7 +1012,7 @@ def apply_incident_hysteresis(
                 "passed": "passed",
                 "unobserved": "absent",
             }.get(raw_result, "indeterminate")
-            signal_key = _target_signal_key(target)
+            signal_key = target_signal_key(target)
             seen_signal_keys.add(signal_key)
             previous_signal = area_signals.get(signal_key) or prior_signals.get(
                 signal_key
@@ -1135,7 +1135,7 @@ def apply_incident_hysteresis(
 
         # A renamed row keeps its definition lineage.  Its newly appeared row
         # inherits the incident so that row's own result resolves or keeps it.
-        current_keys = {_target_signal_key(target) for target in current_targets}
+        current_keys = {target_signal_key(target) for target in current_targets}
         for signal_key, previous_signal in sorted(
             prior_signals.items(),
             key=lambda item: (
@@ -1155,7 +1155,7 @@ def apply_incident_hysteresis(
             )
             if successor is None:
                 continue
-            successor_key = _target_signal_key(successor)
+            successor_key = target_signal_key(successor)
             if successor_key in prior_signals:
                 continue
             moved = _without_absent_watermark(previous_signal)

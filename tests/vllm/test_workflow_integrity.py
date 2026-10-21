@@ -5200,6 +5200,21 @@ class TestAlertAutomationWorkflow:
         assert "dashboard_state.py create-commit" in text
         assert "git push origin HEAD:main" not in text
 
+    def test_hourly_render_reproduces_the_committed_readme(self, tmp_path, monkeypatch):
+        """The hourly run rewrites README.md from render.py; prose added only to the README is lost."""
+        import render
+
+        monkeypatch.setattr(render, "ROOT", tmp_path)
+        config = yaml.safe_load(render.CONFIG.read_text())
+        render.render_readme(config, render.load_all_data(config))
+
+        def without_timestamp(text: str) -> list[str]:
+            return [line for line in text.splitlines() if "Last updated: **" not in line]
+
+        assert without_timestamp((tmp_path / "README.md").read_text()) == without_timestamp(
+            (REPO_ROOT / "README.md").read_text()
+        )
+
     def test_ranked_ci_area_watcher_runs_after_matrix_and_persists_before_rebuild(self):
         data = _load_workflow("hourly-master.yml")
         job = next(iter(data["jobs"].values()))
