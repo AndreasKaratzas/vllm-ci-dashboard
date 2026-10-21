@@ -4092,6 +4092,7 @@ def _bounded_operations_amd_test_health(
 
 def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dict:
     data_dir = Path(data_dir)
+    generated_at = generated_at or _utc_now()
     paths = {name: data_dir / filename for name, filename in SOURCE_FILES.items()}
     loaded = {name: _load_json(path) for name, path in paths.items() if path.suffix == ".json"}
     queue_history = load_queue_history(paths["queue_timeseries"])
@@ -4166,7 +4167,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     main_ci = build_main_ci(
         ci_analytics,
         _load_json(data_dir / MAIN_FAILURE_STATE_NAME),
-        generated_at or _utc_now(),
+        generated_at,
         duration_state=_load_json(data_dir / DURATION_STATE_NAME),
     )
     test_group_parity = loaded.get("test_group_parity") or {}
@@ -4179,7 +4180,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         }
     latency = ci_analytics.get("current_nightly_latency")
     if not isinstance(latency, dict) or latency.get("schema_version") != 2 or latency.get("hardware_scope") != "amd_mi_gpu" or latency.get("source_pipeline") != "ci" or latency.get("build_limit") != 5:
-        latency = build_current_nightly_latency([], generated_at=generated_at or _utc_now(), source_available=False)
+        latency = build_current_nightly_latency([], generated_at=generated_at, source_available=False)
     ownership = loaded.get("ci_ownership") or {}
     ownership = (
         ownership
@@ -4275,7 +4276,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     return {
         "schema_version": 2,
         "hardware_scope": "amd_mi_gpu",
-        "generated_at": generated_at or _utc_now(),
+        "generated_at": generated_at,
         "sources": sources,
         "home": home,
         "attention": attention,

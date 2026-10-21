@@ -840,6 +840,24 @@ def test_snapshot_publishes_main_ci_section_shell_and_its_own_source_clock(tmp_p
     assert payload["sources"]["main_ci"]["unavailable_reason"] == "strict_all_main_reliability_unavailable"
 
 
+def test_deploy_rebuild_at_the_published_clock_reproduces_the_manifest(tmp_path, monkeypatch):
+    """Deploy-only recovery rebuilds with --generated-at and diffs the manifest."""
+    builds = _flaky_builds(NOW - timedelta(days=6), 8, outcome=lambda i: "failed" if i % 2 else "passed")
+    (tmp_path / "analytics.json").write_text(
+        json.dumps({"ci": {"generated_at": _ts(NOW), "all_main_reliability": _reliability(builds)}})
+    )
+    ticks = iter(range(100))
+    monkeypatch.setattr(ops, "_utc_now", lambda: _ts(NOW + timedelta(seconds=next(ticks))))
+    published = ops.write_snapshot_bundle(tmp_path / "hourly" / "ops.json", ops.build_snapshot(tmp_path), log=False)
+    rebuilt = ops.write_snapshot_bundle(
+        tmp_path / "deploy" / "ops.json",
+        ops.build_snapshot(tmp_path, generated_at=published["generated_at"]),
+        log=False,
+    )
+
+    assert rebuilt == published
+
+
 def test_main_state_compaction_keeps_the_incident_timeline():
     state = {
         **amd._default_state(),
