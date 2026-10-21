@@ -120,6 +120,8 @@ def _main_incident_row(group_id: str, row: dict) -> dict:
         "commit_range_status",
         "compare_url",
         "bisect_command",
+        "carried_from",
+        "step_run",
     )
     compact = {key: copy.deepcopy(row[key]) for key in keys if key in row}
     compact["group_id"] = group_id

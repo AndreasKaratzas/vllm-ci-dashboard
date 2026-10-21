@@ -113,7 +113,16 @@ def _content_fingerprint(rows: list[dict]) -> str:
 
 
 def tracked_groups(rows: list[dict], previous: dict, observed_at: str) -> dict:
-    """Groups shown in the issue with the time each first crossed a threshold."""
+    """Groups shown in the issue with the time each first crossed a threshold.
+
+    A group whose id changed (e.g. its step key appeared) keeps the earliest
+    ``listed_since`` of the prior rows with the same name, hardware and queue.
+    """
+    since_by_label: dict[tuple, str] = {}
+    for prior in previous.values():
+        key = (prior.get("name"), prior.get("hardware"), prior.get("queue"))
+        if prior.get("listed_since"):
+            since_by_label[key] = min(since_by_label.get(key, prior["listed_since"]), prior["listed_since"])
     tracked = {}
     for row in rows:
         prior = previous.get(row["group_id"]) or {}
@@ -122,7 +131,11 @@ def tracked_groups(rows: list[dict], previous: dict, observed_at: str) -> dict:
             "name": row["name"],
             "hardware": row["hardware"],
             "queue": row["queue"],
-            "listed_since": str(prior.get("listed_since") or observed_at),
+            "listed_since": str(
+                prior.get("listed_since")
+                or since_by_label.get((row["name"], row["hardware"], row["queue"]))
+                or observed_at
+            ),
             "flips": current["flips"],
             "recovered": current["recovered"],
             "runs": current["runs"],
