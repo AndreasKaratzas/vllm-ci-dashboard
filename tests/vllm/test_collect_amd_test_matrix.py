@@ -400,6 +400,38 @@ steps:
     assert matrix["summary"]["latest_matched_cells"] == 1
 
 
+@pytest.mark.parametrize(("shard_two_states", "linked_job"), [
+    (("failed", "failed"), "shard-2-retry"),
+    (("failed", "passed"), "shard-1"),
+])
+def test_sharded_cell_links_worst_current_shard(shard_two_states, linked_job):
+    steps, architectures = parse_steps("""
+steps:
+  - label: ":amd: (MI355 DPX) Basic Models (Extra Initialization) Shard %N"
+    agent_pool: mi355_dpx
+    parallelism: 3
+""")
+    name = "mi355_dpx: :amd: (MI355 DPX) Basic Models (Extra Initialization) Shard"
+    first_attempt, retry = shard_two_states
+    build = {"number": 96078, "web_url": "https://buildkite.com/vllm/ci/builds/96078", "jobs": [
+        {"id": job_id, "type": "script", "name": f"{name} {shard}", "state": state,
+         "agent_query_rules": ["queue=amd_mi355_dpx"], **extra}
+        for job_id, shard, state, extra in [
+            ("shard-1", 1, "passed", {}),
+            ("shard-2", 2, first_attempt, {"retried_in_job_id": "shard-2-retry"}),
+            ("shard-2-retry", 2, retry, {}),
+            ("shard-3", 3, "passed", {}),
+        ]]}
+    shard_bases = ["basic models (extra initialization) shard"]
+    matrix = build_matrix(steps, architectures, build_buildkite_job_index(build, shard_bases), build,
+                          {}, {}, shard_bases, "https://example.invalid/models_basic.yaml")
+    cell = matrix["rows"][0]["cells"]["mi355"]
+    assert cell["latest_state"] == retry
+    assert cell["latest_url"] == (
+        f"https://buildkite.com/vllm/ci/builds/96078/steps/canvas?jid={linked_job}&tab=output"
+    )
+
+
 def test_matrix_binds_shared_label_and_queue_by_declared_hardware():
     steps, architectures = parse_steps("""
 steps:

@@ -1140,24 +1140,26 @@ def strip_shard_index(name: str, shard_bases: list[str]) -> str:
     return _strip_known_shard_index(lower, bases)
 
 
+STATE_PRIORITY = {
+    "failed": 6,
+    "timed_out": 6,
+    "broken": 6,
+    "soft_fail": 5,
+    "soft_failed": 5,
+    "running": 4,
+    "scheduled": 3,
+    "assigned": 3,
+    "passed": 2,
+    "canceled": 1,
+    "skipped": 1,
+}
+
+
 def aggregate_state(states: list[str]) -> str | None:
     ordered = [s for s in states if s]
     if not ordered:
         return None
-    priority = {
-        "failed": 6,
-        "timed_out": 6,
-        "broken": 6,
-        "soft_fail": 5,
-        "soft_failed": 5,
-        "running": 4,
-        "scheduled": 3,
-        "assigned": 3,
-        "passed": 2,
-        "canceled": 1,
-        "skipped": 1,
-    }
-    return max(ordered, key=lambda s: priority.get(s, 0))
+    return max(ordered, key=lambda s: STATE_PRIORITY.get(s, 0))
 
 
 def fetch_yaml_text(url: str) -> str:
@@ -1486,13 +1488,15 @@ def build_matrix(
             if parity_row
             else analytics_state
         )
-        matched_url = next(
-            (
-                clean_label(match.get("url", "") or match.get("job_url", ""))
-                for match in matches
-                if match.get("url") or match.get("job_url")
-            ),
-            None,
+        worst_match = max(
+            (match for match in matches if match.get("url") or match.get("job_url")),
+            key=lambda match: STATE_PRIORITY.get(match.get("state"), 0),
+            default=None,
+        )
+        matched_url = (
+            clean_label(worst_match.get("url", "") or worst_match.get("job_url", ""))
+            if worst_match
+            else None
         )
         latest_url = (
             _parity_link_for_arch(parity_row, step["arch"], full_job_name)
