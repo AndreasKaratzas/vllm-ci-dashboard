@@ -378,7 +378,7 @@ class TestWorkflowYAML:
                         f"{workflow.name}:{job_name}: github-script must use github.rest"
                     )
 
-        assert observed == 15
+        assert observed == 13
 
     def test_dependency_contracts_are_exact_and_covered_by_lock(self):
         constraint_lines = [
@@ -769,49 +769,8 @@ class TestPrimaryCIWorkflow:
         assert "12_500" in smoke
 
 
-class TestNightlyCIFailureTransport:
-    """Keep arbitrary pytest output out of generated JavaScript source."""
-
-    def test_failure_evidence_is_bounded_single_line_base64(self):
-        data = _load_workflow("nightly-ci.yml")
-        test_job = data["jobs"]["tests"]
-        assert set(test_job["outputs"]) == {
-            "test_result",
-            "test_output_b64",
-            "summary_b64",
-        }
-        run_tests = next(
-            step for step in test_job["steps"] if step.get("name") == "Run full test suite"
-        )["run"]
-        assert "base64.urlsafe_b64encode" in run_tests
-        assert "scan_limit = 64 * 1024" in run_tests
-        assert "output_limit = 16 * 1024" in run_tests
-        assert "summary_limit = 1024" in run_tests
-        assert "test_output_b64=" in run_tests
-        assert "summary_b64=" in run_tests
-        assert "output<<" not in run_tests
-
-    def test_issue_script_decodes_only_environment_values(self):
-        data = _load_workflow("nightly-ci.yml")
-        steps = data["jobs"]["create-issue-on-failure"]["steps"]
-        issue = next(
-            step for step in steps if step.get("name") == "Create or update GitHub issue"
-        )
-        assert issue["env"] == {
-            "SUMMARY_B64": "${{ needs.tests.outputs.summary_b64 }}",
-            "TEST_OUTPUT_B64": "${{ needs.tests.outputs.test_output_b64 }}",
-        }
-        script = issue["with"]["script"]
-        assert "${{" not in script
-        assert "process.env.SUMMARY_B64" in script
-        assert "process.env.TEST_OUTPUT_B64" in script
-        assert "Buffer.from(encoded, 'base64url')" in script
-        assert "decoded.length > maxBytes" in script
-
-
-@pytest.mark.parametrize("workflow", ["ci.yml", "nightly-ci.yml"])
-def test_nonpublication_ci_excludes_live_snapshot_contracts(workflow: str) -> None:
-    text = _load_workflow_text(workflow)
+def test_nonpublication_ci_excludes_live_snapshot_contracts() -> None:
+    text = _load_workflow_text("ci.yml")
     assert "pytest tests/ -m 'not live_data'" in text
     assert "pytest tests/ -m 'live_data'" not in text
     assert "live-data-audit" not in text
@@ -4395,74 +4354,6 @@ class TestSiteHealthWorkflow:
         text = _load_workflow_text("hourly-master.yml")
         assert "health-check.yml" not in text
         assert "synthetic site\n# monitor remains independent" in text
-
-
-class TestNightlyCIWorkflow:
-    def test_nightly_failure_issue_assigns_without_mentioning_repo_owner(self):
-        text = _load_workflow_text("nightly-ci.yml")
-        assert "issues.addAssignees" in text
-        assert "assignees: [context.repo.owner]" in text
-        assert "GitHub assignee: ${context.repo.owner}." in text
-        assert "cc @${context.repo.owner}" not in text
-
-    def test_nightly_issue_lifecycle_only_mutates_nightly_owned_issues(self):
-        data = _load_workflow("nightly-ci.yml")
-        create_steps = data["jobs"]["create-issue-on-failure"]["steps"]
-        close_steps = data["jobs"]["close-issue-on-success"]["steps"]
-        create = next(
-            step
-            for step in create_steps
-            if step.get("name") == "Create or update GitHub issue"
-        )["with"]["script"]
-        close = next(
-            step
-            for step in close_steps
-            if step.get("name") == "Close resolved ci-failure issues"
-        )["with"]["script"]
-
-        for script in (create, close):
-            assert "<!-- ci-failure-owner:nightly-ci -->" in script
-            assert (
-                "*This issue was created automatically by the nightly CI workflow.*"
-                in script
-            )
-            assert "github.paginate" not in script
-            assert "const ownershipLabel = 'automation:nightly-ci'" in script
-            assert "github.rest.issues.getLabel" in script
-            assert "github.rest.issues.createLabel" in script
-            assert script.count("github.rest.issues.listForRepo") == 2
-            assert "labels: ownershipLabel" in script
-            assert "sort: 'created'" in script
-            assert script.count("per_page: 100") == 2
-            assert script.count("\n  page: 1,") == 2
-            assert "bounded ambiguity limit" in script
-            assert "const candidates = new Map()" in script
-            assert "github.rest.issues.addLabels" in script
-        assert "const existing = ownedIssues[0] || null" in create
-        assert "ownedIssues.slice(1)" in create
-        assert "Superseded by #${issue.number}" in create
-        assert "github.rest.issues.addLabels" in create
-        assert "ownershipLabel," in create
-        assert "state: 'open'" in create
-        assert "hasExactMarker" in create
-        assert "hasExactMarker" in close
-        assert "labels: [ownershipLabel]" in close
-        assert "labels," in create
-        assert "existing.data[0]" not in create
-        assert "[...candidates.values()].filter" in close
-        assert "if (issue.state !== 'open') continue" in close
-        workflow = data["concurrency"]
-        assert workflow["cancel-in-progress"] is False
-        assert "if (hasNextPage(recentResponse))" in create
-        assert "if (hasNextPage(recentResponse))" in close
-        assert "!recentResponse.data.some(isOwned)" not in create
-        assert "!recentResponse.data.some(isOwned)" not in close
-        assert create.index("state: 'closed'") < create.index(
-            "name: ownershipLabel,", create.index("state: 'closed'")
-        )
-        assert close.index("state: 'closed'") < close.index(
-            "labels: [ownershipLabel]"
-        )
 
 
 # ---------------------------------------------------------------------------

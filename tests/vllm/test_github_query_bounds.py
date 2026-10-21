@@ -545,33 +545,8 @@ def test_recurring_project_collectors_do_not_use_unbounded_cli_pagination():
     for relative in (
         "scripts/collect.py",
         "scripts/collect_activity.py",
-        ".github/workflows/nightly-ci.yml",
     ):
         text = (root / relative).read_text()
         assert "--paginate" not in text
         assert "github.paginate" not in text
         assert "paginate=True" not in text
-
-
-def test_nightly_incident_label_remains_a_single_canonical_index():
-    root = Path(__file__).resolve().parents[2]
-    workflow = (root / ".github" / "workflows" / "nightly-ci.yml").read_text()
-
-    # Both failure and recovery paths remove the ownership label from every
-    # non-canonical labeled issue, while adding it only to the selected owner.
-    assert workflow.count("await github.rest.issues.removeLabel({") == 2
-    assert workflow.count(
-        "if (existing && issue.number === existing.number) continue;"
-    ) == 1
-    assert workflow.count("if (issue.number === canonicalNumber) continue;") == 1
-    assert workflow.count("issue_number: existing.number,") >= 1
-    assert "issue_number: issue.number," in workflow
-    assert workflow.count("if (hasNextPage(labeledResponse))") == 2
-    assert workflow.count("if (![...candidates.values()].some(isOwned))") == 2
-    assert workflow.count("if (hasNextPage(recentResponse))") == 2
-    assert "!recentResponse.data.some(isOwned)" not in workflow
-    assert "cancel-in-progress: false" in workflow
-    assert (
-        "for (const issue of ownedIssues) {\n"
-        "              const issueLabels = new Set"
-    ) not in workflow

@@ -1,6 +1,6 @@
 # Project Dashboard
 
-Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-09-01 09:04 UTC**
+Auto-updated tracking of AMD GPU ecosystem projects. Last updated: **2026-10-21 02:53 UTC**
 
 ## Overview
 
@@ -101,8 +101,8 @@ python scripts/vllm/build_test_group_parity.py --output data/vllm/ci/
 python scripts/vllm/collect_capacity_monitor.py --output data/vllm/ci/
 python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json.gz
 python scripts/vllm/build_queue_section.py
-python scripts/vllm/ci_area_regression_watcher.py
-python scripts/vllm/sync_ci_operations_project.py
+env -u GITHUB_TOKEN python scripts/vllm/ci_area_regression_watcher.py
+env -u GITHUB_TOKEN python scripts/vllm/sync_ci_operations_project.py
 python scripts/vllm/audit_dashboard_data.py --strict-warnings
 python scripts/render.py
 python scripts/build_site.py --cache-bust-index

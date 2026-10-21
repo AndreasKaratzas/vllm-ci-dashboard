@@ -523,6 +523,24 @@ const inspect = (label, index) => async (page) => {
   await page.getByRole('menuitem').nth(index).click();
 };
 
+/**
+ * Clicks the first table row once it is centered and settled. A row still moving
+ * when click starts makes Playwright's retries scroll it under the sticky header.
+ */
+const clickFirstRow = async (page) => {
+  const row = page.locator('table tbody tr').first();
+  await row.evaluate(async (el) => {
+    el.scrollIntoView({ block: 'center' });
+    for (let top, settled = 0; settled < 5; ) {
+      await new Promise(requestAnimationFrame);
+      const next = el.getBoundingClientRect().top;
+      settled = next === top ? settled + 1 : 0;
+      top = next;
+    }
+  });
+  await row.click();
+};
+
 // The drill-down sheets meet the same gates as the pages.
 const SHEETS = [
   ['DNS node evidence', '/#/analytics?view=dns&dns_window=720h', (page) => page.getByTestId('dns-node-bar').first().click()],
@@ -530,7 +548,7 @@ const SHEETS = [
   ['DNS retained logs', '/#/analytics?view=dns&dns_window=720h', (page) => page.getByTestId('dns-kpi-jobs').locator('[data-kpi-action]').click()],
   ['DNS all nodes', '/#/analytics?view=dns&dns_window=720h', (page) => page.getByTestId('dns-kpi-nodes').locator('[data-kpi-action]').click()],
   ['DNS interval logs', '/#/analytics?view=dns&dns_window=720h', inspect('DNS observations over time', 4)],
-  ['agent node', '/#/analytics?view=agent-health&agent_window=14d', (page) => page.locator('table tbody tr').first().click()],
+  ['agent node', '/#/analytics?view=agent-health&agent_window=14d', clickFirstRow],
   ['agent failing nodes', '/#/analytics?view=agent-health&agent_window=3d&agent_gpu=MI355&agent_nightly=1&agent_excl_cancel=0', (page) => page.getByTestId('kpi-agent-unreliable').locator('[data-kpi-action]').click()],
   ['agent day', '/#/analytics?view=agent-health&agent_window=14d', (page) => page.locator('[data-slot="heatmap-column"]').nth(8).click()],
   ['agent node day', '/#/analytics?view=agent-health&agent_window=14d', (page) => page.locator('[data-slot="heatmap-row"] ~ button[data-slot="heatmap-cell"]').first().click()],
@@ -552,7 +570,7 @@ const SHEETS = [
     'agent run',
     '/#/analytics?view=agent-health&agent_window=14d',
     async (page) => {
-      await page.locator('table tbody tr').first().click();
+      await clickFirstRow(page);
       const sheet = page.getByRole('dialog');
       // Below sm the node's timeline is a list of runs.
       if (page.viewportSize().width < 640) await sheet.getByTestId('agent-run-list').getByRole('button').first().click();

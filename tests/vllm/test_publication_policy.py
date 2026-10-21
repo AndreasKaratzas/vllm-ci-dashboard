@@ -58,6 +58,7 @@ def test_operational_documentation_matches_the_canonical_publication_path() -> N
         assert "scripts/vllm/build_operations_snapshot.py" in text
         assert "scripts/vllm/collect_ownership_parity.py" in text
         assert "scripts/vllm/ci_area_regression_watcher.py" in text
+        assert "env -u GITHUB_TOKEN python scripts/vllm/ci_area_regression_watcher.py" in text
         assert "AMD CI Operations" in text
         assert "Ready Tickets → CI ownership" not in text
         assert "CI_OWNER_AVAILABILITY_JSON" not in text

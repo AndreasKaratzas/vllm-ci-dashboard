@@ -432,7 +432,7 @@ export function sortArchitectureSignalRows(rows: Rec[] | null | undefined, archi
 export function amdMatrixSortDescription(mode: string): string {
   if (mode === 'name') return 'Test groups sorted alphabetically by name'
   if (mode === 'area') return 'Test areas sorted alphabetically, then by test-group name'
-  return 'Grouped by first configured platform: MI250, MI300, MI325, then MI355'
+  return 'Grouped by first configured platform: MI250, MI300, then MI355'
 }
 
 /** Classic's route state for a link: health_sort accepts platform | name | area. */
