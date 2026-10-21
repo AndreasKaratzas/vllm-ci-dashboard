@@ -298,6 +298,9 @@ def _compact_signal(signal_key: str, signal: dict) -> dict:
         "incident_start_build_id",
         "confirmed_build_id",
         "build_watermark",
+        "absent_streak",
+        "absent_build_id",
+        "retired_build_id",
         "identity",
         "evidence",
     )
@@ -306,7 +309,7 @@ def _compact_signal(signal_key: str, signal: dict) -> dict:
     if isinstance(identity, dict):
         identity = {
             key: copy.deepcopy(identity[key])
-            for key in ("id", "label", "area_method")
+            for key in ("id", "label", "area_method", "lineage", "origin_id")
             if key in identity
         }
         if identity.get("id") == signal_key:
@@ -365,7 +368,10 @@ def _compact_area_state(source: dict) -> tuple[dict, dict]:
                 raw_signals.items() if isinstance(raw_signals, dict) else []
             )
             if isinstance(signal, dict)
-            and signal.get("status") in {"confirmed", "pending_soft"}
+            and (
+                signal.get("status") in {"confirmed", "pending_soft"}
+                or signal.get("retired_build_id") is not None
+            )
         }
         if (
             not signals

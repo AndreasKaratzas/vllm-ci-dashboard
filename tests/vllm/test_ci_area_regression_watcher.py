@@ -673,6 +673,187 @@ def test_missing_targets_hold_pending_and_confirmed_identity_and_evidence():
     }
 
 
+def _row_status(build_number: int, *rows: tuple[str, ...]) -> dict:
+    status = _raw_status("unobserved", build_number)
+    status["areas"][0]["targets"] = [
+        {
+            "id": f"matrix-row-{title}",
+            "label": title,
+            "result": result,
+            "build_number": build_number,
+            "observed_at": "2026-10-20T06:00:00Z",
+            "url": f"https://example.invalid/{build_number}",
+            "lineage": {
+                "architectures": list(architectures or ["mi300"]),
+                "definition_ids": [f"lora.yaml#{step_key}"],
+                "command_fingerprint": f"commands-{step_key}",
+            },
+        }
+        for title, step_key, result, *architectures in rows
+    ]
+    return status
+
+
+@pytest.mark.parametrize(
+    ("result", "status"),
+    [("passed", "clear"), ("hard", "confirmed")],
+)
+def test_renamed_row_carries_its_incident_to_the_row_with_its_definition(
+    result, status
+):
+    failing = _row_status(95663, ("LoRA TP (Distributed)", "lora-tp", "hard"))
+    signals = watcher.apply_incident_hysteresis(failing, {})
+    # The held run advances the watermark to a build where the old row is absent.
+    held = _row_status(95829, ("LoRA", "lora", "passed"))
+    signals = watcher.apply_incident_hysteresis(held, _prior_with_signals(signals))
+    held_fingerprint = watcher._fingerprint(held["areas"][0])
+
+    renamed = _row_status(
+        96078,
+        ("LoRA TP (Distributed) Shard", "lora-tp", result),
+        ("LoRA", "lora", "passed"),
+    )
+    next_signals = watcher.apply_incident_hysteresis(
+        renamed,
+        _prior_with_signals(signals),
+    )
+
+    area = renamed["areas"][0]
+    assert "matrix-row-LoRA TP (Distributed)" not in next_signals["kernels"]
+    signal = next_signals["kernels"]["matrix-row-LoRA TP (Distributed) Shard"]
+    assert signal["status"] == status
+    assert [row["label"] for row in area["regressions"]] == (
+        ["LoRA TP (Distributed) Shard"] if status == "confirmed" else []
+    )
+    if status == "confirmed":
+        assert signal["incident_start_build_id"] == 95663
+        assert signal["identity"]["label"] == "LoRA TP (Distributed) Shard"
+        # A manual close of the issue stays suppressed across the rename.
+        assert watcher._fingerprint(area) == held_fingerprint
+
+
+@pytest.mark.parametrize(
+    "current",
+    [
+        (("Draft A", "draft", "unobserved"),),
+        (("Draft", "draft", "unobserved"),),
+    ],
+    ids=["existing-pending-sibling", "merged-successor"],
+)
+def test_vanished_hard_incident_is_never_shadowed_by_a_weaker_lineage_signal(
+    current,
+):
+    failing = _row_status(
+        95663,
+        ("Draft A", "draft", "soft"),
+        ("Draft B", "draft", "hard"),
+    )
+    signals = watcher.apply_incident_hysteresis(failing, {})
+
+    unobserved = _row_status(95829, *current)
+    signals = watcher.apply_incident_hysteresis(
+        unobserved,
+        _prior_with_signals(signals),
+    )
+
+    area = unobserved["areas"][0]
+    assert area["counts"]["incidents"] == 1
+    assert area["retired_incidents"] == []
+    assert [row["incident_start_build_id"] for row in area["regressions"]] == [95663]
+
+
+def test_confirmed_hard_incident_claims_a_merged_successor_before_confirmed_soft():
+    rows = (("Draft A", "draft", "soft"), ("Draft B", "draft", "hard"))
+    signals = watcher.apply_incident_hysteresis(_row_status(95663, *rows), {})
+    signals = watcher.apply_incident_hysteresis(
+        _row_status(95700, *rows),
+        _prior_with_signals(signals),
+    )
+    assert signals["kernels"]["matrix-row-Draft A"]["status"] == "confirmed"
+
+    merged = _row_status(95829, ("Draft", "draft", "unobserved"))
+    signals = watcher.apply_incident_hysteresis(merged, _prior_with_signals(signals))
+
+    assert signals["kernels"]["matrix-row-Draft"]["severity"] == "hard"
+
+
+def test_absence_counts_only_builds_that_ran_the_signal_architecture():
+    signals = watcher.apply_incident_hysteresis(
+        _row_status(95663, ("Old", "old", "hard"), ("New", "new", "passed", "mi355")),
+        {},
+    )
+    for build_number in (95700, 95800, 95900):
+        mi355_only = _row_status(build_number, ("New", "new", "passed", "mi355"))
+        signals = watcher.apply_incident_hysteresis(
+            mi355_only,
+            _prior_with_signals(signals),
+        )
+
+    area = mi355_only["areas"][0]
+    assert area["retired_incidents"] == []
+    assert [row["label"] for row in area["regressions"]] == ["Old"]
+    assert "absent_streak" not in signals["kernels"]["matrix-row-Old"]
+
+
+def test_absent_row_retires_after_its_area_runs_without_it_in_newer_builds():
+    signals = watcher.apply_incident_hysteresis(_raw_status("hard", 95663), {})
+
+    for build_number in (96078, 96078, 96247):
+        area_ran = _row_status(build_number, ("LoRA", "lora", "passed"))
+        signals = watcher.apply_incident_hysteresis(
+            area_ran,
+            _prior_with_signals(signals),
+        )
+        assert area_ran["areas"][0]["counts"]["incidents"] == 1
+    not_run = _row_status(96300, ("LoRA", "lora", "unobserved"))
+    signals = watcher.apply_incident_hysteresis(not_run, _prior_with_signals(signals))
+    assert signals["kernels"]["target-1"]["absent_streak"] == 2
+
+    retiring = _row_status(96400, ("LoRA", "lora", "passed"))
+    signals = watcher.apply_incident_hysteresis(retiring, _prior_with_signals(signals))
+
+    area = retiring["areas"][0]
+    assert signals["kernels"]["target-1"]["status"] == "clear"
+    assert area["counts"]["incidents"] == 0
+    assert [row["id"] for row in area["retired_incidents"]] == ["target-1"]
+
+    # A run that persists the retirement without closing the issue must not
+    # lose it from the later closing comment.
+    later = _row_status(96500, ("LoRA", "lora", "passed"))
+    watcher.apply_incident_hysteresis(later, _prior_with_signals(signals))
+    assert "(retired: Kernels target)" in watcher._recovery_body(
+        later["areas"][0] | {"source_file": "kernels.yaml"},
+        "https://example.invalid/run",
+    )
+
+
+def test_open_issue_body_reports_a_retired_incident_while_others_stay_open():
+    signals = watcher.apply_incident_hysteresis(
+        _row_status(95663, ("Old", "old", "hard"), ("Other", "other", "hard")),
+        {},
+    )
+    for build_number in (95700, 95800, 95900, 96000):
+        current = _row_status(build_number, ("Other", "other", "hard"))
+        signals = watcher.apply_incident_hysteresis(
+            current,
+            _prior_with_signals(signals),
+        )
+
+    area = current["areas"][0]
+    assert [row["label"] for row in area["regressions"]] == ["Other"]
+    assert [row["label"] for row in area["retired_incidents"]] == ["Old"]
+    body = watcher._issue_body(
+        _area()
+        | {
+            "regressions": area["regressions"],
+            "retired_incidents": area["retired_incidents"],
+        },
+        "https://example.invalid/run",
+    )
+    assert "### Retired target groups" in body
+    assert "incidents were retired: Old." in body
+
+
 def test_prior_area_missing_from_current_status_keeps_all_signal_state():
     confirmed = _raw_status("hard", 11301)
     confirmed_signals = watcher.apply_incident_hysteresis(confirmed, {})

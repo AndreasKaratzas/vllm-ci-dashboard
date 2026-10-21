@@ -300,8 +300,20 @@ def test_area_state_prunes_clear_cache_but_keeps_open_and_pending_mappings() -> 
                         "severity": "hard",
                         "peak_severity": "hard",
                         "build_watermark": 12,
-                        "identity": {"id": "live", "label": "live target"},
+                        "absent_streak": 1,
+                        "absent_build_id": 12,
+                        "identity": {
+                            "id": "live",
+                            "label": "live target",
+                            "lineage": {"definition_ids": ["kernels.yaml#live"]},
+                            "origin_id": "renamed-from",
+                        },
                         "evidence": {"build_number": 12, "url": "https://example.test/job"},
+                    },
+                    "retired": {
+                        "status": "clear",
+                        "retired_build_id": 12,
+                        "identity": {"label": "retired target"},
                     },
                 },
             },
@@ -315,7 +327,13 @@ def test_area_state_prunes_clear_cache_but_keeps_open_and_pending_mappings() -> 
     assert published["hardware_scope"] == "amd_mi_gpu"
     assert published["job_scope"] == "amd_gpu"
     assert published["areas"]["active-area"]["issue"]["number"] == 812
-    assert set(published["areas"]["active-area"]["signals"]) == {"live"}
+    signals = published["areas"]["active-area"]["signals"]
+    assert set(signals) == {"live", "retired"}
+    live = signals["live"]
+    assert (live["absent_streak"], live["absent_build_id"]) == (1, 12)
+    assert live["identity"]["lineage"] == {"definition_ids": ["kernels.yaml#live"]}
+    assert live["identity"]["origin_id"] == "renamed-from"
+    assert signals["retired"]["retired_build_id"] == 12
     assert "retired-cache" not in published["areas"]
     retention = published[RETENTION_KEY]
     assert retention["protected_mappings"]["omitted"] == 0

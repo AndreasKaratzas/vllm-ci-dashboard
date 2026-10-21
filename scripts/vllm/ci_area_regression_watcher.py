@@ -34,6 +34,7 @@ from vllm.ci.managed_issue import (  # noqa: E402
 )
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 from vllm.ci.ownership import (  # noqa: E402
+    SIGNAL_RETIREMENT_STREAK_REQUIRED,
     apply_incident_hysteresis,
     build_ownership_status,
     evaluate_availability,
@@ -644,6 +645,21 @@ def _issue_body(area: dict, run_url: str) -> str:
                 ),
             ]
         )
+    retired = area.get("retired_incidents") or []
+    if retired:
+        lines.extend(
+            [
+                "",
+                "### Retired target groups",
+                "",
+                (
+                    "This area ran without these target groups in "
+                    f"{SIGNAL_RETIREMENT_STREAK_REQUIRED} newer builds, so their "
+                    "incidents were retired: "
+                    f"{', '.join(_md(row.get('label')) for row in retired)}."
+                ),
+            ]
+        )
     gaps = area.get("upstream_parity_gaps") or []
     lines.extend(
         [
@@ -714,7 +730,7 @@ def _fingerprint_payload(area: dict) -> dict:
     """Return stable incident identity, excluding routing and build evidence."""
     regressions = [
         {
-            "id": str(row.get("id") or ""),
+            "id": str(row.get("incident_origin_id") or row.get("id") or ""),
             "generation": str(row.get("incident_start_build_id") or ""),
             "peak_severity": str(
                 row.get("incident_peak_severity")
@@ -777,6 +793,9 @@ def _content_fingerprint(area: dict) -> str:
             "soft_streak": row.get("soft_streak"),
         }
         for row in area.get("pending_soft_observations") or []
+    ]
+    compact["retired_incidents"] = [
+        row.get("label") for row in area.get("retired_incidents") or []
     ]
     return _hash_fingerprint_payload(compact)
 
@@ -1062,6 +1081,22 @@ def _prune_retired_area_states(
     return retired
 
 
+def _recovery_body(area: dict, run_url: str) -> str:
+    retired = [_md(row.get("label")) for row in area.get("retired_incidents") or []]
+    if not retired:
+        outcome = "have recovered"
+    else:
+        outcome = (
+            "have recovered or were retired after this area ran without their "
+            f"target group in {SIGNAL_RETIREMENT_STREAK_REQUIRED} newer builds "
+            f"(retired: {', '.join(retired)})"
+        )
+    return (
+        f"All confirmed AMD runtime incidents for `{area['source_file']}` "
+        f"{outcome}. Closing this tracked test-area issue.\n\n*{run_url}*"
+    )
+
+
 def _can_mutate_area(active: bool, actual_assignee: dict) -> bool:
     return not active or bool(actual_assignee)
 
@@ -1199,11 +1234,7 @@ def run() -> int:
             title=_issue_title(area),
             body=_issue_body(area, run_url),
             ownership_marker=marker,
-            recovery_body=(
-                f"All confirmed AMD runtime incidents for `{area['source_file']}` have "
-                "recovered. Closing this tracked test-area issue.\n\n"
-                f"*{run_url}*"
-            ),
+            recovery_body=_recovery_body(area, run_url),
             observed_at=observed_at,
             label_specs=[
                 ("automated", "6f42c1", "Managed by dashboard automation"),
@@ -1221,7 +1252,17 @@ def run() -> int:
             recovery_labels=("automated", "workstream:dev"),
         )
         reconciled["body_schema_version"] = ISSUE_BODY_SCHEMA_VERSION
-        reconciled["signals"] = next_signals.get(area_key) or {}
+        signals = next_signals.get(area_key) or {}
+        if not active and not reconciled.get("issue"):
+            signals = {
+                key: {
+                    field: value
+                    for field, value in signal.items()
+                    if field != "retired_build_id"
+                }
+                for key, signal in signals.items()
+            }
+        reconciled["signals"] = signals
         reconciled["incident_state_version"] = 1
         next_areas[area_key] = reconciled
         checkpoint_areas[area_key] = reconciled
