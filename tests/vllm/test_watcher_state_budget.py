@@ -153,6 +153,18 @@ def test_main_state_drops_only_inactive_cache_and_preserves_all_actionable_rows(
     assert retention["published_bytes"] == len(encoded)
 
 
+def test_main_state_keeps_the_rename_record_of_held_incidents() -> None:
+    path = Path("open_ci_main_failure_issues.json")
+    source = _managed_issue(995)
+    step_run = {"step": ["amd-lora", "mi355", "amd_mi355_1"], "labels": ["live-group", "other-shard"]}
+    source["active"]["live-group"].update(step_run=step_run, carried_from="renamed-from")
+    published, encoded = bounded_watcher_state(path, source)
+
+    assert published[RETENTION_KEY]["complete_relative_to_source"] is False
+    live = published["active"]["live-group"]
+    assert (live["step_run"], live["carried_from"]) == (step_run, "renamed-from")
+
+
 def test_main_state_bounds_a_large_active_catalog_without_losing_an_identity() -> None:
     source = _managed_issue(992)
     source["group_watermarks"] = {}

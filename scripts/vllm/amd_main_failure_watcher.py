@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -23,6 +24,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from vllm.ci import main_flakiness  # noqa: E402
 from vllm.ci.incident_transitions import advance_incident  # noqa: E402
 from vllm.ci.managed_issue import (  # noqa: E402
     DASHBOARD_REPO,
@@ -240,6 +242,17 @@ def _observation_rank(row: dict) -> tuple[str, str, str]:
     )
 
 
+def _identity(group: dict) -> dict:
+    return {
+        "group_id": str(group.get("group_id") or ""),
+        "name": str(group.get("name") or group.get("raw_name") or "unknown"),
+        "raw_name": str(group.get("raw_name") or group.get("name") or "unknown"),
+        "step_key": str(group.get("step_key") or ""),
+        "hardware": str(group.get("hardware") or "unknown"),
+        "queue": str(group.get("queue") or ""),
+    }
+
+
 def _observations_by_build(reliability: dict) -> dict[int, dict[str, dict]]:
     pipeline_slug = str((reliability.get("cohort") or {}).get("pipeline") or "")
     candidates: dict[int, dict[str, list[dict]]] = {}
@@ -271,12 +284,7 @@ def _observations_by_build(reliability: dict) -> dict[int, dict[str, dict]]:
             ):
                 continue
             row = {
-                "group_id": group_id,
-                "name": str(group.get("name") or group.get("raw_name") or "unknown"),
-                "raw_name": str(group.get("raw_name") or group.get("name") or "unknown"),
-                "step_key": str(group.get("step_key") or ""),
-                "hardware": str(group.get("hardware") or "unknown"),
-                "queue": str(group.get("queue") or ""),
+                **_identity(group),
                 "result": result,
                 "build_number": number,
                 "build_url": str(observation.get("build_url") or ""),
@@ -395,12 +403,13 @@ def _commit_range(
     good_commit = _commit(existing.get("good_commit"))
     good_build_number = int(existing.get("good_build_number") or 0)
     if not good_commit:
+        origin = str(existing.get("carried_from") or group_id)
         try:
-            position = ordered_numbers.index(number)
+            position = ordered_numbers.index(bad_build_number)
         except ValueError:
             position = 0
         for prior_number in reversed(ordered_numbers[:position]):
-            prior = observations.get(prior_number, {}).get(group_id)
+            prior = observations.get(prior_number, {}).get(origin)
             if not prior or prior.get("result") != "passed":
                 continue
             candidate = _commit(prior.get("build_commit")) or _commit(
@@ -508,6 +517,92 @@ def _timeline_event(
     return event
 
 
+def _retire_renamed(
+    number: int,
+    build: dict,
+    runs: dict[tuple, dict[int, dict[str, str]]],
+    last_run: Callable[[str, dict], tuple[tuple, list[str]] | None],
+    identities: dict[str, dict],
+    active: dict[str, dict],
+    pending_soft: dict[str, dict],
+    watermarks: dict[str, dict],
+    events: list[dict] | None,
+) -> None:
+    """Retire incidents of groups whose step ran this build only under new labels.
+
+    Renaming or resharding a step starts new strict groups, so no pass can
+    reach the old ones. When a step runs none of the labels it ran in a held
+    group's last run, the incident resolves if every new label passed, and
+    otherwise moves to each failing new label without a newer pass. A label
+    keeps the confirmed, then earliest-starting, of the incidents it gets. A
+    group dropped from a step that keeps another of its labels stays held.
+    """
+    fence = _watermark(build, {"result": "renamed"})
+    candidates: dict[str, list[tuple[tuple, str, dict]]] = {}
+    retired: dict[str, bool] = {}
+
+    def claim(group_id: str, incident: dict) -> tuple:
+        start = str((incident.get("transition") or {}).get("incident_start_build_id") or "")
+        return group_id not in active, int(start) if start.isdigit() else -1, group_id
+
+    for group_id in sorted({*active, *pending_soft}):
+        incident = active.get(group_id) or pending_soft[group_id]
+        previous = last_run(group_id, incident)
+        if not previous:
+            continue
+        step, before = previous
+        labels = runs.get(step, {}).get(number)
+        if (
+            not labels
+            or set(before) & set(labels)
+            or _watermark_rank(watermarks.get(group_id) or {}) >= _watermark_rank(fence)
+        ):
+            continue
+        failing = [
+            label
+            for label, code in sorted(labels.items())
+            if code not in main_flakiness.PASS_CODES
+            and not (
+                (watermarks.get(label) or {}).get("result") == "passed"
+                and _watermark_rank(watermarks[label]) > _watermark_rank(fence)
+            )
+        ]
+        for label in failing:
+            candidates.setdefault(label, []).append((claim(group_id, incident), group_id, incident))
+        retired[group_id] = bool(failing)
+
+    moves: dict[str, tuple[bool, dict]] = {}
+    carried_to: dict[str, list[str]] = {}
+    for label, claims in sorted(candidates.items()):
+        held = active.get(label) or pending_soft.get(label)
+        if held:
+            claims.append((claim(label, held), label, held))
+        (pending, _, _), winner, incident = min(claims)
+        if winner != label:
+            moves[label] = pending, {"carried_from": winner, **incident, **identities[label]}
+            carried_to.setdefault(winner, []).append(label)
+
+    for group_id, failing in retired.items():
+        if group_id in active and events is not None:
+            event = _timeline_event("renamed" if failing else "resolved", group_id, active[group_id], build)
+            event["reason"] = "renamed"
+            if carried_to.get(group_id):
+                event["carried_to"] = carried_to[group_id][0]
+            events.append(event)
+        watermarks[group_id] = fence
+        active.pop(group_id, None)
+        pending_soft.pop(group_id, None)
+    for label, (pending, carried) in moves.items():
+        if pending:
+            pending_soft[label] = carried
+            active.pop(label, None)
+            continue
+        if label not in active and events is not None:
+            events.append(_timeline_event("opened", label, carried, build))
+        active[label] = carried
+        pending_soft.pop(label, None)
+
+
 def advance_incidents(
     reliability: dict,
     state: dict,
@@ -548,6 +643,7 @@ def advance_incidents(
         key=lambda number: build_rank(catalog_by_number[number]),
     )
     processed = set(updated.get("processed_build_numbers") or [])
+    already_processed = set(processed)
     processed_through = dict(updated.get("processed_through") or {})
     processed_through_rank = (
         _build_source_rank(processed_through)
@@ -596,7 +692,73 @@ def advance_incidents(
         )
         processed |= cohort_numbers
 
+    runs = main_flakiness.step_runs(reliability)
+    group_step = {group_id: step for step, builds in runs.items() for codes in builds.values() for group_id in codes}
+    position = {number: index for index, number in enumerate(ordered_numbers)}
+    identities = {
+        str(group["group_id"]): _identity(group)
+        for group in reliability.get("groups") or []
+        if isinstance(group, dict) and group.get("group_id")
+    }
+
+    def last_run_before(number: int, recorded: bool) -> Callable[[str, dict], tuple[tuple, list[str]] | None]:
+        # The recorded run is the one a main-pulse slice can see; incidents
+        # without one fall back to the catalog's outcome history.
+        def last_run(group_id: str, incident: dict) -> tuple[tuple, list[str]] | None:
+            record = incident.get("step_run")
+            if recorded and isinstance(record, dict) and record.get("step") and isinstance(record.get("labels"), list):
+                return tuple(record["step"]), record["labels"]
+            if partial_cohort or group_id not in group_step:
+                return None
+            step = group_step[group_id]
+            before = [
+                ran
+                for ran, codes in runs[step].items()
+                if group_id in codes and position.get(ran, len(position)) < position[number]
+            ]
+            return (step, list(runs[step][max(before, key=position.__getitem__)])) if before else None
+
+        return last_run
+
+    def retire_renamed(number: int, step_runs: dict, last_run: Callable) -> None:
+        _retire_renamed(
+            number,
+            catalog_by_number[number],
+            step_runs,
+            last_run,
+            identities,
+            active,
+            pending_soft,
+            watermarks,
+            events,
+        )
+
+    def record_runs(number: int) -> None:
+        for held in (active, pending_soft):
+            for group_id, incident in held.items():
+                labels = runs.get(group_step.get(group_id), {}).get(number)
+                if labels and group_id in labels:
+                    record = {"step": list(group_step[group_id]), "labels": sorted(labels)}
+                    if incident.get("step_run") != record:
+                        held[group_id] = {**incident, "step_run": record}
+
+    if not partial_cohort:
+        # Incidents held past an already processed rename (state written
+        # before renames were retired) catch up at each step's newest
+        # processed run; for any other state this is a no-op check.
+        newest_processed: dict[int, list[tuple]] = {}
+        for step, builds in runs.items():
+            done = [number for number in builds if number in position and number in already_processed]
+            if done:
+                newest_processed.setdefault(max(done, key=position.__getitem__), []).append(step)
+        for number in sorted(newest_processed, key=position.__getitem__):
+            retire_renamed(
+                number, {step: runs[step] for step in newest_processed[number]}, last_run_before(number, False)
+            )
+
     for number in to_process:
+        if number not in historical_only:
+            retire_renamed(number, runs, last_run_before(number, True))
         for group_id, row in observations.get(number, {}).items():
             if number in historical_only:
                 if track_commit_range:
@@ -634,10 +796,9 @@ def advance_incidents(
                 if track_commit_range:
                     incident = active.get(group_id) or pending_soft.get(group_id) or {}
                     bad_number = int(incident.get("bad_build_number") or 0)
-                    bad_row = observations.get(bad_number, {}).get(group_id)
+                    bad_row = observations.get(bad_number, {}).get(incident.get("carried_from") or group_id)
                     if (
-                        row.get("result") == "passed"
-                        and incident
+                        incident
                         and not incident.get("good_commit")
                         and bad_row
                         and bad_number in catalog_by_number
@@ -704,6 +865,8 @@ def advance_incidents(
             else:
                 pending_soft[group_id] = incident
                 active.pop(group_id, None)
+        if number not in historical_only:
+            record_runs(number)
 
     if initializing:
         # Seed one latest source-order outcome per strict group without opening
@@ -867,6 +1030,11 @@ def _issue_body_for(
         "- Retry handling: the latest eligible attempt for the same strict group inside a build wins.",
         "- Confirmation: a hard failure confirms immediately; a soft failure requires two distinct eligible builds.",
         "- Resolution: only an explicit pass by the same strict group resolves an incident.",
+        (
+            "- Renames: once a newer build runs the same step key, hardware and queue only under "
+            "new labels, the old incident resolves if they all passed and otherwise moves to the "
+            "failing new label."
+        ),
         "- Missing or indeterminate observations hold state without advancing or resolving it.",
         (
             "- Soft-failed jobs remain visible as warnings and advance confirmation "

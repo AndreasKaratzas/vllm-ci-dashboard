@@ -86,6 +86,38 @@ def has_outcome_history(reliability: dict) -> bool:
     )
 
 
+def step_runs(reliability: dict) -> dict[tuple[str, str, str], dict[int, dict[str, str]]]:
+    """Outcome codes of each step key, hardware and queue by build and group."""
+    runs: dict[tuple[str, str, str], dict[int, dict[str, str]]] = {}
+    for group in reliability.get("groups") or []:
+        if not isinstance(group, dict) or not group.get("step_key") or not group.get("group_id"):
+            continue
+        step = (str(group["step_key"]), str(group.get("hardware") or ""), str(group.get("queue") or ""))
+        for number, code in _history(group):
+            runs.setdefault(step, {}).setdefault(number, {})[str(group["group_id"])] = code
+    return runs
+
+
+def superseded_groups(reliability: dict) -> set[str]:
+    """Groups whose step's newest run had none of the labels of the group's last run.
+
+    A strict group is keyed by its exact label, so renaming or resharding a step
+    leaves the old groups unobserved forever.
+    """
+    times = build_times(reliability)
+    superseded: set[str] = set()
+    for builds in step_runs(reliability).values():
+        ordered = sorted((number for number in builds if number in times), key=lambda number: (times[number][0], number))
+        newest = set(builds[ordered[-1]]) if ordered else set()
+        seen: set[str] = set()
+        for number in reversed(ordered):
+            labels = set(builds[number])
+            if not labels & newest:
+                superseded |= labels - seen
+            seen |= labels
+    return superseded
+
+
 def window_stats(
     group: dict,
     times: dict[int, tuple[datetime, dict]],
@@ -143,12 +175,13 @@ def trend(current: dict, previous: dict) -> str:
 
 
 def group_rows(reliability: dict, now: datetime, window_days: int) -> list[dict]:
-    """Current and preceding window statistics for every group with history."""
+    """Current and preceding window statistics for every group that still runs."""
     times = build_times(reliability)
     window = timedelta(days=window_days)
+    superseded = superseded_groups(reliability)
     rows = []
     for group in reliability.get("groups") or []:
-        if not isinstance(group, dict) or not _history(group):
+        if not isinstance(group, dict) or not _history(group) or group.get("group_id") in superseded:
             continue
         current = window_stats(group, times, now - window, now + timedelta(minutes=15))
         previous = window_stats(group, times, now - 2 * window, now - window)
