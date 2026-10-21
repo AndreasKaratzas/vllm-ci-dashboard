@@ -300,6 +300,13 @@ def _fingerprint(events: list[dict]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _content_fingerprint(events: list[dict], payload: dict, owner: str) -> str:
+    """Hash the body without its collection time and run link, which change every run."""
+    body = _issue_body(events, payload, "", owner)
+    stable = [line for line in body.splitlines() if not line.startswith("Collected at ")]
+    return hashlib.sha256("\n".join(stable).encode()).hexdigest()
+
+
 def _dashboard_url(node: str = "") -> str:
     params = {
         "ops_analytics_view": "agent-health",
@@ -439,13 +446,15 @@ def run() -> int:
 
     events = find_alert_events(payload)
     observed_at = str(payload.get("generated_at") or now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    owner = repo_owner(repo)
     client = GitHubIssueClient(token, repo)
     reconciled = reconcile_managed_issue(
         _read_state(),
         active=bool(events),
         fingerprint=_fingerprint(events),
+        content_fingerprint=_content_fingerprint(events, payload, owner),
         title=_issue_title(events),
-        body=_issue_body(events, payload, run_url, repo_owner(repo)),
+        body=_issue_body(events, payload, run_url, owner),
         ownership_marker=OWNERSHIP_MARKER,
         recovery_body=(
             "No identified AMD node currently has two failures from two builds attributed "
