@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -27,24 +28,27 @@ def _execute(script: str, root: Path, **environment: str) -> dict[str, str]:
     return dict(line.split("=", 1) for line in output.read_text().splitlines())
 
 
-@pytest.mark.parametrize(("surfaces", "mode", "expected"), [
-    ("perf_eval", "reserved", "true"),
-    ("ci_gating,perf_eval", "reserved", "true"),
-    ("github_home", "reserved", "false"),
-    ("perf_eval", "retry_gated", "false"),
-    ("perf_eval", "cap_gated", "false"),
-    ("", "reserved", "false"),
-])
-def test_watchdog_retries_failed_performance_collection_only_with_reservation(
-    tmp_path: Path, surfaces: str, mode: str, expected: str,
-) -> None:
-    step = _step("hourly-master.yml", "collect-and-deploy", "Decide whether to regenerate perf-eval")
-    script = step["run"].replace("${{ github.event_name }}", "workflow_dispatch")
-    result = _execute(script, tmp_path, RETRY_SURFACES=surfaces, REQUEST_MODE=mode,
-                      HOURLY_DNS_GENERATION_INPUT="", HOURLY_WATCHDOG_GENERATION_INPUT="generation",
-                      DISPATCH_TYPE="")
-    assert result["run_perf"] == expected
-    assert "steps.request-attempt.outputs.retry_surfaces" in step["env"]["RETRY_SURFACES"]
+def _step_runs(step: dict, contexts: dict[str, str]) -> bool:
+    expression = re.sub(r"\b(?:inputs|steps\.[\w-]+\.outputs)\.\w+\b",
+                        lambda match: repr(contexts.get(match.group(0), "")), step["if"])
+    return eval(expression.replace("&&", " and ").replace("||", " or "), {})
+
+
+def test_every_reserved_full_collection_ingests_perf_eval_artifacts_last() -> None:
+    steps = yaml.safe_load((ROOT / ".github/workflows/hourly-master.yml").read_text())[
+        "jobs"]["collect-and-deploy"]["steps"]
+    step = next(s for s in steps if s.get("name") == "Ingest perf-eval artifacts from Buildkite")
+    for generation, mode, expected in (
+        ("inputs.watchdog_generation", "reserved", True),
+        ("inputs.watchdog_generation", "cap_gated", False),
+        ("inputs.dns_generation", "reserved", False),
+        ("inputs.queue_generation", "reserved", False),
+    ):
+        contexts = {generation: "generation", "steps.request-attempt.outputs.request_mode": mode}
+        assert _step_runs(step, contexts) is expected, generation
+    # The collector spends the allowance down because no later step can request.
+    buildkite_steps = [s for s in steps if "secrets.BUILDKITE_TOKEN" in str(s.get("env"))]
+    assert buildkite_steps[-1] is step
 
 
 @pytest.mark.parametrize(("surfaces", "mode", "expected"), [

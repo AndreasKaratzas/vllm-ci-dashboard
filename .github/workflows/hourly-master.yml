@@ -1925,59 +1925,28 @@ jobs:
           }
           run_surface_collector perf_eval "perf-eval reset" reset_perf_eval_seed
 
-      # Regenerate at most a few times a day. A non-scheduled run (manual
-      # dispatch or the perf-eval build.finished dispatch) always regenerates;
-      # a scheduled run only regenerates in the 00/08/16 UTC hour windows.
-      - name: Decide whether to regenerate perf-eval
-        id: perf_decide
-        if: inputs.dns_generation == '' && inputs.queue_generation == ''
-        env:
-          DISPATCH_TYPE: ${{ github.event.action }}
-          RETRY_SURFACES: ${{ steps.request-attempt.outputs.retry_surfaces }}
-          REQUEST_MODE: ${{ steps.request-attempt.outputs.request_mode }}
-        run: |
-          RUN=false
-          if [ -n "$HOURLY_DNS_GENERATION_INPUT" ]; then
-            echo "DNS reconciliation does not force unrelated perf-eval regeneration."
-          elif [ "$REQUEST_MODE" = reserved ] && [[ ",$RETRY_SURFACES," == *,perf_eval,* ]]; then
-            RUN=true
-            echo "Retrying a proven perf-eval collector failure from the durable attempt ledger."
-          elif [ -n "$HOURLY_WATCHDOG_GENERATION_INPUT" ]; then
-            echo "Publication watchdog recovery does not force unrelated perf-eval regeneration."
-          elif [ "${{ github.event_name }}" = "repository_dispatch" ]; then
-            if [ "$DISPATCH_TYPE" = "perf_eval_build_finished" ]; then RUN=true; fi
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            RUN=true
-          elif [ "${{ github.event_name }}" = "schedule" ]; then
-            case "$(date -u +%H)" in 00|08|16) RUN=true ;; esac
-          fi
-          echo "run_perf=$RUN" >> "$GITHUB_OUTPUT"
-          echo "perf-eval regeneration: run=$RUN (event=${{ github.event_name }})"
-
-      # Pull real AMD nightly results from the perf-eval pipeline's Buildkite
-      # artifacts and append any new ones to the durable event log. Read-only:
-      # BUILDKITE_TOKEN needs Read Builds + Read Artifacts; GITHUB_TOKEN reads
-      # the public workload recipes for per-GPU throughput derivation. A reset
-      # uses a wider window to backfill several past nightlies at once.
+      # Every reserved full collection pulls real AMD nightly results from the
+      # perf-eval pipeline's Buildkite artifacts and appends any new ones to the
+      # durable event log. Read-only: BUILDKITE_TOKEN needs Read Builds + Read
+      # Artifacts; GITHUB_TOKEN reads the public workload recipes for per-GPU
+      # throughput derivation. Downloads stop before the guarded request
+      # allowance runs out; the full 30-day window lets the next reserved
+      # collection finish a reset backfill or an outage backlog.
       - name: Ingest perf-eval artifacts from Buildkite
         if: >-
           inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.request-attempt.outputs.request_mode == 'reserved' &&
-          steps.perf_decide.outputs.run_perf == 'true'
+          steps.request-attempt.outputs.request_mode == 'reserved'
         env:
           BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
-          DAYS=14
-          if [ "$HOURLY_RESET_PERF_EVAL" = "true" ]; then DAYS=30; fi
           run_surface_collector perf_eval "perf-eval artifacts" \
-            python scripts/vllm/collect_perf_eval_artifacts.py --days "$DAYS"
+            python scripts/vllm/collect_perf_eval_artifacts.py --days 30
 
       - name: Collect perf-eval (AMD nightly perf + accuracy)
         if: >-
-          inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.perf_decide.outputs.run_perf == 'true'
+          inputs.dns_generation == '' && inputs.queue_generation == ''
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector perf_eval "perf-eval aggregation" \

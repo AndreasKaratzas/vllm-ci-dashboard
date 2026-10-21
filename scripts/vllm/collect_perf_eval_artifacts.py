@@ -44,7 +44,10 @@ import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vllm.buildkite_request_guard import install_from_environment_or_exit  # noqa: E402
+from vllm.buildkite_request_guard import (  # noqa: E402
+    install_from_environment_or_exit,
+    remaining_from_environment,
+)
 
 install_from_environment_or_exit()
 
@@ -104,6 +107,8 @@ _ACC_ARTIFACT_RE = re.compile(
 # paths, while excluding the pipeline's much larger sample/log artifact tree.
 _RESULT_ARTIFACT_PATHS = ("*results/*/bench-*.json", "*results/*/*/results_*.json")
 _RESULT_ARTIFACT_MAX_PAGES = 10
+# A download is one API request plus a possible same-origin redirect hop.
+_DOWNLOAD_MAX_REQUEST_STARTS = 2
 
 # Result events retain the exact Buildkite artifact that produced them. Legacy
 # result rows predate these fields, so once such a row is encountered again we
@@ -577,6 +582,16 @@ def fetch_workload_map(gh_token: str) -> dict[str, tuple[dict, dict]]:
     return out
 
 
+def _allowance_covers(request_starts: int) -> bool:
+    """Whether the guarded allowance fits a request group at its worst case.
+
+    Ingestion is the last Buildkite collector of an attempt, so it may spend
+    the allowance down to the worst-case cost of its next request group.
+    """
+    remaining = remaining_from_environment()
+    return remaining is None or remaining >= request_starts
+
+
 def collect(store_path: Path, *, days: int, bk_token: str, gh_token: str) -> int:
     """Pull nightly perf-eval artifacts and append new canonical events."""
     if not 1 <= days <= PERF_EVAL_MAX_ARTIFACT_LOOKBACK_DAYS:
@@ -599,20 +614,31 @@ def collect(store_path: Path, *, days: int, bk_token: str, gh_token: str) -> int
 
     workloads = fetch_workload_map(gh_token)
 
+    listing_starts = _RESULT_ARTIFACT_MAX_PAGES * BK_GET_MAX_ATTEMPTS
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    builds = _bk_paginate(
-        f"/organizations/{BK_ORG}/pipelines/{PIPELINE_SLUG}/builds",
-        bk_token,
-        {"branch": "main", "state": "finished", "created_from": cutoff},
-    )
+    builds = []
+    if _allowance_covers(listing_starts):
+        builds = _bk_paginate(
+            f"/organizations/{BK_ORG}/pipelines/{PIPELINE_SLUG}/builds",
+            bk_token,
+            {"branch": "main", "state": "finished", "created_from": cutoff},
+        )
     log.info("Examining %d finished perf-eval builds since %s", len(builds), cutoff)
 
     appended = 0
     markers_appended = 0
+    deferred_builds = 0
+    deferred_artifacts = 0
     pending_events: list[dict] = []
+    # Newest first keeps the dashboard current under a request allowance; the
+    # artifact identity index lets later runs skip straight to older gaps.
+    builds.sort(key=lambda build: build.get("number") or 0, reverse=True)
     for build in builds:
         night = nightly_info(build)
         if night is None:
+            continue
+        if deferred_artifacts or not _allowance_covers(listing_starts):
+            deferred_builds += 1
             continue
         number = build.get("number")
         identity = {
@@ -641,6 +667,9 @@ def collect(store_path: Path, *, days: int, bk_token: str, gh_token: str) -> int
                 log.warning("No recipe for workload %s (build #%s); skipping", workload, number)
                 continue
             entry, configs = recipe
+            if deferred_artifacts or not _allowance_covers(_DOWNLOAD_MAX_REQUEST_STARTS):
+                deferred_artifacts += 1
+                continue
             payload = _bk_download_json(art.get("download_url") or "", bk_token)
             if payload is None:
                 continue
@@ -686,6 +715,13 @@ def collect(store_path: Path, *, days: int, bk_token: str, gh_token: str) -> int
         markers_appended,
         before,
     )
+    if deferred_builds or deferred_artifacts:
+        log.warning(
+            "Buildkite request allowance reached: deferred %d artifacts and "
+            "%d unlisted nightly builds to the next collection",
+            deferred_artifacts,
+            deferred_builds,
+        )
     return appended
 
 

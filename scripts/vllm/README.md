@@ -11,6 +11,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `collect_analytics.py` | Builds failure rankings, duration rankings, queue wait stats | Every two hours via `hourly-master.yml` |
 | `collect_amd_test_matrix.py` | Derives inline and native AMD GPU main CI routes at the exact observed nightly commit | Every reserved full collection via `hourly-master.yml`; cooldown runs retain the validated matrix |
 | `collect_ownership_parity.py` | Builds the ownership routing map from the exact vLLM commit referenced by the latest AMD matrix | Hourly after matrix collection |
+| `collect_perf_eval_artifacts.py` | Ingests AMD nightly perf-eval results from Buildkite artifacts newest-first, persisting what fits the guarded request allowance and deferring the rest to the next run | Every reserved full collection via `hourly-master.yml` |
 | `merge_perf_eval_events.py` | Strictly merges a validated durable baseline with candidate perf-eval JSONL through the bounded atomic writer | Every canonical perf-eval seed sync |
 | `build_operations_snapshot.py` | Builds the private operations input and bundle-v4 manifest with twelve retained lazy sections (including the compact all-main-builds `main_ci` section), current runtime GPU cohorts, source parity, and exact five-nightly latency | Every canonical collection and Pages assembly |
 | `build_queue_section.py` | Builds only the compact public Queue shard from queue-owned inputs | Every independent queue-monitor run |

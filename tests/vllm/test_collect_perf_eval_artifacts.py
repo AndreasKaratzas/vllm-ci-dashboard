@@ -16,6 +16,7 @@ import json
 import pytest
 import requests
 
+from vllm import buildkite_request_guard as guard
 from vllm.ci import perf_eval_webhook as event_store
 
 art = importlib.import_module("vllm.collect_perf_eval_artifacts")
@@ -732,3 +733,41 @@ def test_pruned_result_identity_prevents_repeated_artifact_downloads(
     assert art.collect(store, days=30, bk_token="bk", gh_token="gh") == 0
     assert art.collect(store, days=30, bk_token="bk", gh_token="gh") == 0
     assert downloads == []
+
+
+def test_backlog_beyond_request_allowance_persists_prefix_and_resumes(tmp_path, monkeypatch):
+    store = tmp_path / "events.jsonl"
+    artifacts = [
+        {"id": f"a{index}", "path": f"results/m-mi355x/bench-c{index}.json", "download_url": str(index)}
+        for index in range(40)
+    ]
+    _stub_collection(monkeypatch, artifacts, [])
+    paginate = art._bk_paginate
+    downloads = []
+
+    def guarded(starts, call):
+        def send(*args, **kwargs):
+            for _ in range(starts):
+                guard.consume(guard_file, attempt_id=attempt_id, allowance=allowance)
+            return call(*args, **kwargs)
+        return send
+
+    def download(url, _token):
+        downloads.append(url)
+        return {"model_id": "m", "total_token_throughput": 10.0, "max_concurrency": int(url)}
+
+    monkeypatch.setattr(art, "_bk_paginate", guarded(1, paginate))
+    monkeypatch.setattr(art, "_bk_download_json", guarded(2, download))
+    collected = []
+    for attempt_id, allowance in (("first", 40), ("second", 80)):
+        guard_file = tmp_path / f"{attempt_id}.json"
+        guard.initialize(guard_file, attempt_id=attempt_id, allowance=allowance)
+        monkeypatch.setenv("BUILDKITE_REQUEST_GUARD_FILE", str(guard_file))
+        monkeypatch.setenv("BUILDKITE_REQUEST_GUARD_ATTEMPT_ID", attempt_id)
+        monkeypatch.setenv("BUILDKITE_REQUEST_GUARD_ALLOWANCE", str(allowance))
+        collected.append(art.collect(store, days=14, bk_token="bk", gh_token="gh"))
+
+    assert collected == [18, 22]
+    assert sorted(downloads, key=int) == [str(index) for index in range(40)]
+    rows = event_store.read_events(store)
+    assert {row["buildkite_artifact_id"] for row in rows} == {row["id"] for row in artifacts}

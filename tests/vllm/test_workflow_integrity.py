@@ -1019,20 +1019,6 @@ class TestHourlyMasterWorkflow:
             assert token in cadence_check["run"]
         assert "publication_status" not in cadence_check["run"]
 
-        perf = next(
-            step
-            for step in collect["steps"]
-            if step.get("name") == "Decide whether to regenerate perf-eval"
-        )
-        assert perf["env"] == {
-            "DISPATCH_TYPE": "${{ github.event.action }}",
-            "RETRY_SURFACES": "${{ steps.request-attempt.outputs.retry_surfaces }}",
-            "REQUEST_MODE": "${{ steps.request-attempt.outputs.request_mode }}",
-        }
-        assert 'if [ -n "$HOURLY_DNS_GENERATION_INPUT" ]' in perf["run"]
-        assert 'elif [ -n "$HOURLY_WATCHDOG_GENERATION_INPUT" ]' in perf["run"]
-        assert 'if [ "$DISPATCH_TYPE" = "perf_eval_build_finished" ]' in perf["run"]
-
         confirmation = next(
             step
             for step in collect["steps"]

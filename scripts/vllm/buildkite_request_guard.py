@@ -370,6 +370,19 @@ def install_from_environment() -> None:
     install(Path(raw_path), attempt_id=raw_attempt, allowance=int(raw_allowance))
 
 
+def remaining_from_environment() -> int | None:
+    """Return the unused request starts of the active guard, or None if unguarded."""
+    raw_path = os.getenv("BUILDKITE_REQUEST_GUARD_FILE", "")
+    if not raw_path:
+        return None
+    raw_allowance = os.getenv("BUILDKITE_REQUEST_GUARD_ALLOWANCE", "")
+    if not raw_allowance.isdigit():
+        raise BuildkiteRequestGuardError("request guard environment is incomplete")
+    allowance = int(raw_allowance)
+    attempt_id = os.getenv("BUILDKITE_REQUEST_GUARD_ATTEMPT_ID", "")
+    return allowance - read_count(Path(raw_path), attempt_id=attempt_id, allowance=allowance)
+
+
 def install_from_environment_or_exit() -> None:
     """Activate the guard for a direct CLI, exiting 78 before its body on error."""
     try:
