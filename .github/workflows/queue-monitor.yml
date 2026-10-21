@@ -524,6 +524,7 @@ jobs:
           if ! gh api \
             -H "Accept: application/vnd.github+json" \
             "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/runs?branch=main&event=workflow_dispatch&per_page=100" \
+            --jq '{workflow_runs: [.workflow_runs[] | {id, head_branch, head_sha, status, created_at, run_started_at, updated_at, conclusion, display_title}]}' \
             > "$WORKFLOW_RUNS"; then
             echo "::warning::Data Collection run state is unavailable; allowing a fail-open reconciliation dispatch."
             rm -f "$WORKFLOW_RUNS"

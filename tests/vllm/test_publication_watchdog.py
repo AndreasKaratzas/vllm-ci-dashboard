@@ -1,5 +1,6 @@
 """Tests for proactive, deduplicated canonical publication recovery."""
 
+import inspect
 import json
 import os
 import re
@@ -1005,3 +1006,18 @@ def test_manifest_predating_main_ci_is_judged_by_its_core_clocks_only(tmp_path) 
 
     undated = watchdog.core_data_age(_manifest(tmp_path, {**ages, "main_ci": None}), targets, now=NOW)
     assert undated == watchdog.CoreDataAge("main_ci", None, True)
+
+
+@pytest.mark.parametrize("workflow_file", ["publication-watchdog.yml", "queue-monitor.yml"])
+def test_workflow_run_state_is_projected_to_the_fields_the_parser_reads(workflow_file) -> None:
+    """Raw Actions rows carry head_commit messages; 100 of them outgrew the byte bound."""
+    root = Path(__file__).resolve().parents[2]
+    text = (root / ".github/workflows" / workflow_file).read_text()
+    projection = re.search(
+        r"actions/workflows/\S+/runs\?\S+ \\\n\s+--jq '\{workflow_runs: \[\.workflow_runs\[\] \| \{([a-z_, ]+)\}\]\}'",
+        text,
+    )
+    assert projection, f"{workflow_file} must project the workflow run state"
+    projected = {field.strip() for field in projection.group(1).split(",")}
+    parser_source = inspect.getsource(watchdog.parse_workflow_runs)
+    assert projected == set(re.findall(r'row\.get\("([a-z_]+)"\)', parser_source))

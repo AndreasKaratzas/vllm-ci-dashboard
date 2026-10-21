@@ -688,6 +688,7 @@ jobs:
           gh api \
             -H "Accept: application/vnd.github+json" \
             "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_FILE/runs?branch=main&per_page=100" \
+            --jq '{workflow_runs: [.workflow_runs[] | {id, head_branch, head_sha, status, created_at, run_started_at, updated_at, conclusion, display_title}]}' \
             > "$RUNNER_TEMP/selected-recovery-runs.json"
 
       - name: Plan deduplicated targeted recovery
