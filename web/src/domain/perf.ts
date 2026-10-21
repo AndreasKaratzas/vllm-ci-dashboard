@@ -218,6 +218,11 @@ export function accuracyBlock(task: Rec): Rec {
   return { ...task, label: task.task + ' - ' + task.metric, unit: 'ratio', direction: task.direction || 'higher' }
 }
 
+/** The configuration an accuracy task's history and points report: the GPU it ran on. */
+export function accuracyConfig(task: Rec): Rec {
+  return { label: 'Accuracy', device: task.device }
+}
+
 export interface PerfModelProvenance {
   commit: { label: string; url: string } | null
   build: { label: string; url: string | undefined } | null
@@ -456,10 +461,16 @@ export function perfConfigTitle(config: Rec): string {
   return known.replace(/^@\s*conc\b/, 'Concurrency')
 }
 
-/** Models matching the state, each keeping only the configurations on the selected device. */
+/** Models matching the state, each keeping only the configurations and accuracy tasks on the selected device. */
 export function perfScopedModels(models: Rec[], state: Pick<PerfState, 'model' | 'device'>): Rec[] {
   return filterPerfModels(models, state).map((model) =>
-    state.device === 'all' ? model : { ...model, perf_configs: perfModelConfigs(model, state.device) },
+    state.device === 'all'
+      ? model
+      : {
+          ...model,
+          perf_configs: perfModelConfigs(model, state.device),
+          accuracy_tasks: (model.accuracy_tasks || []).filter((task: Rec) => String(task.device || '').toLowerCase() === state.device),
+        },
   )
 }
 
@@ -586,7 +597,7 @@ export function perfChanges(models: Rec[]): PerfChange[] {
     )
     ;(model.accuracy_tasks || []).forEach((task: Rec) => {
       const block = accuracyBlock(task)
-      changes.push({ kind: 'accuracy', model, config: { label: 'Accuracy' }, name: task.metric, block, label: block.label, tone: perfStatusTone(task.status), deltaPct: Number(task.delta_pct) })
+      changes.push({ kind: 'accuracy', model, config: accuracyConfig(task), name: task.metric, block, label: block.label, tone: perfStatusTone(task.status), deltaPct: Number(task.delta_pct) })
     })
   })
   const size = (change: PerfChange) => (Number.isFinite(change.deltaPct) ? Math.abs(change.deltaPct) : -1)

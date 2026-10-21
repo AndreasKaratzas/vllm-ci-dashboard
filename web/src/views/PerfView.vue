@@ -25,6 +25,7 @@ import { useFreshness } from '@/features/freshness/useFreshness'
 import {
   PERF_VIEWS,
   accuracyBlock,
+  accuracyConfig,
   accuracyRows,
   perfAccuracyOnly,
   perfChanges,
@@ -234,7 +235,7 @@ const kpis = computed<Kpi[]>(() => (ready.value ? [scopeKpi.value, nightliesKpi.
           {{ thresholds.accuracy_abs !== undefined ? `${(thresholds.accuracy_abs * 100).toFixed(1)} points` : 'the absolute band' }} for accuracy.
           The regression and improvement trends apply the same rule to every retained nightly.</p>
         <p>Only AMD Instinct (ROCm) records are shown. If any record names a non-MI device or no GPU, the page withholds all data rather than mixing hardware.</p>
-        <p>The hardware filter keeps the configurations that ran on that GPU; accuracy tasks are not tied to a device.</p>
+        <p>The hardware filter keeps the configurations and accuracy tasks that ran on that GPU.</p>
       </template>
       <template #actions>
         <Button
@@ -328,7 +329,7 @@ const kpis = computed<Kpi[]>(() => (ready.value ? [scopeKpi.value, nightliesKpi.
         <PerfAccuracy
           v-else-if="accuracyView"
           :rows="accuracyRows(scoped)"
-          @history="(row) => openHistory(row.model, { label: 'Accuracy' }, row.task.metric, accuracyBlock(row.task))"
+          @history="(row) => openHistory(row.model, accuracyConfig(row.task), row.task.metric, accuracyBlock(row.task))"
           @point="openPoint"
         />
         <PerfSummary

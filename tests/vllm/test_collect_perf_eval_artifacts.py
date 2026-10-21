@@ -225,14 +225,27 @@ def test_classify_perf_artifact():
     )
 
 
-def test_classify_accuracy_artifact():
-    assert art.classify_artifact("results/minimax_m2_5-mi355x/gsm8k/results_2026-06-30.json") == (
-        "accuracy", "minimax_m2_5-mi355x", "gsm8k",
-    )
+@pytest.mark.parametrize(
+    ("path", "task"),
+    [
+        # lm-eval nests results under the sanitized model id.
+        (
+            "results/kimi_k2_5-mi300x/gsm8k/moonshotai__Kimi-K2.5/"
+            "results_2026-10-20T06-29-13.693407.json",
+            "gsm8k",
+        ),
+        # bfcl writes them directly into the task directory.
+        ("results/minimax_m3-mi355x/bfcl-multiple/results_2026-10-20T06-08-35.json", "bfcl-multiple"),
+    ],
+)
+def test_classify_accuracy_artifact(path, task):
+    wl = path.split("/")[1]
+    assert art.classify_artifact(path) == ("accuracy", wl, task)
 
 
 def test_samples_and_unknown_artifacts_ignored():
     assert art.classify_artifact("results/m-mi355x/gsm8k/samples_2026.jsonl") is None
+    assert art.classify_artifact("results/m-mi355x/gsm8k/org__M/samples_gsm8k_2026.jsonl") is None
     assert art.classify_artifact("results/m-mi355x/notes.txt") is None
     assert art.classify_artifact("random/path.json") is None
 
@@ -266,6 +279,27 @@ def test_transform_perf_tp_zero_is_safe():
 
 
 # ── event construction + AMD filtering ─────────────────────────────────────
+
+# Trimmed from a real perf-eval lm-eval results_*.json artifact: config.model
+# is the lm-eval backend and results carry non-metric bookkeeping keys.
+_LM_EVAL_RESULTS = {
+    "results": {
+        "gsm8k": {
+            "name": "gsm8k",
+            "alias": "gsm8k",
+            "sample_len": 1319,
+            "exact_match,strict-match": 0.842,
+            "exact_match_stderr,strict-match": 0.01,
+            "exact_match,flexible-extract": 0.85,
+            "exact_match_stderr,flexible-extract": 0.01,
+        },
+    },
+    "config": {
+        "model": "local-completions",
+        "model_args": {"model": "MiniMaxAI/MiniMax-M2.5", "num_concurrent": 64},
+    },
+    "model_name": "MiniMaxAI/MiniMax-M2.5",
+}
 
 _IDENTITY = {
     "build_number": 501,
@@ -312,26 +346,19 @@ def test_perf_event_conc_falls_back_to_raw():
 
 
 def test_accuracy_event_flattens_lm_eval_results():
-    results_json = {
-        "results": {"gsm8k": {
-            "exact_match,strict-match": 0.842,
-            "exact_match_stderr,strict-match": 0.01,
-            "alias": "gsm8k",
-        }},
-        "config": {"model": "MiniMaxAI/MiniMax-M2.5"},
-    }
-    entry = {"name": "minimax_m2_5-mi355x", "device": "mi355x", "model": "MiniMaxAI/MiniMax-M2.5"}
-    ev = art.accuracy_event(results_json, workload="minimax_m2_5-mi355x", task="gsm8k", entry=entry, identity=_IDENTITY)
+    entry = {"name": "minimax_m2_5-mi355x", "device": "mi355x", "model": "recipe/model"}
+    ev = art.accuracy_event(_LM_EVAL_RESULTS, workload="minimax_m2_5-mi355x", task="gsm8k", entry=entry, identity=_IDENTITY)
     assert ev["event"] == "accuracy_result"
     assert ev["nightly"] is True
     assert ev["model"] == "MiniMaxAI/MiniMax-M2.5"
-    rows = ev["results"]
-    assert any(r["metric"] == "exact_match,strict-match" and r["value"] == 0.842 and r["primary"] for r in rows)
-    assert all("stderr" not in r["metric"] for r in rows)
+    assert [(r["metric"], r["value"], r["primary"]) for r in ev["results"]] == [
+        ("exact_match,strict-match", 0.842, True),
+        ("exact_match,flexible-extract", 0.85, False),
+    ]
 
 
 def test_accuracy_event_dropped_for_nvidia_workload():
-    results_json = {"results": {"gsm8k": {"exact_match,strict-match": 0.8}}, "config": {"model": "x"}}
+    results_json = {"results": {"gsm8k": {"exact_match,strict-match": 0.8}}, "model_name": "x"}
     entry = {"name": "x-h200", "device": "h200", "model": "x"}
     ident = {**_IDENTITY, "image": "vllm/vllm-openai:nightly-abc"}
     assert art.accuracy_event(results_json, workload="x-h200", task="gsm8k", entry=entry, identity=ident) is None
@@ -352,7 +379,7 @@ def test_event_key_perf_vs_accuracy_differ():
     entry = {"name": "m-mi355x", "device": "mi355x", "tp": 1, "precision": "bf16", "model": "m"}
     p = art.perf_event({"total_token_throughput": 1.0}, entry=entry, config={"isl": 1, "osl": 1, "conc": 1}, identity=_IDENTITY)
     a = art.accuracy_event(
-        {"results": {"gsm8k": {"exact_match,strict-match": 0.8}}, "config": {"model": "m"}},
+        {"results": {"gsm8k": {"exact_match,strict-match": 0.8}}, "model_name": "m"},
         workload="m-mi355x", task="gsm8k", entry=entry, identity=_IDENTITY,
     )
     assert art.event_key(p)[0] == "perf" and art.event_key(a)[0] == "accuracy"
@@ -415,7 +442,11 @@ def test_collect_ingests_both_result_kinds_past_unrelated_artifact_flood(tmp_pat
         for index in range(1_001)
     ] + [
         {"id": "perf", "path": "results/m-mi355x/bench-8-in-8-out-conc-1.json", "download_url": "perf"},
-        {"id": "accuracy", "path": "results/m-mi355x/gsm8k/results_one.json", "download_url": "accuracy"},
+        {
+            "id": "accuracy",
+            "path": "results/m-mi355x/gsm8k/org__M/results_2026-10-20T05-57-33.514891.json",
+            "download_url": "accuracy",
+        },
     ]
     monkeypatch.setattr(art, "fetch_workload_map", lambda _token: {"m-mi355x": (_ENTRY, _CONFIGS)})
     requests_made = []
@@ -434,8 +465,8 @@ def test_collect_ingests_both_result_kinds_past_unrelated_artifact_flood(tmp_pat
     def download(url, token):
         downloads.append(url)
         if url == "perf":
-            return {"total_token_throughput": 10.0, "output_throughput": 1.0}
-        return {"results": {"gsm8k": {"exact_match,strict-match": 0.8}}, "config": {"model": "m"}}
+            return {"model_id": "org/M", "total_token_throughput": 10.0, "output_throughput": 1.0}
+        return {**_LM_EVAL_RESULTS, "model_name": "org/M"}
 
     monkeypatch.setattr(art, "_bk_download_json", download)
     appended = []
@@ -445,6 +476,7 @@ def test_collect_ingests_both_result_kinds_past_unrelated_artifact_flood(tmp_pat
     assert downloads == ["perf", "accuracy"]
     assert {event["event"] for event in appended} == {"perf_result", "accuracy_result"}
     assert {event["buildkite_artifact_id"] for event in appended} == {"perf", "accuracy"}
+    assert {event["model"] for event in appended} == {"org/M"}
     assert len(requests_made) == 3
 
 

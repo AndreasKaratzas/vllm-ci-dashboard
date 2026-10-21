@@ -92,9 +92,12 @@ _NIGHTLY_MSG_RE = re.compile(
 _NIGHTLY_WORD_RE = re.compile(r"\bnightly\b", re.IGNORECASE)
 
 # Artifact paths look like ``results/<workload>/bench-<config>.json`` (perf) and
-# ``results/<workload>/<task>/results_*.json`` (accuracy).
+# ``results/<workload>/<task>/**/results_*.json`` (accuracy): lm-eval nests its
+# results under the sanitized model id, bfcl writes them to the task dir.
 _PERF_ARTIFACT_RE = re.compile(r"^results/(?P<wl>[^/]+)/bench-(?P<cfg>.+)\.json$")
-_ACC_ARTIFACT_RE = re.compile(r"^results/(?P<wl>[^/]+)/(?P<task>[^/]+)/results_.*\.json$")
+_ACC_ARTIFACT_RE = re.compile(
+    r"^results/(?P<wl>[^/]+)/(?P<task>[^/]+)/(?:[^/]+/)*results_[^/]*\.json$"
+)
 # The REST artifact endpoint supports path globs with '*' wildcards:
 # https://buildkite.com/docs/apis/rest-api/artifacts#list-artifacts-for-a-build
 # Keep discovery broader than the local classifiers, including './results/'
