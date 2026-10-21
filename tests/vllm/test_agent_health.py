@@ -269,7 +269,7 @@ def test_attribution_never_hides_a_node_that_fails_every_job_in_a_build_wide_fai
     recurrence = [_attempt("elsewhere", "z", "B0", 51, "failed", 3), *_passes("B0", ["y"], hour=3, build=52)]
     passes = [p for group in ("B1", "B2", "B3", "O0", "O1", "O2", "O3") for p in _passes(group, ["y"], hour=3, build=52)]
     verdicts = _attributed(hole + others + beside + recurrence + passes)
-    assert {verdicts[f"bh{i}"] for i in range(4)} == {("node", "high", "node_repeats")}
+    assert {verdicts[f"bh{i}"] for i in range(4)} == {("node", "medium", "node_repeats")}
     assert {verdicts[f"o{i}"] for i in range(4)} == {("build", "high", "build_wide")}
 
 
@@ -388,7 +388,7 @@ def test_attribution_keeps_a_black_hole_node_when_cuda_fails_too():
     beside = [_attempt(f"p{i}", f"p{i % 10}", f"P{i}", 50, "passed", 1) for i in range(40)]
     passes = [p for i in range(4) for p in _passes(f"B{i}", ["y"], hour=3, build=52)]
     verdicts = _attributed(_with_upstream(hole + beside, broken) + passes)
-    assert {verdicts[f"bh{i}"] for i in range(4)} == {("node", "high", "node_repeats")}
+    assert {verdicts[f"bh{i}"] for i in range(4)} == {("node", "medium", "node_repeats")}
 
 
 def test_attribution_blames_the_test_when_its_cuda_mirror_fails():
@@ -482,6 +482,8 @@ def test_attribution_blames_a_node_only_on_corroborated_evidence():
         ("b1", "b", "G3", 3, 1), ("b2", "b", "G3", 4, 30),
         # Three groups on node c are high confidence; a fourth beyond three days stays a one-off.
         ("c1", "c", "G4", 5, 1), ("c2", "c", "G5", 6, 2), ("c3", "c", "G6", 7, 3), ("c4", "c", "G7", 8, 100),
+        # Three groups confined to one build on node d may be that build's: medium.
+        ("d1", "d", "G8", 9, 1), ("d2", "d", "G9", 9, 2), ("d3", "d", "G10", 9, 3),
     ]
     # Every group passes on another node when it fails, so no failure is explained elsewhere.
     rows = [_attempt(job, node, group, build, "failed", hour) for job, node, group, build, hour in failures]
@@ -491,6 +493,7 @@ def test_attribution_blames_a_node_only_on_corroborated_evidence():
     assert verdicts["b1"] == verdicts["b2"] == ("unknown", "low", "isolated")
     assert {verdicts[f"c{i}"] for i in (1, 2, 3)} == {("node", "high", "node_repeats")}
     assert verdicts["c4"] == ("unknown", "low", "isolated")
+    assert {verdicts[f"d{i}"] for i in (1, 2, 3)} == {("node", "medium", "node_repeats")}
     assert {row["job_id"] for row in rows if row.get("node_suspect")} == {job for job, *_ in failures}
 
 

@@ -1163,6 +1163,19 @@ def test_agent_health_alert_requires_two_failures_attributed_to_the_node():
     assert {run["job_id"] for run in event["runs"]} == {"a1", "a2", "b", "c"}
 
 
+def test_agent_health_alert_requires_node_failures_from_two_builds():
+    # ci #96247: gpu9ec1 failed five groups in one daily build and every retry passed elsewhere.
+    one_build = [
+        _agent_row("gpu9ec1", f"group-{index}", f"2026-07-17T10:{index:02d}:00Z", build=96247, job=f"j{index}")
+        for index in range(5)
+    ]
+    payload = {"generated_at": "2026-07-17T12:00:00Z", "failing_runs": one_build}
+    assert agent.find_alert_events(payload) == []
+
+    payload["failing_runs"] = [*one_build, _agent_row("gpu9ec1", "late", "2026-07-17T11:00:00Z", build=96300, job="late")]
+    assert [event["node_attributed"] for event in agent.find_alert_events(payload)] == [6]
+
+
 def test_agent_health_alert_uses_the_three_day_window_and_node_suspect_signal_only():
     payload = {
         "generated_at": "2026-07-17T12:00:00Z",
@@ -1199,7 +1212,7 @@ def test_agent_health_issue_body_links_each_exact_buildkite_attempt():
     assert "steps/canvas?jid=job-a&tab=output" in body
     assert "ops_analytics_view=agent-health" in body
     assert "ops_agent_node=gpu-chi-1" in body
-    assert "at least two failing attempts attributed to the node" in body
+    assert "at least two failing attempts attributed to the node, from at least two builds" in body
     assert "Of 3 failing attempts in the window, 2 are attributed to a node, 1 to build-wide breakage" in body
     assert "30% or more of both the build's CUDA jobs and its AMD jobs failed, outside torch-nightly builds" in body
     assert "the CUDA job running the same test failed on the same commit, outside torch-nightly builds" in body

@@ -179,7 +179,7 @@ describe('agentFleetVerdict', () => {
     node: attributed,
     cofailEvents,
   })
-  const node = (raw: string, cells: Cell[]): AgentNodeHistory => {
+  const node = (raw: string, cells: Cell[], recentNodeBuild = ''): AgentNodeHistory => {
     const recent = cells.slice(-3)
     return {
       node: raw,
@@ -193,6 +193,7 @@ describe('agentFleetVerdict', () => {
       recent: sum(recent.map((c) => c.signal)),
       recentSuspect: sum(recent.map((c) => c.suspect)),
       recentNode: sum(recent.map((c) => c.node)),
+      recentNodeBuild,
       recentCofail: sum(recent.map((c) => c.cofailEvents)),
       cofailEvents: sum(cells.map((c) => c.cofailEvents)),
     }
@@ -217,6 +218,42 @@ describe('agentFleetVerdict', () => {
     )
     // A co-failure event of unexplained failures alone no longer makes a node hurting.
     expect(agentFleetVerdict(matrix(nodes.slice(1)), complete, options, breakdown(0, 2, 0, 0)).tone).toBe('soft')
+  })
+
+  it('watches a node whose node-attributed failures all came from one build', () => {
+    const confined = [node('gpu9ec1', [cell(0), cell(0), cell(0), cell(5, 5, 5)], 'ci #96247'), node('gpu91ce', [cell(0), cell(0), cell(0), cell(4, 4, 4)], 'ci #96247')]
+    const verdict = agentFleetVerdict(matrix(confined), complete, options, breakdown(9, 0, 0, 0))
+    expect(verdict).toMatchObject({ tone: 'soft', label: 'Watch', headline: 'Node failures confined to ci #96247', hotNodes: [] })
+    expect(verdict.watchNodes.map((n) => n.node_raw)).toEqual(['gpu9ec1', 'gpu91ce'])
+    expect(verdict.detail).toBe(
+      '9 failures in the last 3 days are attributed to 2 nodes, but all came from one build, ci #96247: not yet a node fault. A node is hurting once its node-attributed failures span 2 builds.',
+    )
+    const elsewhere = node('gpu1', [cell(0), cell(0), cell(1, 1, 1), cell(1, 1, 1)])
+    expect(agentFleetVerdict(matrix([...confined, elsewhere]), complete, options, breakdown(11, 0, 0, 0)).hotNodes.map((n) => n.node_raw)).toEqual(['gpu1'])
+  })
+
+  it('names the one build of a node’s recent node-attributed failures only when the retained runs prove it', () => {
+    const raw = 'mi350x-gpu-dpx-3fipow'
+    const blame = (builds: unknown[]) => (m: AgentModel): AgentModel => ({
+      ...m,
+      failureAccounting: [],
+      failing: m.failing.map((run) =>
+        run.node_raw === raw && builds.includes(run.build_number) ? { ...run, attribution: 'node' as const, node_suspect: true } : run,
+      ),
+    })
+    const hot = (builds: unknown[]) => {
+      const { model, view, options } = series({ window: '14d' }, blame(builds))
+      const matrix = agentNodeDayMatrix(model, view, options)
+      const history = matrix.nodes.find((n) => n.node_raw === raw)!
+      return { history, verdict: agentFleetVerdict(matrix, view, options, agentAttributionBreakdown(model, options)) }
+    }
+    const one = hot([95674])
+    expect(one.history).toMatchObject({ recentNode: 3, recentNodeBuild: 'ci #95674' })
+    expect(one.verdict).toMatchObject({ tone: 'soft', headline: 'Node failures confined to ci #95674' })
+    const two = hot([95674, 95704])
+    expect(two.history).toMatchObject({ recentNode: 4, recentNodeBuild: '' })
+    expect(two.verdict).toMatchObject({ tone: 'hard', label: 'Hurting' })
+    expect(two.verdict.hotNodes.map((n) => n.node_raw)).toEqual([raw])
   })
 
   it('watches uncorroborated node-suspect failures and names the share of the worst nodes', () => {

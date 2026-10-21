@@ -874,7 +874,7 @@ def _attribute_failures(obs: list[dict]) -> None:
       other node within RECURRENCE_WINDOW, so the node has nothing to compare to.
     - node ``node_repeats``: the remaining (unexplained) failures on one node,
       together with its lost agents, span NODE_REPEAT_MIN_GROUPS test groups
-      within NODE_REPEAT_WINDOW (high with more groups).
+      within NODE_REPEAT_WINDOW (high with more groups in more than one build).
     - unknown/low ``isolated``: an unexplained one-off.
 
     ``node_suspect`` keeps the failures that may be the node's fault.
@@ -1020,16 +1020,14 @@ def _attribute_failures(obs: list[dict]) -> None:
             by_node[r["node"]].append(r)
     for rows in by_node.values():
         for r in rows:
+            nearby = near(rows, r, NODE_REPEAT_WINDOW)
             # Jobs that never started fail before any test, so however many groups
             # they belong to they are one symptom, not corroboration of each other.
-            groups = {
-                "" if other["never_started"] else other["group"]
-                for other in near(rows, r, NODE_REPEAT_WINDOW)
-            }
+            groups = {"" if other["never_started"] else other["group"] for other in nearby}
+            builds = {(other["pipeline"], other["build_number"]) for other in nearby}
             if r["attribution"] == "unknown" and len(groups) >= NODE_REPEAT_MIN_GROUPS:
-                r["attribution"], r["confidence"], r["reason"] = (
-                    "node", "high" if len(groups) > NODE_REPEAT_MIN_GROUPS else "medium", "node_repeats",
-                )
+                high = len(groups) > NODE_REPEAT_MIN_GROUPS and len(builds) > 1
+                r["attribution"], r["confidence"], r["reason"] = ("node", "high" if high else "medium", "node_repeats")
     for r in failing:
         r["node_suspect"] = r["attribution"] in AGENT_HEALTH_NODE_SUSPECT
 

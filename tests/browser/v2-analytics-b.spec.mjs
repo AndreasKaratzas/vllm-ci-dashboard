@@ -334,7 +334,7 @@ test.describe('CI agent health tells the fleet story', () => {
   test('the verdict names the hurting nodes, and each opens its sheet', async ({ page }) => {
     await page.goto('/#/analytics?view=agent-health&agent_window=14d');
     const verdict = page.getByTestId('agent-verdict');
-    await expect(verdict.getByTestId('agent-verdict-headline')).toHaveText(/^(\d+ nodes? (is|are) failing jobs themselves|No node is failing jobs repeatedly|No node is hurting CI right now)$/);
+    await expect(verdict.getByTestId('agent-verdict-headline')).toHaveText(/^(\d+ nodes? (is|are) failing jobs themselves|Node failures (confined to \S+ #\d+|each confined to one build)|No node is failing jobs repeatedly|No node is hurting CI right now)$/);
     const tone = await verdict.getAttribute('data-tone');
     await expect(verdict.getByTestId('agent-verdict-badge')).toHaveText({ hard: 'Hurting', soft: 'Watch', pass: 'Healthy' }[tone]);
     const hot = verdict.getByTestId('agent-hot-nodes');
