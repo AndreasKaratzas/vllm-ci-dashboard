@@ -4,11 +4,18 @@
 
 The dashboard now has an owner-private
 [hosted recovery service](https://vllm-dashboard-recovery-clock.truejoy5.chatgpt.site)
-and an enabled hourly cloud task, **Keep the AMD CI dashboard fresh**. This
-independent backup runs while the development workspace is closed. GitHub's
-normal schedules remain the primary triggers. The hosted task provider permits
+and an enabled hourly cloud task, **Keep the AMD CI dashboard fresh**. It runs
+while the development workspace is closed and is the primary trigger in
+practice: in October 2026 GitHub delivered only 4-8 of the watchdog's 96 daily
+scheduled ticks, while the hosted task dispatched it 23-24 times a day. Buildkite
+`repository_dispatch` events add no redundancy because no relay is deployed
+(the last one arrived on 2026-03-26). The hosted task provider permits
 one run per hour; the workflow profiles below still enforce their own minimum
 dispatch intervals and every producer retains its collection admission gates.
+
+Site Health raises its incident when the newest owner-dispatched watchdog run
+is older than 2.5 hours, so a stopped clock reaches the owner through the
+assigned site-health issue on the next delivered GitHub schedule.
 
 The hosted task admits DNS and health once in each UTC hour, with at least ten
 minutes between acknowledged dispatches. A task arriving earlier than the prior
@@ -38,8 +45,9 @@ scheduled events.
 GitHub can delay or drop scheduled workflow events. A collector, monitor and
 watchdog that all depend on that scheduler cannot guarantee fresh data when
 events stop arriving. The independent clock runs on an always-on Linux host and
-wakes the existing guarded workflows. GitHub schedules remain useful additional
-triggers. The fixed profiles preserve each producer's normal collection gates:
+wakes the existing guarded workflows. GitHub schedules remain best-effort
+additional triggers. The fixed profiles preserve each producer's normal
+collection gates:
 
 | Workflow | External dispatch interval |
 | --- | --- |

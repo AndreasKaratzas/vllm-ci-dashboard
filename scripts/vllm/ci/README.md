@@ -576,11 +576,13 @@ superseded unreachable objects until normal server-side garbage collection.
 
 ### Webhook-Triggered Updates
 
-For build-completion updates, `hourly-master.yml` receives the
+For build-completion updates, `hourly-master.yml` accepts the
 `buildkite_build_finished` repository dispatch and performs a complete,
-validated publication.
+validated publication. No relay is deployed today (see
+[`scripts/vllm/README.md`](../README.md)), so these events provide no
+redundancy; the owner's external clock in `deploy/recovery-tick` does.
 
-Buildkite queue freshness now uses those job-level webhook events (`job.scheduled`, `job.started`, `job.finished`) plus agent events (`agent.connected`, `agent.disconnected`, `agent.lost`, `agent.stopping`) to wake the lightweight `queue-monitor.yml` workflow. A webhook is never a cadence bypass: the parentless `queue-request-budget` ledger coalesces every trigger, including manual runs, before the token-bearing step. Queue-native metrics reserve two starts at most every ten minutes; the complete active-job overlay reserves twelve additional starts at most hourly. Missing, corrupt, ambiguous, or lease-conflicted budget state fails closed with zero Buildkite requests.
+Buildkite queue freshness can use those job-level webhook events (`job.scheduled`, `job.started`, `job.finished`) plus agent events (`agent.connected`, `agent.disconnected`, `agent.lost`, `agent.stopping`) to wake the lightweight `queue-monitor.yml` workflow. A webhook is never a cadence bypass: the parentless `queue-request-budget` ledger coalesces every trigger, including manual runs, before the token-bearing step. Queue-native metrics reserve two starts at most every ten minutes; the complete active-job overlay reserves twelve additional starts at most hourly. Missing, corrupt, ambiguous, or lease-conflicted budget state fails closed with zero Buildkite requests.
 
 The normal current-volume cost is about 432 requests/day: 144 one-page metric
 reads plus 24 twelve-page detail scans. The exact 25-hour ledger caps outstanding
