@@ -2204,6 +2204,7 @@ class TestHourlyMasterWorkflow:
         save = queue[queue_names.index("Save immutable runtime source checkpoint")]
         assert "always()" in save["if"] and "request_mode == 'metrics_and_details'" in save["if"]
         assert "runtime_source_cache_save == 'true'" in save["if"] and "collect.outcome" not in save["if"]
+        assert "github.event_name != 'workflow_run'" in save["if"]
 
         dns = _load_workflow("dns-health.yml")["jobs"]["collect"]["steps"]
         dns_names = [step.get("name") for step in dns]

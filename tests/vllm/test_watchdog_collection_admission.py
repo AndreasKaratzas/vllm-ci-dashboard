@@ -285,14 +285,16 @@ def test_workflow_hydrates_the_operations_manifest_from_its_projection_proof():
     root = Path(__file__).resolve().parents[2]
     workflow = yaml.safe_load((root/'.github/workflows/publication-watchdog.yml').read_text())
     route = next(step for step in workflow['jobs']['recover']['steps'] if step.get('id') == 'recovery-route')['run']
-    hydration = route[route.index('OPERATIONS_MANIFEST="$RUNNER_TEMP/pages-operations-manifest.json"'):]
-    hydration = hydration[:hydration.index('\nfi\n')]
-    assert route.index('public_projection.py verify-git') < route.index(hydration)
-    assert 'GIT_NO_LAZY_FETCH=1 git show \\\n     origin/gh-pages:publication_manifest.json' in hydration
+    hydration = route[route.index('OPERATIONS_HYDRATED=0'):route.index('git update-ref refs/remotes/origin/gh-pages')]
+    assert 'GIT_NO_LAZY_FETCH=1 git show \\\n     "$PAGES_SHA:publication_manifest.json"' in hydration
     assert '["files"]["data/vllm/ci/operations_v2_manifest.json"]' in hydration
     assert f'hydrate_proven_blob "$OPERATIONS_OID" "$OPERATIONS_BYTES" \\\n     {watchdog.OPERATIONS_MANIFEST_MAX_BYTES} ' in hydration
-    assert 'GIT_NO_LAZY_FETCH=1 git cat-file blob "$OPERATIONS_OID" > "$OPERATIONS_MANIFEST"' in hydration
-    assert '::warning::' in hydration and 'exit' not in hydration
+    assert 'exit' not in hydration
+    write = route[route.index('OPERATIONS_MANIFEST="$RUNNER_TEMP/pages-operations-manifest.json"'):]
+    write = write[:write.index('\nfi\n')]
+    assert route.index('public_projection.py verify-git') < route.index(write)
+    assert 'GIT_NO_LAZY_FETCH=1 git cat-file blob "$OPERATIONS_OID" > "$OPERATIONS_MANIFEST"' in write
+    assert '::warning::' in write and 'exit' not in write
 
 
 def _subprocess_root(root, policy):
