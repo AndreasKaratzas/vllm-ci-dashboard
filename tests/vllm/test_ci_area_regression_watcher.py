@@ -240,6 +240,84 @@ def test_held_issue_body_and_content_hash_use_the_same_retained_evidence():
     assert watcher._content_fingerprint(area) != baseline_content
 
 
+def _cuda_status(builds: dict, prior_signals: dict | None = None) -> tuple[dict, dict]:
+    area = _area()
+    area["counts"].update(confirmed_hard=1, confirmed_soft=1)
+    for row in area["regressions"]:
+        row["url"] = f"https://buildkite.com/vllm/ci/builds/11301/steps/canvas?jid=j{row['id']}&tab=output"
+    status = {"areas": [area], "summary": {}}
+    signals = {"kernels": {"1": {"status": "confirmed"}, "2": {"status": "confirmed"}}}
+    prior = {"kernels": {"signals": prior_signals}} if prior_signals else {}
+    watcher._apply_cuda_evidence(status, signals, prior, builds)
+    return status, signals
+
+
+def test_incidents_that_failed_on_cuda_or_build_wide_are_warnings_not_regressions():
+    shared = {"kind": "shared_with_cuda", "build_number": 11301, "cuda_step_key": "kernels-hard"}
+    status, signals = _cuda_status(
+        {"11301": {"build_wide": False, "mirror_failed_jobs": {"j1": "kernels-hard"}}}
+    )
+    area = status["areas"][0]
+    assert [row.get("cuda_evidence") for row in area["regressions"]] == [shared, None]
+    assert signals["kernels"]["1"]["cuda_evidence"] == shared
+    assert {key: area["counts"][key] for key in ("incidents", "confirmed_hard", "confirmed_soft")} == {
+        "incidents": 1, "confirmed_hard": 0, "confirmed_soft": 1,
+    }
+    assert status["summary"] == {
+        "areas_with_incidents": 1, "incidents": 1, "confirmed_hard": 0, "confirmed_soft": 1,
+        "shared_incidents": 1,
+    }
+    assert watcher._issue_title(area).endswith(": 1 affected target groups")
+    assert "| warning (hard): CUDA step kernels-hard also failed in build #11301 |" in (
+        watcher._issue_body(area, "https://example.invalid/run")
+    )
+
+    wide = {"build_wide": True, "jobs": 61, "failed": 56, "amd_jobs": 63, "amd_failed": 54}
+    status, _ = _cuda_status({"11301": wide})
+    area = status["areas"][0]
+    assert (area["counts"]["incidents"], status["summary"]["areas_with_incidents"]) == (0, 0)
+    assert "not AMD-specific (Hard group: build #11301 broke build-wide: 56 of 61 CUDA and 54 of 63" in (
+        watcher._recovery_body(area, "https://example.invalid/run")
+    )
+
+
+def test_cuda_evidence_outlives_a_missing_handoff_only_for_its_own_build():
+    shared = {"kind": "shared_with_cuda", "build_number": 11301, "cuda_step_key": "kernels-hard"}
+    status, _ = _cuda_status({}, {"1": {"cuda_evidence": shared}, "2": {"cuda_evidence": {**shared, "build_number": 11300}}})
+    assert [row.get("cuda_evidence") for row in status["areas"][0]["regressions"]] == [shared, None]
+    status, _ = _cuda_status({"11301": {"build_wide": False, "mirror_failed_jobs": {}}}, {"1": {"cuda_evidence": shared}})
+    assert status["summary"]["shared_incidents"] == 0
+
+
+def test_cuda_shared_incident_does_not_reopen_a_manually_closed_issue():
+    closed = _area()
+    closed["regressions"].pop()
+    suppressed = watcher._fingerprint(closed)
+    status, _ = _cuda_status({"11301": {"build_wide": False, "mirror_failed_jobs": {"j2": "kernels-soft"}}})
+    area = status["areas"][0]
+    assert area["regressions"][1]["cuda_evidence"] and area["counts"]["incidents"] == 1
+    assert watcher._fingerprint(area) == suppressed
+
+    class NoMutationClient:
+        def open_issue(self, *_args):
+            raise AssertionError("a CUDA-shared incident must not reopen a manual close")
+
+    reconciled = watcher.reconcile_managed_issue(
+        {"suppressed": True, "suppressed_fingerprint": suppressed, "last_fingerprint": suppressed},
+        active=True,
+        fingerprint=watcher._fingerprint(area),
+        title="t",
+        body="b",
+        ownership_marker="<!-- shared-suppression-test:v1 -->",
+        recovery_body="r",
+        observed_at="2026-07-28T00:00:00Z",
+        label_specs=[],
+        client=NoMutationClient(),
+        assignees=["primary"],
+    )
+    assert reconciled["suppressed"] is True and reconciled["issue"] is None
+
+
 def test_signal_fingerprint_changes_on_membership_or_peak_escalation():
     area = _area()
     baseline = watcher._fingerprint(area)

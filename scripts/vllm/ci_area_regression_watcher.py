@@ -19,6 +19,7 @@ import os
 import re
 import sys
 import tempfile
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,7 @@ from vllm.ci.ownership import (  # noqa: E402
     load_ownership_config,
     matrix_runtime_targets,
     parse_timestamp,
+    target_signal_key,
 )
 from vllm.ci.watcher_state import write_watcher_state  # noqa: E402
 
@@ -62,6 +64,8 @@ OWNERSHIP_PARITY = DATA / "ownership_config_parity.json"
 MATRIX = DATA / "amd_test_matrix.json"
 STATE = DATA / "open_ci_area_regression_issues.json"
 STATUS = DATA / "ci_ownership.json"
+CUDA_EVIDENCE = DATA / ".cache" / "cuda_evidence.json"
+JOB_ID_RE = re.compile(r"[?&]jid=([^&#]+)")
 CI_OWNERSHIP_MAX_BYTES = writer_max_bytes("ci_ownership")
 MAX_SOURCE_AGE = timedelta(hours=3)
 MAX_NIGHTLY_AGE = timedelta(hours=36)
@@ -563,6 +567,84 @@ def _displayed_failure_evidence(row: dict) -> dict:
     return evidence
 
 
+def _shared_reason(evidence: dict) -> str:
+    if evidence["kind"] == "build_wide":
+        return (
+            f"build #{evidence['build_number']} broke build-wide: {evidence['failed']} of "
+            f"{evidence['jobs']} CUDA and {evidence['amd_failed']} of "
+            f"{evidence['amd_jobs']} AMD final jobs failed"
+        )
+    return f"CUDA step {evidence['cuda_step_key']} also failed in build #{evidence['build_number']}"
+
+
+def _severity(row: dict) -> str:
+    severity = str(row.get("incident_severity") or "")
+    evidence = row.get("cuda_evidence")
+    return f"warning ({severity}): {_shared_reason(evidence)}" if evidence else severity
+
+
+def _cuda_evidence(row: dict, builds: dict, prior: Any) -> dict | None:
+    """Return why an incident is not AMD-specific in the build it failed in."""
+    observed = _displayed_failure_evidence(row)
+    build_number = str(observed.get("build_number") or "")
+    build = builds.get(build_number)
+    if not isinstance(build, dict):
+        same_build = isinstance(prior, dict) and str(prior.get("build_number")) == build_number
+        return prior if same_build else None
+    if build.get("build_wide") is True:
+        return {
+            "kind": "build_wide",
+            "build_number": int(build_number),
+            **{key: build.get(key) for key in ("jobs", "failed", "amd_jobs", "amd_failed")},
+        }
+    job = JOB_ID_RE.search(str(observed.get("url") or ""))
+    step = (build.get("mirror_failed_jobs") or {}).get(job.group(1)) if job else None
+    if not step:
+        return None
+    return {"kind": "shared_with_cuda", "build_number": int(build_number), "cuda_step_key": step}
+
+
+def _apply_cuda_evidence(
+    status: dict,
+    next_signals: dict[str, dict[str, dict]],
+    prior_areas: dict,
+    builds: dict,
+) -> None:
+    """Demote confirmed incidents that also failed on CUDA or broke build-wide."""
+    for area in status.get("areas") or []:
+        counts = area.setdefault("counts", {})
+        signals = next_signals.get(area["area"]) or {}
+        prior_signals = (prior_areas.get(area["area"]) or {}).get("signals") or {}
+        shared = Counter()
+        for row in area.get("regressions") or []:
+            key = target_signal_key(row)
+            evidence = _cuda_evidence(
+                row, builds, (prior_signals.get(key) or {}).get("cuda_evidence")
+            )
+            if evidence is None:
+                (signals.get(key) or {}).pop("cuda_evidence", None)
+                continue
+            row["cuda_evidence"] = evidence
+            if key in signals:
+                signals[key]["cuda_evidence"] = evidence
+            shared[str(row.get("incident_severity") or "soft")] += 1
+        counts["shared_incidents"] = shared.total()
+        counts["incidents"] = int(counts.get("incidents") or 0) - shared.total()
+        for severity in ("hard", "soft"):
+            key = f"confirmed_{severity}"
+            counts[key] = int(counts.get(key) or 0) - shared[severity]
+    areas = [area["counts"] for area in status.get("areas") or []]
+    status.setdefault("summary", {}).update(
+        {
+            "areas_with_incidents": sum(bool(counts["incidents"]) for counts in areas),
+            **{
+                key: sum(counts[key] for counts in areas)
+                for key in ("incidents", "confirmed_hard", "confirmed_soft", "shared_incidents")
+            },
+        }
+    )
+
+
 def _issue_body(area: dict, run_url: str) -> str:
     counts = area.get("counts") or {}
     confirmed_hard = int(counts.get("confirmed_hard", counts.get("hard", 0)) or 0)
@@ -570,6 +652,7 @@ def _issue_body(area: dict, run_url: str) -> str:
     selected = area.get("selected_owner") or {}
     actual = area.get("actual_assignee") or {}
     notification_lines, expected_mentions = _notification_lines(area)
+    shared = int(counts.get("shared_incidents") or 0)
     lines = [
         f"## AMD CI confirmed incident — `{_md(area['source_file'])}`",
         "",
@@ -577,6 +660,12 @@ def _issue_body(area: dict, run_url: str) -> str:
             f"**{int(counts.get('incidents') or 0)} target groups have confirmed incidents: "
             f"{confirmed_hard} hard, "
             f"{confirmed_soft} soft.**"
+            + (
+                f" {shared} more failed on CUDA too or in a build-wide breakage of "
+                "the same build, so they are warnings, not AMD regressions."
+                if shared
+                else ""
+            )
         ),
         "",
         f"Selected owner: **{_md(selected.get('display_name'))}** (rank {_owner_rank(area)}).",
@@ -620,7 +709,7 @@ def _issue_body(area: dict, run_url: str) -> str:
         if row.get("incident_observation_eligible") is False:
             observation = f"{observation} (ignored older build)"
         lines.append(
-            f"| {label_md} | {_md(row.get('incident_severity'))} | "
+            f"| {label_md} | {_md(_severity(row))} | "
             f"{_md(observation)} | "
             f"{f'#{build}' if build else '-'} | {_md(observed_at)} |"
         )
@@ -696,6 +785,11 @@ def _issue_body(area: dict, run_url: str) -> str:
     return body
 
 
+def _red_regressions(area: dict) -> list[dict]:
+    """Return incidents that count as AMD regressions, excluding CUDA-shared ones."""
+    return [row for row in area.get("regressions") or [] if not row.get("cuda_evidence")]
+
+
 def _legacy_fingerprint_payload(area: dict) -> dict:
     return {
         "area": area.get("area"),
@@ -708,7 +802,7 @@ def _legacy_fingerprint_payload(area: dict) -> dict:
                 "result": row.get("result"),
                 "build_number": row.get("build_number"),
             }
-            for row in area.get("regressions") or []
+            for row in _red_regressions(area)
         ],
         "upstream_parity_gaps": [
             row.get("label") for row in area.get("upstream_parity_gaps") or []
@@ -739,7 +833,7 @@ def _fingerprint_payload(area: dict) -> dict:
                 or ""
             ),
         }
-        for row in area.get("regressions") or []
+        for row in _red_regressions(area)
     ]
     regressions.sort(key=lambda row: (row["id"], row["generation"]))
     return {
@@ -778,6 +872,7 @@ def _content_fingerprint(area: dict) -> str:
             "incident_severity": row.get("incident_severity"),
             "incident_peak_severity": row.get("incident_peak_severity"),
             "displayed_failure_evidence": _displayed_failure_evidence(row),
+            **({"cuda_evidence": row["cuda_evidence"]} if row.get("cuda_evidence") else {}),
         }
         for row in area.get("regressions") or []
     ]
@@ -1091,6 +1186,13 @@ def _recovery_body(area: dict, run_url: str) -> str:
             f"target group in {SIGNAL_RETIREMENT_STREAK_REQUIRED} newer builds "
             f"(retired: {', '.join(retired)})"
         )
+    shared = [
+        f"{_md(row.get('label'))}: {_md(_shared_reason(row['cuda_evidence']))}"
+        for row in area.get("regressions") or []
+        if row.get("cuda_evidence")
+    ]
+    if shared:
+        outcome += f" or are not AMD-specific ({'; '.join(shared)})"
     return (
         f"All confirmed AMD runtime incidents for `{area['source_file']}` "
         f"{outcome}. Closing this tracked test-area issue.\n\n*{run_url}*"
@@ -1154,6 +1256,9 @@ def run() -> int:
     state = _mi_scoped_area_history(_read_state(), matrix_targets)
     prior_areas = state.get("areas") or {}
     next_signals = apply_incident_hysteresis(status, prior_areas)
+    _apply_cuda_evidence(
+        status, next_signals, prior_areas, _load_json(CUDA_EVIDENCE).get("builds") or {}
+    )
 
     token = os.getenv("GITHUB_TOKEN", "").strip()
     if not token:

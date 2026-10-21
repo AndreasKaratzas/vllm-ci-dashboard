@@ -159,6 +159,13 @@ per area in `AndreasKaratzas/vllm-ci-dashboard`. Current regressions, exact
 Buildkite evidence, upstream parity gaps, the ranked chain, and the actual
 GitHub assignees are shown on the managed area issues and AMD CI Operations project.
 
+An incident whose observing nightly also failed the mirrored CUDA step, or
+broke build-wide (at least 30% of both CUDA and AMD final jobs, with at least
+20 of each), is a warning row, not a regression: it is left out of the title,
+counts, owner assignment, and manual-close identity. The agent-health collector
+hands that evidence to the watcher in the same run through the private
+`.cache/cuda_evidence.json`.
+
 The ownership config carries two shared, DST-aware working-hours profiles.
 They are operational shifts, not claims about an engineer's home location. EU
 uses Serbia time (`Europe/Belgrade`), while NA uses Chicago time
