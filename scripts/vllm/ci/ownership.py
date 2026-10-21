@@ -21,6 +21,7 @@ from vllm.ci.incident_transitions import advance_incident
 
 INCIDENT_STATES = {"failed", "hard", "soft", "soft_fail", "soft_failed"}
 PASS_STATES = {"passed", "pass"}
+SIGNAL_RETIREMENT_STREAK_REQUIRED = 3
 MULTISPACE_RE = re.compile(r"\s+")
 AMD_PREFIX_RE = re.compile(r"^AMD:\s*", re.IGNORECASE)
 SHARD_TEMPLATE_SUFFIX_RE = re.compile(r"\s*%N\s*$", re.IGNORECASE)
@@ -553,9 +554,17 @@ def matrix_runtime_targets(matrix: dict) -> list[dict]:
         evidence: list[dict] = []
         labels: list[str] = []
         states: list[str] = []
+        architectures: list[str] = []
+        definition_ids: set[str] = set()
         for architecture, cell in (row.get("cells") or {}).items():
             if not isinstance(cell, dict) or not cell.get("exists"):
                 continue
+            architectures.append(str(architecture))
+            definition_ids.update(
+                str(variant["definition_id"])
+                for variant in cell.get("variants") or []
+                if isinstance(variant, dict) and variant.get("definition_id")
+            )
             state = str(cell.get("latest_state") or "unknown").lower()
             states.append(state)
             label = str(cell.get("primary_label") or "")
@@ -614,6 +623,11 @@ def matrix_runtime_targets(matrix: dict) -> list[dict]:
                         set(labels),
                         key=str.casefold,
                     ),
+                },
+                "lineage": {
+                    "architectures": sorted(architectures),
+                    "definition_ids": sorted(definition_ids),
+                    "command_fingerprint": str(row.get("command_fingerprint") or ""),
                 },
             }
         )
@@ -702,6 +716,8 @@ def build_ownership_status(
             ),
             "area_method": method,
         }
+        if isinstance(target.get("lineage"), dict):
+            row["lineage"] = target["lineage"]
         if area:
             grouped[area].append(row)
         else:
@@ -837,7 +853,52 @@ def _target_identity(target: dict, signal_key: str) -> dict:
     area_method = target.get("area_method")
     if area_method not in (None, ""):
         identity["area_method"] = area_method
+    if isinstance(target.get("lineage"), dict):
+        identity["lineage"] = target["lineage"]
     return identity
+
+
+def _lineage_successor(identity: dict, targets: list[dict]) -> dict | None:
+    """Return the one current row that continues a vanished row's definition."""
+    lineage = identity.get("lineage")
+    if not isinstance(lineage, dict):
+        return None
+    architectures = set(lineage.get("architectures") or [])
+    definition_ids = set(lineage.get("definition_ids") or [])
+    command = lineage.get("command_fingerprint")
+    matches = []
+    for target in targets:
+        current = target.get("lineage") or {}
+        if not architectures & set(current.get("architectures") or []):
+            continue
+        if definition_ids & set(current.get("definition_ids") or []) or (
+            command and command == current.get("command_fingerprint")
+        ):
+            matches.append(target)
+    return matches[0] if len(matches) == 1 else None
+
+
+def _absence_streak(
+    signal: dict,
+    area_run_build: int | None,
+) -> tuple[int, int | None]:
+    """Count newer builds in which the signal's area ran without its row."""
+    streak = signal.get("absent_streak")
+    streak = streak if isinstance(streak, int) and not isinstance(streak, bool) else 0
+    counted = _numeric_build_id(signal.get("absent_build_id"))
+    floor = (
+        counted
+        if counted is not None
+        else _signal_build_watermark(_without_absent_watermark(signal))
+    )
+    if area_run_build is not None and (floor is None or area_run_build > floor):
+        return streak + 1, area_run_build
+    return streak, counted
+
+
+def _without_absent_watermark(signal: dict) -> dict:
+    """Drop the watermark that absent observations advance past the evidence."""
+    return {key: value for key, value in signal.items() if key != "build_watermark"}
 
 
 def _retained_target(
@@ -873,7 +934,10 @@ def apply_incident_hysteresis(
     Hard observations confirm immediately. Soft observations remain visible as
     pending until they recur on ``soft_threshold`` distinct completed builds.
     Re-reading the same build cannot advance the streak, and an unobserved
-    target holds (rather than resolving) its prior incident state.
+    target holds (rather than resolving) its prior incident state. A held row
+    that vanished moves to the one current row sharing its definition lineage;
+    otherwise it retires once its area ran without it in
+    ``SIGNAL_RETIREMENT_STREAK_REQUIRED`` newer builds.
 
     The returned mapping is deliberately separate from the public status. It
     is persisted alongside each area's managed-issue state and supplied on the
@@ -1032,6 +1096,10 @@ def apply_incident_hysteresis(
             identity = dict(previous_identity)
             if not target.get("target_disappeared") or not identity:
                 identity.update(_target_identity(target, signal_key))
+            if signal["status"] == "clear":
+                identity.pop("origin_id", None)
+            elif identity.get("origin_id"):
+                target["incident_origin_id"] = identity["origin_id"]
             persisted_signal["identity"] = identity
             if signal["status"] != "clear" and evidence:
                 persisted_signal["evidence"] = dict(evidence)
@@ -1065,15 +1133,79 @@ def apply_incident_hysteresis(
             elif signal["status"] == "pending_soft":
                 pending_soft.append(target)
 
+        # A renamed row keeps its definition lineage.  Its newly appeared row
+        # inherits the incident so that row's own result resolves or keeps it.
+        current_keys = {_target_signal_key(target) for target in current_targets}
+        for signal_key, previous_signal in sorted(
+            prior_signals.items(),
+            key=lambda item: (
+                item[1].get("status") != "confirmed",
+                item[1].get("severity") != "hard",
+                item[0],
+            ),
+        ):
+            if signal_key in current_keys or previous_signal.get("status") not in {
+                "pending_soft",
+                "confirmed",
+            }:
+                continue
+            successor = _lineage_successor(
+                previous_signal.get("identity") or {},
+                current_targets,
+            )
+            if successor is None:
+                continue
+            successor_key = _target_signal_key(successor)
+            if successor_key in prior_signals:
+                continue
+            moved = _without_absent_watermark(previous_signal)
+            identity = dict(moved.get("identity") or {})
+            identity.setdefault("origin_id", identity.get("id") or signal_key)
+            moved["identity"] = identity
+            prior_signals[successor_key] = moved
+            del prior_signals[signal_key]
+
         for target in current_targets:
             record_target(target)
 
+        area_runs = [
+            (build_id, set((target.get("lineage") or {}).get("architectures") or []))
+            for target in current_targets
+            if target.get("result") in {"hard", "soft", "passed"}
+            and (build_id := _numeric_build_id(target.get("build_number")))
+            is not None
+        ]
         # A missing row is absence, not recovery.  Keep active identity and exact
-        # failure evidence visible until an explicit newer pass resolves it.
+        # failure evidence visible until an explicit newer pass resolves it, or
+        # until the area ran without the row in enough newer builds to retire it.
         for signal_key, previous_signal in prior_signals.items():
             if signal_key in seen_signal_keys:
                 continue
             if previous_signal.get("status") in {"pending_soft", "confirmed"}:
+                lineage = (previous_signal.get("identity") or {}).get("lineage")
+                architectures = (
+                    set(lineage.get("architectures") or [])
+                    if isinstance(lineage, dict)
+                    else set()
+                )
+                streak, absent_build_id = _absence_streak(
+                    previous_signal,
+                    max(
+                        (
+                            build_id
+                            for build_id, ran in area_runs
+                            if not architectures or architectures & ran
+                        ),
+                        default=None,
+                    ),
+                )
+                if streak >= SIGNAL_RETIREMENT_STREAK_REQUIRED:
+                    area_signals[signal_key] = {
+                        "status": "clear",
+                        "retired_build_id": absent_build_id,
+                        "identity": previous_signal.get("identity") or {},
+                    }
+                    continue
                 record_target(
                     _retained_target(
                         signal_key,
@@ -1082,9 +1214,26 @@ def apply_incident_hysteresis(
                         observed_at=area_observed_at,
                     )
                 )
+                if streak:
+                    area_signals[signal_key].update(
+                        absent_streak=streak,
+                        absent_build_id=absent_build_id,
+                    )
             else:
                 area_signals[signal_key] = dict(previous_signal)
 
+        # Retired rows stay reported until their issue closes.
+        retired = [
+            _retained_target(
+                signal_key,
+                signal,
+                build_number=signal["retired_build_id"],
+                observed_at=area_observed_at,
+            )
+            for signal_key, signal in area_signals.items()
+            if signal.get("retired_build_id") is not None
+        ]
+        retired.sort(key=lambda row: str(row.get("label") or "").casefold())
         confirmed.sort(
             key=lambda row: (
                 0 if row.get("incident_severity") == "hard" else 1,
@@ -1117,6 +1266,7 @@ def apply_incident_hysteresis(
         area["targets"] = annotated_targets
         area["regressions"] = confirmed
         area["pending_soft_observations"] = pending_soft
+        area["retired_incidents"] = retired
         next_signals[area_key] = area_signals
         if pending_soft:
             areas_with_pending += 1
@@ -1165,6 +1315,9 @@ def apply_incident_hysteresis(
     status.setdefault("policy", {})["incident_confirmation"] = (
         f"hard observations confirm immediately; soft observations require "
         f"{soft_threshold} distinct completed builds; absent observations hold state; "
+        "a renamed target group carries state to the row that continues its "
+        "definition; an absent target group retires after its area ran without "
+        f"it in {SIGNAL_RETIREMENT_STREAK_REQUIRED} newer builds; "
         "non-monotonic build observations cannot change incident state"
     )
     return next_signals

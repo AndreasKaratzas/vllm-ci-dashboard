@@ -702,12 +702,14 @@ def test_matrix_projection_keeps_every_definition_and_uses_worst_hardware_result
                 "id": "row-1",
                 "title": "Kernels Attention Test %N",
                 "area": "Kernels",
+                "command_fingerprint": "commands-1",
                 "cells": {
                     "mi300": {
                         "exists": True,
                         "latest_state": "passed",
                         "latest_url": "https://example.invalid/pass",
                         "primary_label": "Kernels Attention Test 1",
+                        "variants": [{"definition_id": "kernels.yaml#attention"}],
                     },
                     "mi355": {
                         "exists": True,
@@ -735,6 +737,11 @@ def test_matrix_projection_keeps_every_definition_and_uses_worst_hardware_result
         "Kernels Attention Test 1",
         "Kernels Attention Test 2",
     ]
+    assert rows[0]["lineage"] == {
+        "architectures": ["mi300", "mi355"],
+        "definition_ids": ["kernels.yaml#attention"],
+        "command_fingerprint": "commands-1",
+    }
     assert rows[1]["latest_amd_result"]["state"] == "unknown"
 
 
