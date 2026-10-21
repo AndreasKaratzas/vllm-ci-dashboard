@@ -892,8 +892,11 @@ def _normalize_existing_row(
     nominal_end = start + (timedelta(hours=1) if key == "hour" else timedelta(days=1))
     collection_complete = bool(raw.get("collection_complete", not bool(raw.get("lower_bound"))))
     raw_by_workload = raw.get("collection_complete_by_workload")
+    # A row persisted while open was never observed after observed_through.
+    observed_through = parse_iso(raw.get("observed_through"))
+    stale_open = observed_through is not None and observed_through < min(nominal_end, now)
     complete_by_workload = {
-        workload: bool(
+        workload: not stale_open and bool(
             raw_by_workload.get(workload, collection_complete)
             if isinstance(raw_by_workload, dict)
             else collection_complete
@@ -1059,16 +1062,36 @@ def _row_needs_refresh(row: dict) -> bool:
     )
 
 
+def _days_missing_hours(
+    existing: dict,
+    start: datetime,
+    end: datetime,
+) -> set[str]:
+    present = {
+        str(row.get("hour"))
+        for row in existing.get("hourly") or []
+        if isinstance(row, dict)
+    }
+    return {
+        hour.date().isoformat()
+        for hour in _hour_range(start, end)
+        if _utc_iso(hour) not in present
+    }
+
+
 def _earliest_incomplete_daily(
     existing: dict,
     start: date,
     end: date,
+    days_missing_hours: set[str] = frozenset(),
 ) -> date | None:
     candidates = []
     for row in existing.get("daily") or []:
-        if not isinstance(row, dict) or not _row_needs_refresh(row):
+        if not isinstance(row, dict):
             continue
         value = str(row.get("date") or "")
+        if not _row_needs_refresh(row) and value not in days_missing_hours:
+            continue
         try:
             day = date.fromisoformat(value)
         except ValueError:
@@ -1152,6 +1175,19 @@ def collect_workload_mapping(
 
     if force_days is not None:
         query_start = _day_start(now) - timedelta(days=max(1, force_days) - 1)
+        # Still heal days that a collection outage left without full hourly
+        # evidence, bounded by hourly retention.
+        incomplete_day = _earliest_incomplete_daily(
+            existing,
+            hourly_retention_start.date(),
+            now.date(),
+            _days_missing_hours(existing, hourly_retention_start, current_hour),
+        )
+        if incomplete_day is not None:
+            query_start = min(
+                query_start,
+                datetime.combine(incomplete_day, time.min, tzinfo=timezone.utc),
+            )
     else:
         refresh_start = _day_start(now) - timedelta(days=max(1, refresh_days) - 1)
         candidates = [refresh_start]
@@ -1594,7 +1630,10 @@ def parse_args() -> argparse.Namespace:
         "--force-days",
         type=int,
         default=None,
-        help="Ignore incremental refresh and replace this many UTC calendar days.",
+        help=(
+            "Ignore incremental refresh and replace this many UTC calendar "
+            "days, plus any earlier incomplete day within hourly retention."
+        ),
     )
     return parser.parse_args()
 

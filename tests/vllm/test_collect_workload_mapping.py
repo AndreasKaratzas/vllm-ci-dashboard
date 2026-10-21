@@ -573,6 +573,47 @@ def test_incremental_retries_old_incomplete_daily_and_hourly_buckets() -> None:
     )["collection_complete"] is True
 
 
+def test_forced_refresh_backfills_a_day_left_open_by_a_collection_outage() -> None:
+    """A day last observed mid-day must be re-queried, not relabeled complete."""
+    responses = {"ci": [_build("ci", [
+        _job("morning", "amd_mi250_1", created_at="2026-07-26T08:00:00Z"),
+        _job("afternoon", "amd_mi250_1", created_at="2026-07-26T12:00:00Z"),
+    ], created_at="2026-07-26T07:59:00Z")]}
+    existing = cwm.collect_workload_mapping(
+        "token", _config(), now=datetime(2026, 7, 26, 9, 40, tzinfo=timezone.utc),
+        force_days=2, page_fetcher=_slice_aware_fetcher(responses),
+    )
+
+    payload = cwm.collect_workload_mapping(
+        "token", _config(), existing=existing, now=NOW,
+        force_days=2, page_fetcher=_slice_aware_fetcher(responses),
+    )
+
+    day = next(row for row in payload["daily"] if row["date"] == "2026-07-26")
+    assert payload["query"]["start"] == "2026-07-26T00:00:00Z"
+    assert day["workloads"]["main"]["mapped_jobs"] == 2
+    assert day["complete"] is True
+    assert "2026-07-26T12:00:00Z" in {row["hour"] for row in payload["hourly"]}
+
+
+def test_day_left_open_beyond_hourly_retention_stays_a_lower_bound() -> None:
+    existing = cwm.collect_workload_mapping(
+        "token", _config(), now=NOW - timedelta(days=10),
+        force_days=2, page_fetcher=_slice_aware_fetcher({}),
+    )
+
+    payload = cwm.collect_workload_mapping(
+        "token", _config(), existing=existing, now=NOW,
+        force_days=2, page_fetcher=_slice_aware_fetcher({}),
+    )
+
+    by_day = {row["date"]: row for row in payload["daily"]}
+    assert payload["query"]["start"] == "2026-07-28T00:00:00Z"
+    assert by_day["2026-07-18"]["complete"] is True
+    assert by_day["2026-07-19"]["state"] == "partial"
+    assert by_day["2026-07-19"]["lower_bound"] is True
+
+
 def test_fetch_uses_independent_bounded_slices_and_reports_local_truncation() -> None:
     requests: list[dict] = []
 
