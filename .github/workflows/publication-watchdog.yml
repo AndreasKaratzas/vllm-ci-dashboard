@@ -477,6 +477,20 @@ jobs:
             4096 "Pages publication marker"
           hydrate_proven_blob "$PAGES_STATUS_OID" "$PAGES_STATUS_BYTES" \
             1048576 "Pages publication status"
+          # Core source clocks only label an admitted collection, so a missing
+          # or oversized operations manifest is logged rather than fatal. It is
+          # hydrated before update-ref so fetch negotiation cannot omit it.
+          OPERATIONS_HYDRATED=0
+          if OPERATIONS_BLOB=$(GIT_NO_LAZY_FETCH=1 git show \
+               "$PAGES_SHA:publication_manifest.json" | python -c '
+          import json, sys
+          row = json.load(sys.stdin)["files"]["data/vllm/ci/operations_v2_manifest.json"]
+          print(row["git_oid"], row["bytes"])') && \
+             read -r OPERATIONS_OID OPERATIONS_BYTES <<< "$OPERATIONS_BLOB" && \
+             hydrate_proven_blob "$OPERATIONS_OID" "$OPERATIONS_BYTES" \
+               2097152 "Pages operations manifest"; then
+            OPERATIONS_HYDRATED=1
+          fi
           git update-ref refs/remotes/origin/gh-pages "$PAGES_SHA"
           DEPLOYED_MARKER="$RUNNER_TEMP/deployed-publication-generation.json"
           if ! GIT_NO_LAZY_FETCH=1 git show \
@@ -502,18 +516,9 @@ jobs:
             echo "Pages does not carry the exact state-bound public projection."
             exit 0
           fi
-          # Core source clocks only label an admitted collection, so a missing
-          # or oversized operations manifest is logged rather than fatal.
           OPERATIONS_MANIFEST="$RUNNER_TEMP/pages-operations-manifest.json"
           rm -f "$OPERATIONS_MANIFEST"
-          if OPERATIONS_BLOB=$(GIT_NO_LAZY_FETCH=1 git show \
-               origin/gh-pages:publication_manifest.json | python -c '
-          import json, sys
-          row = json.load(sys.stdin)["files"]["data/vllm/ci/operations_v2_manifest.json"]
-          print(row["git_oid"], row["bytes"])') && \
-             read -r OPERATIONS_OID OPERATIONS_BYTES <<< "$OPERATIONS_BLOB" && \
-             hydrate_proven_blob "$OPERATIONS_OID" "$OPERATIONS_BYTES" \
-               2097152 "Pages operations manifest"; then
+          if [ "$OPERATIONS_HYDRATED" = 1 ]; then
             GIT_NO_LAZY_FETCH=1 git cat-file blob "$OPERATIONS_OID" > "$OPERATIONS_MANIFEST"
           else
             echo "::warning::Pages operations manifest is unavailable; core data age is unknown."

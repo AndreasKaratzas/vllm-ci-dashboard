@@ -286,7 +286,8 @@ jobs:
 
       - name: Save immutable runtime source checkpoint
         if: >-
-          always() && steps.queue-request-budget.outputs.request_mode == 'metrics_and_details' &&
+          always() && github.event_name != 'workflow_run' &&
+          steps.queue-request-budget.outputs.request_mode == 'metrics_and_details' &&
           steps.runtime-source-cache-decision.outputs.runtime_source_cache_save == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
