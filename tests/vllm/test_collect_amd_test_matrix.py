@@ -1517,3 +1517,27 @@ def test_matrix_publication_preserves_lkg_when_fixed_metadata_cannot_fit(
         publish_matrix(output, _oversized_matrix_payload(), max_bytes=64)
 
     assert json.loads(output.read_text()) == {"generation": "last-known-good"}
+
+
+@pytest.mark.parametrize(("states", "linked_job"), [
+    (("passed", "failed"), "mi300_4"),
+    (("failed", "passed"), "mi300_2"),
+    (("failed", "failed"), "mi300_2"),
+])
+def test_multi_variant_cell_links_worst_variant(states, linked_job):
+    steps, architectures = parse_steps(json.dumps({"steps": [
+        {"label": ":amd: (MI300) Distributed API", "agent_pool": pool, "commands": ["pytest tests/api"]}
+        for pool in ["mi300_2", "mi300_4"]
+    ]}))
+    build = {"number": 96078, "web_url": "https://buildkite.com/vllm/ci/builds/96078", "jobs": [
+        {"id": pool, "type": "script", "name": f"{pool}: :amd: (MI300) Distributed API", "state": state,
+         "agent_query_rules": [f"queue=amd_{pool}"]}
+        for pool, state in zip(["mi300_2", "mi300_4"], states)]}
+    matrix = build_matrix(steps, architectures, build_buildkite_job_index(build, []), build, {}, {}, [],
+                          "https://example.invalid/test-amd.yaml")
+    cell = matrix["rows"][0]["cells"]["mi300"]
+    assert len(cell["variants"][0]["entries"]) == 2
+    assert cell["latest_state"] == "failed"
+    assert cell["latest_url"] == cell["variants"][0]["latest_url"] == (
+        f"https://buildkite.com/vllm/ci/builds/96078/steps/canvas?jid={linked_job}&tab=output"
+    )
