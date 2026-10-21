@@ -7,9 +7,9 @@ import DataTable from '@/components/table/DataTable.vue'
 import { link, mono, text, type ColumnSpec } from '@/components/table/columns'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { integer, type Rec } from '@/domain/format'
-import { accuracyBlock, accuracyStatusLabel, perfDelta, perfLatestBuildLabel, perfShortModel, perfSparkRows, perfStatusTone, perfValue } from '@/domain/perf'
+import { accuracyBlock, accuracyConfig, accuracyStatusLabel, perfDelta, perfLatestBuildLabel, perfShortModel, perfSparkRows, perfStatusTone, perfValue } from '@/domain/perf'
 import { SERIES } from '@/lib/palette'
-import { blockDelta, deltaText, type PointContext } from './details'
+import { blockDelta, deltaText, deviceColor, deviceDots, type PointContext } from './details'
 import PerfSeriesChart from './PerfSeriesChart.vue'
 
 type Row = { model: Rec; task: Rec }
@@ -18,10 +18,18 @@ const emit = defineEmits<{ history: [Row]; point: [Rec, PointContext] }>()
 
 // One chart per task while they fit on a screen; the table always lists every task.
 const charted = computed(() => (props.rows.length <= 6 ? props.rows : []))
-const context = (row: Row): PointContext => ({ model: row.model, config: { label: 'Accuracy' }, block: accuracyBlock(row.task), relative: false })
+const context = (row: Row): PointContext => ({ model: row.model, config: accuracyConfig(row.task), block: accuracyBlock(row.task), relative: false })
+const hardware = (row: Row) => String(row.task.device || '').toUpperCase() || '-'
 
 const columns: ColumnSpec<Row>[] = [
   { id: 'model', label: 'Model', value: (row) => row.model.model, cell: (row) => ({ text: row.model.model, nowrap: true }), hideable: false },
+  {
+    id: 'hardware',
+    label: 'Hardware',
+    value: hardware,
+    cell: (row) => ({ text: hardware(row), dots: row.task.device ? deviceDots([row.task.device]) : undefined, nowrap: true }),
+    class: 'hidden sm:table-cell',
+  },
   { id: 'task', label: 'Task', value: (row) => String(row.task.task ?? ''), cell: (row) => text(row.task.task), class: 'hidden sm:table-cell' },
   { id: 'metric', label: 'Metric', value: (row) => String(row.task.metric ?? ''), cell: (row) => mono(row.task.metric), class: 'hidden md:table-cell' },
   { id: 'latest', label: 'Latest', numeric: true, value: (row) => Number(row.task.latest), cell: (row) => text(perfValue(row.task.latest, 'ratio')), class: 'hidden sm:table-cell' },
@@ -71,14 +79,14 @@ const columns: ColumnSpec<Row>[] = [
       >
         <CardHeader>
           <CardTitle class="text-base">{{ row.task.task }} · <span class="font-mono text-sm font-medium">{{ row.task.metric }}</span></CardTitle>
-          <CardDescription>{{ perfShortModel(row.model.model) }}</CardDescription>
+          <CardDescription>{{ perfShortModel(row.model.model) }} · {{ hardware(row) }}</CardDescription>
         </CardHeader>
         <CardContent class="px-3 sm:px-6">
           <PerfSeriesChart
             :series="row.task.series || []"
             unit="ratio"
             :label="accuracyBlock(row.task).label"
-            :color="SERIES.primary"
+            :color="deviceColor(row.task.device)"
             class="h-[180px]"
             @select="(point) => emit('point', point, context(row))"
           >
@@ -103,7 +111,7 @@ const columns: ColumnSpec<Row>[] = [
           :columns="columns"
           :rows="rows"
           :page-size="25"
-          search-placeholder="Filter model, task, or metric"
+          search-placeholder="Filter model, hardware, task, or metric"
           :empty-text="`${integer(rows.length)} AMD accuracy task metrics. No matching observations.`"
           label="Accuracy observations"
           :on-row-click="(row: Row) => emit('history', row)"

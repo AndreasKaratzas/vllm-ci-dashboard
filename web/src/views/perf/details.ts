@@ -181,7 +181,7 @@ export const changeHistory = (change: PerfChange, thresholds: Rec) =>
   historyDetail(change.model, change.config, change.name, change.block, thresholds, change.kind === 'performance')
 
 export const changeWhere = (change: PerfChange) =>
-  `${perfShortModel(change.model.model)} · ${change.kind === 'performance' ? perfConfigTitle(change.config) : 'Accuracy'}`
+  `${perfShortModel(change.model.model)} · ${change.kind === 'performance' ? perfConfigTitle(change.config) : ['Accuracy', String(change.config.device || '').toUpperCase()].filter(Boolean).join(' on ')}`
 
 export function changeColumns(): ColumnSpec<PerfChange>[] {
   return [
@@ -254,7 +254,7 @@ export function hardwareDetail(rows: PerfHardwareRow[], declared: string, accura
     subtitle: `${declared} · ROCm only`,
     description:
       'Hardware declared by retained AMD workload records. Select a device to filter the page.' +
-      (accuracyChanges ? ` Accuracy tasks are not tied to a device, so their ${integer(accuracyChanges)} changed ${accuracyChanges === 1 ? 'metric is' : 'metrics are'} not counted here.` : ''),
+      (accuracyChanges ? ` Counts cover performance metrics; ${integer(accuracyChanges)} changed accuracy ${accuracyChanges === 1 ? 'metric is' : 'metrics are'} listed in the Accuracy view.` : ''),
     stats: [
       { label: 'Devices', value: integer(rows.length) },
       { label: 'Configurations', value: integer(sum((row) => row.configs)) },

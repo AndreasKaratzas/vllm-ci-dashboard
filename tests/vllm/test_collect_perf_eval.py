@@ -45,13 +45,13 @@ def _perf_event(commit, value, *, model="org/M", device="mi355x", date=None, nig
     }
 
 
-def _acc_event(commit, value, *, model="org/M", task="gsm8k"):
+def _acc_event(commit, value, *, model="org/M", task="gsm8k", device="mi355x"):
     return {
         "event": "accuracy_result",
         "nightly": True,
         "model": model,
-        "workload": "m-mi355x",
-        "device": "mi355x",
+        "workload": f"m-{device}",
+        "device": device,
         "vllm_commit": commit,
         "build_url": f"https://buildkite.com/vllm/perf-eval/builds/{commit[-1]}",
         "build_number": int(commit[-1]),
@@ -163,6 +163,18 @@ def test_aggregate_accuracy_regression_flagged():
     assert task["latest"] == 0.873
     assert task["status"] == "bad"
     assert task["direction"] == "higher"
+
+
+def test_aggregate_keeps_one_accuracy_series_per_device():
+    events = [
+        _acc_event("deadbeef1", 0.90, device="mi300x"),
+        _acc_event("deadbeef1", 0.80, device="mi355x"),
+    ]
+    tasks = collect.aggregate(events)["models"][0]["accuracy_tasks"]
+    assert [(t["device"], t["latest"], len(t["series"])) for t in tasks] == [
+        ("mi300x", 0.90, 1),
+        ("mi355x", 0.80, 1),
+    ]
 
 
 def test_aggregate_embeds_direction_metadata_for_frontend():

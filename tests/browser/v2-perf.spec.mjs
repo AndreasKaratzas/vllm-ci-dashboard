@@ -197,7 +197,9 @@ test.describe('Perf Eval matches the golden page facts', () => {
     await page.goto(`/#/perf?view=accuracy&model=${encodeURIComponent(model.name)}`);
     const accuracy = page.getByTestId('perf-accuracy');
     await expect(accuracy.locator('tbody tr').first()).toBeVisible();
-    expect((await tableRows(accuracy.locator('table'))).map((row) => row.slice(0, 8))).toEqual(rows);
+    const columns = ['Model', 'Task', 'Metric', 'Latest', 'vs previous', 'Status', 'Latest build', 'History'];
+    expect(await columnRows(accuracy.locator('table'), columns)).toEqual(rows);
+    expect(await columnRows(accuracy.locator('table'), ['Hardware'])).toEqual([['MI355X']]);
     await accuracy.locator('tbody tr').first().click();
     await expect(sheets(page).locator('[data-slot="sheet-description"]')).toHaveText(`${model.name} · Accuracy`);
 
@@ -206,6 +208,14 @@ test.describe('Perf Eval matches the golden page facts', () => {
     const total = families.reduce((sum, m) => sum + m.accuracy, 0);
     await expect(page.getByTestId('perf-accuracy').locator('tbody tr')).toHaveCount(total);
     await expect(page.getByTestId('kpi-perf-accuracy').locator('[data-slot="kpi-value"]')).toHaveText(String(total));
+    // The hardware filter keeps only the accuracy tasks that ran on that GPU.
+    await page.goto('/#/perf?view=accuracy&device=mi300x');
+    const filtered = page.getByTestId('perf-accuracy').locator('table');
+    await expect(filtered.locator('tbody tr').first()).toBeVisible();
+    const hardware = await columnRows(filtered, ['Hardware']);
+    expect(hardware.length).toBeGreaterThan(0);
+    expect(hardware.length).toBeLessThan(total);
+    expect(hardware.flat().every((cell) => cell === 'MI300X')).toBe(true);
 
     // A model filtered by hardware it never ran on renders the empty state.
     const single = families.find((m) => !m.hardware.includes('MI300X'));

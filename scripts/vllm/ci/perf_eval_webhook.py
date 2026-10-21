@@ -247,27 +247,31 @@ def normalize_perf_payload(payload: dict) -> Optional[dict]:
 
 
 def model_from_eval(payload: dict) -> str:
-    """Best-effort model id from an lm-eval ``results`` payload."""
+    """Served model id from an lm-eval ``results`` payload.
+
+    ``config.model`` names the lm-eval backend (``local-completions``), so the
+    id comes from ``model_name`` or the ``model``/``pretrained`` model arg.
+    """
     data = payload.get("data") or {}
-    cfg = data.get("config") or {}
-    for candidate in (cfg.get("model_name"), cfg.get("model"), data.get("model_name")):
-        if candidate:
-            return str(candidate)
-    # model_args sometimes carries pretrained=<model>
-    args = cfg.get("model_args")
+    if data.get("model_name"):
+        return str(data["model_name"])
+    args = (data.get("config") or {}).get("model_args")
+    if isinstance(args, dict):
+        return str(args.get("model") or args.get("pretrained") or "")
     if isinstance(args, str):
-        m = re.search(r"pretrained=([^,]+)", args)
+        m = re.search(r"(?:^|,)\s*(?:model|pretrained)=([^,]+)", args)
         if m:
-            return m.group(1)
+            return m.group(1).strip()
     return ""
 
 
 def accuracy_rows(payload: dict) -> list[dict]:
     """Flatten lm-eval ``results`` into ``{task, metric, value}`` rows.
 
-    lm-eval reports each task as a dict of ``metric,filter`` keys. We keep the
-    numeric, non-stderr metrics and tag the first as ``primary`` so the
-    frontend can headline one score per task without hard-coding metric names.
+    lm-eval reports each metric as a ``metric,filter`` key next to bookkeeping
+    such as ``sample_len``. We keep the non-stderr metric keys and tag the
+    first as ``primary`` so the frontend can headline one score per task
+    without hard-coding metric names.
     """
     data = payload.get("data") or {}
     results = data.get("results") or {}
@@ -278,7 +282,7 @@ def accuracy_rows(payload: dict) -> list[dict]:
         primary_assigned = False
         for raw_key, raw_val in metrics.items():
             key = str(raw_key)
-            if key in {"alias"} or "stderr" in key:
+            if "," not in key or "stderr" in key:
                 continue
             value = _to_float(raw_val)
             if value is None:

@@ -215,15 +215,17 @@ def build_perf_configs(perf_events: list[dict]) -> list[dict]:
 
 
 def build_accuracy_tasks(eval_events: list[dict]) -> list[dict]:
-    """Group accuracy events into per-(task, metric) time series."""
+    """Group accuracy events into per-(device, task, metric) time series."""
     tasks: dict[tuple, dict] = {}
     for ev in eval_events:
+        device = (ev.get("device") or "").strip()
         ts = _parse_ts(ev)
         nk = _nightly_key(ev)
         prov = _provenance(ev)
         for row in ev.get("results") or []:
-            key = (row["task"], row["metric"])
+            key = (device, row["task"], row["metric"])
             entry = tasks.setdefault(key, {
+                "device": device,
                 "task": row["task"],
                 "metric": row["metric"],
                 "primary": bool(row.get("primary")),
@@ -247,7 +249,7 @@ def build_accuracy_tasks(eval_events: list[dict]) -> list[dict]:
         entry.update(block)
         entry["series"] = _strip_internal(series)
         out.append(entry)
-    out.sort(key=lambda t: (not t["primary"], t["task"], t["metric"]))
+    out.sort(key=lambda t: (not t["primary"], t["task"], t["metric"], t["device"]))
     return out
 
 

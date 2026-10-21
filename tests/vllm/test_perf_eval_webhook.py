@@ -100,15 +100,22 @@ def _eval_payload(**over):
         "buildkite_build_url": "https://buildkite.com/vllm/perf-eval/builds/496",
         "buildkite_build_number": 496,
         "nightly": True,
+        # Trimmed from a real perf-eval lm-eval results_*.json artifact.
         "data": {
-            "config": {"model_name": "MiniMaxAI/MiniMax-M2.5"},
             "results": {
                 "gsm8k": {
+                    "name": "gsm8k",
                     "alias": "gsm8k",
+                    "sample_len": 1319,
                     "exact_match,strict-match": 0.849,
                     "exact_match_stderr,strict-match": 0.01,
                 },
             },
+            "config": {
+                "model": "local-completions",
+                "model_args": {"model": "MiniMaxAI/MiniMax-M2.5"},
+            },
+            "model_name": "MiniMaxAI/MiniMax-M2.5",
         },
     }
     base.update(over)
@@ -133,9 +140,18 @@ def test_normalize_eval_drops_nvidia_workload():
     assert w.normalize_eval_payload(payload) is None
 
 
-def test_model_from_eval_falls_back_to_pretrained_arg():
+@pytest.mark.parametrize(
+    "model_args",
+    [
+        {"model": "org/Model-X", "base_url": "http://localhost:8000/v1/completions"},
+        "model=org/Model-X",
+        "pretrained=org/Model-X,dtype=bfloat16",
+    ],
+)
+def test_model_from_eval_reads_model_args_not_the_backend(model_args):
     payload = _eval_payload()
-    payload["data"]["config"] = {"model_args": "pretrained=org/Model-X,dtype=bfloat16"}
+    del payload["data"]["model_name"]
+    payload["data"]["config"] = {"model": "local-completions", "model_args": model_args}
     assert w.model_from_eval(payload) == "org/Model-X"
 
 

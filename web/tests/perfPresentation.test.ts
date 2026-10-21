@@ -88,6 +88,13 @@ describe('Perf Eval presentation helpers', () => {
     const scoped = perfScopedModels(models, { model: 'all', device: 'mi300x' })
     expect(scoped.map((m) => m.model)).toContain(dual.model)
     expect(scoped.flatMap((m) => m.perf_configs).every((c: Rec) => c.device === 'mi300x')).toBe(true)
+    // Accuracy runs per device too: a dual-device model keeps only the filtered GPU's tasks.
+    const tasks = scoped.flatMap((m) => m.accuracy_tasks || [])
+    expect(tasks.length).toBeGreaterThan(0)
+    expect(tasks.every((t: Rec) => t.device === 'mi300x')).toBe(true)
+    expect(scoped.find((m) => m.model === dual.model)!.accuracy_tasks).toHaveLength(
+      dual.accuracy_tasks.filter((t: Rec) => t.device === 'mi300x').length,
+    )
     expect(perfAccuracyOnly(scoped).every((m) => m.perf_configs.length === 0)).toBe(true)
     expect(perfConfigTitle({ label: '? in / ? out @ conc 128 (MI300X)' })).toBe('Concurrency 128 (MI300X)')
     expect(perfConfigTitle({ label: '8K in / 1K out @ conc 16 (MI355X)' })).toBe('8K in / 1K out @ conc 16 (MI355X)')
