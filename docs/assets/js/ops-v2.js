@@ -3029,7 +3029,7 @@
   function amdMatrixSortDescription(mode) {
     if (mode === 'name') return 'Test groups sorted alphabetically by name';
     if (mode === 'area') return 'Test areas sorted alphabetically, then by test-group name';
-    return 'Grouped by first configured platform: MI250, MI300, MI325, then MI355';
+    return 'Grouped by first configured platform: MI250, MI300, then MI355';
   }
 
   function healthTabs(host) {
