@@ -2,7 +2,7 @@
 // renderer's (docs/assets/js/ops-v2.js) decisions on the same inputs.
 import { beforeAll, describe, expect, it } from 'vitest'
 import { populationSemantics, observedCountLabel, toneForState, type Rec } from '@/domain/format'
-import { attentionLabel, currentAmdHealth, currentTestGroupParity } from '@/domain/health'
+import { attentionEvidence, attentionLabel, currentAmdHealth, currentTestGroupParity } from '@/domain/health'
 import {
   amdNightlyPresentation,
   ciHealthPublicationRetentionMessage,
@@ -304,6 +304,8 @@ describe('nightly presentation on a hand-written nightly', () => {
       'Omni jobs waiting across the fleet',
       'queue waiting',
     ])
+    expect(attentionEvidence({ kind: 'nightly_hard_failures', passed_later: { number: 96139, kind: 'daily' } })).toBe('All passed in later daily run #96139')
+    expect(attentionEvidence({ kind: 'nightly_hard_failures' })).toBe('')
     expect([{}, { count_semantics: 'complete' }].map((p) => observedCountLabel(1234, populationSemantics(p)))).toEqual(['≥1,234', '1,234'])
   })
 })

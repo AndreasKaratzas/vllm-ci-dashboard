@@ -1,4 +1,5 @@
-import { sentence, type Rec, type Tone } from './format'
+import { rateStatus } from '@/lib/palette'
+import { counted, integer, rateText, sentence, type Rec, type Tone } from './format'
 
 /**
  * The main CI read model (bundle section `main_ci`): every completed AMD MI build of the `ci`
@@ -46,6 +47,14 @@ export interface DayTotals {
   soft: number
   hard: number
   passRate: number | null
+  /** The few builds holding most hard jobs while the newest builds pass (main_ci_section._hard_concentration). */
+  concentration: HardConcentration | null
+}
+
+export interface HardConcentration {
+  builds: number[]
+  hard: number
+  passRateWithout: number | null
 }
 
 export interface MainCiSummary {
@@ -126,6 +135,13 @@ export function mainBuilds(record: Rec | null | undefined): MainBuild[] {
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.number - a.number)
 }
 
+function hardConcentration(value: unknown): HardConcentration | null {
+  if (!value || typeof value !== 'object') return null
+  const row = value as Rec
+  const builds = Array.isArray(row.builds) ? row.builds.filter((number: unknown) => num(number) !== null) : []
+  return builds.length ? { builds, hard: num(row.hard) ?? 0, passRateWithout: num(row.pass_rate_without) } : null
+}
+
 function dayTotals(value: unknown): DayTotals | null {
   if (!value || typeof value !== 'object') return null
   const day = value as Rec
@@ -137,7 +153,24 @@ function dayTotals(value: unknown): DayTotals | null {
     soft: num(day.soft) ?? 0,
     hard: num(day.hard) ?? 0,
     passRate: num(day.pass_rate),
+    concentration: hardConcentration(day.hard_concentration),
   }
+}
+
+// Hard jobs held by a few builds whose groups have passed since are a contained event, not sustained breakage.
+export function dayRateStatus(
+  day: Pick<TrendPoint, 'passRate' | 'concentration'> | null | undefined,
+): { tone: Tone; label: string } | undefined {
+  const status = rateStatus(day?.passRate)
+  return status?.tone === 'hard' && day?.concentration
+    ? { tone: 'soft', label: `Concentrated in ${counted(day.concentration.builds.length, 'build')}` }
+    : status
+}
+
+/** "326 in #1, #2, #3 · 99.0% without them" */
+export function concentrationText(held: HardConcentration): string {
+  const without = held.passRateWithout === null ? '' : ` · ${rateText(held.passRateWithout)} without them`
+  return `${integer(held.hard)} in ${held.builds.map((number) => `#${number}`).join(', ')}${without}`
 }
 
 export function mainCiSummary(record: Rec | null | undefined): MainCiSummary | null {
@@ -214,6 +247,8 @@ export interface TrendPoint {
   soft: number
   hard: number
   passRate: number | null
+  /** Only on the 24-hour point built from the day totals. */
+  concentration?: HardConcentration | null
 }
 
 const HOUR_MS = 3_600_000

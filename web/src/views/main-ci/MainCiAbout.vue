@@ -18,7 +18,8 @@ const thresholds = computed(() => flakinessThresholds(props.record))
   <p>
     <strong class="text-foreground">AMD pass rate</strong> counts the final AMD MI job attempt per test group in each build: passed / (passed + soft + hard).
     Jobs that never ran or have no verdict are left out. A rate passes at {{ RATE_THRESHOLDS.pass }}% or more, is soft below
-    {{ RATE_THRESHOLDS.pass }}% and hard below {{ RATE_THRESHOLDS.soft }}%.
+    {{ RATE_THRESHOLDS.pass }}% and hard below {{ RATE_THRESHOLDS.soft }}%. A hard 24-hour rate reads soft when at most 3 builds hold 80% or more of its hard
+    jobs, the newest 10 builds have none and every group that hard-failed in the 24 hours has passed since (soft failures aside): one contained event, not sustained breakage.
   </p>
   <p>
     <strong class="text-foreground">Incidents</strong> are kept by the main-failure watcher: a hard failure opens one at once, a soft failure after it repeats

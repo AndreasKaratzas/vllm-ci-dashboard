@@ -24,6 +24,7 @@ const build = {
   commit: 'a'.repeat(40),
   message: 'Fix the thing\n\nlong body',
   total_groups: 6,
+  passed_groups: 4,
   has_test_results: true,
   failed_groups: [job('Broken', 'failed'), job('Beta', 'failed')],
   soft_failed_groups: [],
@@ -114,7 +115,7 @@ describe('home tones and domains', () => {
   it('keeps small pass-rate changes visible and ranks attention severity', () => {
     const rates = (series: NightlyCounts[]) => series.map((row) => row.passRate * 100)
     expect(rateAxis(rates(nightlySeries([build])))).toEqual({ domain: [20, 100], ticks: [20, 40, 60, 80, 100] })
-    expect(rateAxis(rates(nightlySeries([{ ...build, total_groups: 300, failed_groups: [job('a', 'failed')] }])))).toEqual({
+    expect(rateAxis(rates(nightlySeries([{ ...build, total_groups: 300, passed_groups: 299, failed_groups: [job('a', 'failed')] }])))).toEqual({
       domain: [97, 100],
       ticks: [97, 98, 99, 100],
     })

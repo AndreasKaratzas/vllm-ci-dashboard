@@ -5,8 +5,8 @@ import KpiCard, { type KpiAction } from '@/components/stat/KpiCard.vue'
 import StatGrid from '@/components/stat/StatGrid.vue'
 import { useClock } from '@/composables/useClock'
 import { age, counted, integer, rateText, type Rec } from '@/domain/format'
-import { buildOutcome, buildTone, dayRateChange, recentOutcomes, trendPoints, type MainBuild, type MainCiSummary } from '@/domain/mainCi'
-import { SERIES, rateStatus, statusVar } from '@/lib/palette'
+import { buildOutcome, buildTone, concentrationText, dayRateChange, dayRateStatus, recentOutcomes, trendPoints, type MainBuild, type MainCiSummary } from '@/domain/mainCi'
+import { SERIES, statusVar } from '@/lib/palette'
 
 const props = defineProps<{
   summary: MainCiSummary
@@ -32,6 +32,12 @@ const recentSegments = computed(() =>
 
 const day = computed(() => props.summary.last24h)
 const rate = computed(() => day.value?.passRate ?? null)
+const rateBadge = computed(() => dayRateStatus(day.value))
+const rateFootnote = computed(() => {
+  if (!day.value) return undefined
+  const base = `${integer(day.value.greenBuilds)} of ${counted(day.value.amdBuilds, 'build')} without a hard failure · ${counted(day.value.hard, 'hard job')}`
+  return day.value.concentration ? `${base}, ${concentrationText(day.value.concentration)}` : base
+})
 const change = computed(() => dayRateChange(props.summary))
 const rateDelta = computed(() =>
   change.value === null
@@ -83,11 +89,11 @@ const flakySegments = computed(() => [{ key: 'alerting', label: 'Alerting on fli
       badges="inline"
       :format="rateText"
       :empty="rate === null ? 'No AMD verdict in 24h' : undefined"
-      :status="rateStatus(rate)"
+      :status="rateBadge"
       :delta="rateDelta"
       :spark="rateSpark"
       :headline="actions.rate?.label"
-      :footnote="day ? `${integer(day.greenBuilds)} of ${counted(day.amdBuilds, 'build')} without a hard failure · ${counted(day.hard, 'hard job')}` : undefined"
+      :footnote="rateFootnote"
       :action="actions.rate"
       data-testid="kpi-main-rate"
     />

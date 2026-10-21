@@ -22,8 +22,7 @@ export interface DetailStat {
 }
 
 /** A pass-rate stat: quiet at a pass, otherwise badged with the band it falls in ("Below 95%"). */
-export function rateStat(label: string, percent: number | null | undefined, meta?: string): DetailStat {
-  const status = rateStatus(percent)
+export function rateStat(label: string, percent: number | null | undefined, meta?: string, status = rateStatus(percent)): DetailStat {
   return { label, value: rateText(percent), meta, tone: status?.tone, toneLabel: status?.label }
 }
 

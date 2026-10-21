@@ -1997,6 +1997,58 @@ def test_attention_uses_current_hardness_instead_of_newness():
     }]
 
 
+def test_nightly_hard_failures_passed_by_a_later_scheduled_run_are_a_warning():
+    def run(number: int, day: str, message: str, state: str) -> dict:
+        build = _retarget_build(_build(number, day, [_job(
+            "mi300_1: Broken",
+            state,
+            f"https://buildkite.com/vllm/ci/builds/{number}/steps/broken",
+            job_id=f"broken-{number}",
+            step_key="broken",
+        )]), "ci")
+        build["message"] = message
+        return build
+
+    nightly_run = run(200, "2026-04-20", "Full CI run - nightly", "failed")
+    merge = run(201, "2026-04-21", "Fix the thing", "passed")
+    daily = run(202, "2026-04-22", "Full CI run - daily", "passed")
+    refailed = run(203, "2026-04-23", "Full CI run - daily", "failed")
+    nightly = {"pipelines": [ops._nightly_pipeline(
+        "ci", ops._scoped_ci_analytics({"builds": [nightly_run]}), job_scope="amd_gpu",
+    )]}
+    shared = ({}, {"snapshot": {}}, {"status": "healthy", "current": {}}, None)
+
+    def attention(builds: list[dict]) -> list[dict]:
+        reliability = analytics.build_all_main_reliability(
+            builds, pipeline_slug="ci", window_days=30, generated_at=GENERATED_AT, nightly_pattern="nightly",
+        )
+        return ops._attention(nightly, *shared, reliability)
+
+    assert attention([nightly_run, merge]) == [{"kind": "nightly_hard_failures", "severity": "critical", "count": 1}]
+    assert attention([nightly_run, merge, daily]) == [{
+        "kind": "nightly_hard_failures",
+        "severity": "warning",
+        "count": 1,
+        "passed_later": {
+            "number": 202,
+            "kind": "daily",
+            "created_at": "2026-04-22T09:00:00Z",
+            "url": "https://buildkite.com/vllm/ci/builds/202",
+        },
+    }]
+    assert attention([nightly_run, merge, daily, refailed])[0]["severity"] == "critical"
+    merge_refailed = run(203, "2026-04-23", "Break the thing", "failed")
+    assert attention([nightly_run, merge, daily, merge_refailed])[0]["severity"] == "critical"
+    retry_url = "https://buildkite.com/vllm/ci/builds/202/steps/broken"
+    retried_daily = _retarget_build(_build(202, "2026-04-22", [
+        _job("mi300_1: Broken", "failed", retry_url, job_id="broken-202a", step_key="broken",
+             retried=True, retried_in_job_id="broken-202b"),
+        _job("mi300_1: Broken", "passed", retry_url, job_id="broken-202b", step_key="broken", retries_count=1),
+    ]), "ci")
+    retried_daily["message"] = "Full CI run - daily"
+    assert attention([nightly_run, merge, retried_daily])[0]["passed_later"]["number"] == 202
+
+
 def test_attention_uses_reconciled_logical_amd_runtime_groups():
     amd_health = {
         "summary": {
@@ -2943,6 +2995,20 @@ def test_running_nightly_publishes_its_amd_step_progress():
     finished = {**running, "state": "failed", "finished_at": "2026-04-21T20:00:00Z"}
     row = ops._nightly_pipeline("ci", {"builds": [finished]}, health)["builds"][0]
     assert (row["amd_step_count"], row["amd_steps_active"]) == (234, 0)
+
+
+def test_nightly_counts_final_attempts_not_superseded_retries():
+    url = "https://buildkite.com/vllm/ci/builds/19/steps/"
+    build = _build(19, "2026-04-22", [
+        _job("mi300_1: Flaky", "failed", url + "a", job_id="a1", step_key="flaky",
+             retried=True, retried_in_job_id="a2"),
+        _job("mi300_1: Flaky", "passed", url + "a", job_id="a2", step_key="flaky", retries_count=1),
+        _job("mi300_1: Broken", "failed", url + "b", job_id="b1", step_key="broken"),
+    ])
+
+    row = ops._nightly_pipeline("ci", {"builds": [build]})["builds"][0]
+
+    assert (row["total_groups"], row["passed_groups"], len(row["failed_groups"])) == (2, 1, 1)
 
 
 def test_amd_complete_running_nightly_matches_its_finished_projection():

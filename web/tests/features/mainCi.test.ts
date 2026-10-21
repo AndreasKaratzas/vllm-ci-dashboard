@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import { mainBuilds, mainIncidents, suspectRanges } from '@/domain/mainCi'
+import type { Rec } from '@/domain/format'
+import { dayRateStatus, lastDayPoint, mainBuilds, mainCiSummary, mainIncidents, suspectRanges } from '@/domain/mainCi'
 import BuildStrip from '@/features/main-ci/BuildStrip.vue'
 import {
   buildColumns,
@@ -16,6 +17,7 @@ import {
 } from '@/features/main-ci/details'
 import { flakyGroups, retryGroups } from '@/domain/mainCi'
 import AreaChart from '@/components/charts/AreaChart.vue'
+import MainCiKpis from '@/features/main-ci/MainCiKpis.vue'
 import MainCiTrendCard from '@/features/main-ci/MainCiTrendCard.vue'
 import { installLayoutStubs, settle, testRouter } from '../components/support'
 
@@ -227,5 +229,40 @@ describe('MainCiTrendCard', () => {
     expect(chart.rows).toHaveLength(4)
     expect(chart.maxGap).toBe(1.5 * 6 * 3_600_000)
     wrapper.unmount()
+  })
+})
+
+describe('MainCiKpis', () => {
+  const day = { builds: 67, amd_builds: 67, green_builds: 47, passed: 4444, soft: 0, hard: 368, pass_rate: 92.35 }
+  const rateCard = async (lastDay: Rec) => {
+    const summary = mainCiSummary({ available: true, summary: { last_24h: lastDay } })!
+    const wrapper = mount(MainCiKpis, { props: { summary, record: null, builds: [], actions: {} } })
+    await settle()
+    const text = wrapper.get('[data-testid="kpi-main-rate"]').text()
+    wrapper.unmount()
+    return text
+  }
+
+  it('keeps a sub-95% day red unless its hard jobs are concentrated in a few builds while main is green', async () => {
+    expect(await rateCard(day)).toContain('Below 95%')
+    const concentrated = await rateCard({ ...day, hard_concentration: { builds: [96041, 96045, 96047], hard: 326, pass_rate_without: 99.03 } })
+    expect(concentrated).toContain('Concentrated in 3 builds')
+    expect(concentrated).not.toContain('Below 95%')
+    expect(concentrated).toContain('326 in #96041, #96045, #96047 · 99.0% without them')
+  })
+
+  it('gives every 24h rate card, CI Health included, the same concentration-aware tone', () => {
+    const status = (lastDay: Rec) => dayRateStatus(mainCiSummary({ available: true, summary: { last_24h: lastDay } })!.last24h)
+    expect(status(day)).toEqual({ tone: 'hard', label: 'Below 95%' })
+    expect(status({ ...day, hard_concentration: { builds: [96041, 96045, 96047], hard: 326 } })).toEqual({ tone: 'soft', label: 'Concentrated in 3 builds' })
+    expect(status({ ...day, pass_rate: 99.1, hard_concentration: { builds: [96041], hard: 20 } })).toBeUndefined()
+  })
+
+  it('opens the last 24 hours with the same tone and concentrated builds as the card', () => {
+    const lastDay = { ...day, hard_concentration: { builds: [96041, 96045, 96047], hard: 326, pass_rate_without: 99.03 } }
+    const summary = mainCiSummary({ available: true, source_generated_at: '2026-10-20T12:00:00Z', summary: { last_24h: lastDay } })!
+    const stat = trendPointDetail(lastDayPoint(summary)!, [], 'last 24 hours', ctx).stats!.find((row) => row.label === 'AMD pass rate')
+    expect(stat).toMatchObject({ tone: 'soft', toneLabel: 'Concentrated in 3 builds' })
+    expect(stat?.meta).toContain('326 in #96041, #96045, #96047 · 99.0% without them')
   })
 })
