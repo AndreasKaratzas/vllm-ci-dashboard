@@ -940,10 +940,11 @@ umbrella issues in this repository:
   the watcher evaluated the same cohort), with its onset builds, vLLM compare
   range and up to 60 samples (20 before the onset). The issue body is
   rewritten when a slowdown or its onset changes and at most daily for levels.
-- CI agent health uses the dashboard's infra-suspect definition, excludes
-  canceled builds and unidentified nodes, and alerts when a six-hour window
-  contains a three-hour co-failure cluster with at least three logical failures
-  across at least two groups on one physical AMD node.
+- CI agent health uses the dashboard's "Hurting" verdict, excludes canceled
+  builds and unidentified nodes, and alerts on a physical AMD node with at
+  least two failing attempts attributed to it, from at least two builds, among
+  builds created in the last three UTC days. Node failures confined to one
+  build only put the node on watch.
 
 State lives in `open_ci_main_failure_issues.json`, `open_amd_duration_regression_issues.json`,
 `open_agent_health_issues.json`, `open_ci_area_regression_issues.json`,

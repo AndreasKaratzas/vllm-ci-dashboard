@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { HURTING_NODE_FAILURES, type AgentModel } from '@/domain/agentHealth'
+import { HURTING_NODE_BUILDS, HURTING_NODE_FAILURES, type AgentModel } from '@/domain/agentHealth'
 
 defineProps<{ model: AgentModel }>()
 </script>
@@ -30,5 +30,8 @@ defineProps<{ model: AgentModel }>()
     </li>
     <li>Otherwise it is unexplained, and the node's when unexplained failures hit {{ model.rules.repeatGroups }} or more test groups on it within {{ model.rules.repeatHours }} hours.</li>
   </ol>
-  <p>The node-suspect signal keeps the node and unexplained failures. A node is hurting CI once {{ HURTING_NODE_FAILURES }} recent failures are attributed to it.</p>
+  <p>
+    The node-suspect signal keeps the node and unexplained failures. A node is hurting CI once {{ HURTING_NODE_FAILURES }} recent failures from at least
+    {{ HURTING_NODE_BUILDS }} builds are attributed to it; node-attributed failures confined to one build only put it on watch.
+  </p>
 </template>

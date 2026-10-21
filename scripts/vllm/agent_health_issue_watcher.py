@@ -6,7 +6,8 @@ shared infrastructure, or an unknown cause (collect_agent_health._attribute_fail
 The watcher counts exactly what the dashboard's default "Hurting" verdict counts:
 failing attempts attributed to an identified node, in builds created on the
 collector's UTC day or the two days before it (the dashboard's RECENT_DAYS),
-excluding canceled builds, and alerts on nodes with at least two.
+excluding canceled builds, and alerts on nodes with at least two from at least
+two builds: node failures confined to one build only put the node on watch.
 """
 
 from __future__ import annotations
@@ -53,6 +54,7 @@ RECENT_DAYS = 3
 LOOKBACK = timedelta(days=RECENT_DAYS)
 MAX_DATA_AGE = timedelta(hours=3)
 MIN_NODE_ATTRIBUTED = 2
+MIN_NODE_BUILDS = 2
 MAX_ISSUE_EVENTS = 12
 MAX_RUNS_PER_EVENT = 12
 OWNERSHIP_MARKER = "<!-- vllm-ci-dashboard:managed-alert:agent-health:v1 -->"
@@ -237,8 +239,9 @@ def _node_event(node: str, runs: list[dict]) -> dict | None:
     # Every attempt counts, as on the dashboard: a node fault usually fails one
     # attempt and Buildkite retries it, so the retry chain is not one failure.
     runs = sorted(runs, key=lambda row: row["started_at"])
-    node_attributed = sum(run["attribution"] == "node" for run in runs)
-    if node_attributed < MIN_NODE_ATTRIBUTED:
+    attributed = [run for run in runs if run["attribution"] == "node"]
+    builds = {(run["pipeline"], run["build_number"]) for run in attributed}
+    if len(attributed) < MIN_NODE_ATTRIBUTED or len(builds) < MIN_NODE_BUILDS:
         return None
     hardware = next((run["hardware"] for run in runs if run["hardware"]), "unknown")
     pipelines = sorted({run["pipeline"] for run in runs if run["pipeline"]})
@@ -248,7 +251,7 @@ def _node_event(node: str, runs: list[dict]) -> dict | None:
         "started_at": min(run["started_at"] for run in runs),
         "finished_at": max(run["finished_at"] for run in runs),
         "failure_count": len(runs),
-        "node_attributed": node_attributed,
+        "node_attributed": len(attributed),
         "group_count": len({run["group"] for run in runs}),
         "hard": sum(run["state"] == "hard" for run in runs),
         "soft": sum(run["state"] == "soft" for run in runs),
@@ -359,7 +362,7 @@ def _issue_body(events: list[dict], payload: dict, run_url: str, owner: str) -> 
         "- Node evidence: the agent was lost mid-job on this node alone, or unexplained failures (including containers that never started on this node alone) hit at least two test groups on the node within three days.",
         "- Scope: identified AMD MI GPU nodes from every terminal ci/main attempt, including attempts superseded by a retry, in the published UTC build-creation cohort; canceled builds are excluded.",
         "- Retry handling: every attempt counts, because a node fault usually fails one attempt and passes on the retry elsewhere.",
-        "- Alert threshold: at least two failing attempts attributed to the node; its unexplained failures are listed alongside.",
+        "- Alert threshold: at least two failing attempts attributed to the node, from at least two builds (failures confined to one build only put the node on watch); its unexplained failures are listed alongside.",
         "",
         f"Collected at **{generated_at}**. [Open CI agent health]({_dashboard_url()}).",
         "",
@@ -445,8 +448,8 @@ def run() -> int:
         body=_issue_body(events, payload, run_url, repo_owner(repo)),
         ownership_marker=OWNERSHIP_MARKER,
         recovery_body=(
-            "No identified AMD node currently has two failures attributed to it "
-            "in the three-day window. Closing this tracked umbrella issue.\n\n"
+            "No identified AMD node currently has two failures from two builds attributed "
+            "to it in the three-day window. Closing this tracked umbrella issue.\n\n"
             f"*{run_url}*"
         ),
         observed_at=observed_at,

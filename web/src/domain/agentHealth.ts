@@ -1331,6 +1331,8 @@ export interface AgentNodeHistory {
   /** Node-suspect failures and failures attributed to the node in the last RECENT_DAYS days. */
   recentSuspect: number
   recentNode: number
+  /** The build (e.g. "ci #96247") every recent node-attributed failure came from, when the retained runs prove one; '' otherwise. */
+  recentNodeBuild: string
   /** Co-failure events that started in the last RECENT_DAYS days of the window. */
   recentCofail: number
   cofailEvents: number
@@ -1379,6 +1381,7 @@ export function agentNodeDayMatrix(model: AgentModel, view: AgentView, options: 
         recent: 0,
         recentSuspect: 0,
         recentNode: 0,
+        recentNodeBuild: '',
         recentCofail: 0,
         cofailEvents: 0,
       }
@@ -1406,6 +1409,15 @@ export function agentNodeDayMatrix(model: AgentModel, view: AgentView, options: 
     const at = index.get(String(nd.d))
     if (node && at !== undefined) node.cells[at]!.runs += bucket[0]
   }
+  const nodeBuilds = new Map<string, Map<string, number>>()
+  const inScope = agentRunInScope(model, options)
+  for (const run of model.failing) {
+    if (run.attribution !== 'node' || !run.build_number || (run.state !== 'hard' && run.state !== 'soft') || String(run.day) < days[recentFrom]! || !inScope(run)) continue
+    const builds = nodeBuilds.get(run.node_raw) ?? new Map<string, number>()
+    const build = `${run.pipeline} #${run.build_number}`
+    builds.set(build, (builds.get(build) ?? 0) + 1)
+    nodeBuilds.set(run.node_raw, builds)
+  }
   let max = 0
   const ranked = [...nodes.values()].filter((node) => {
     node.cells.forEach((cell, i) => {
@@ -1422,6 +1434,8 @@ export function agentNodeDayMatrix(model: AgentModel, view: AgentView, options: 
       }
       max = Math.max(max, cell.signal)
     })
+    const [only, ...others] = nodeBuilds.get(node.node_raw) ?? []
+    if (only && !others.length && only[1] >= node.recentNode) node.recentNodeBuild = only[0]
     return node.signal > 0 || node.cofailEvents > 0
   })
   ranked.sort(
@@ -1444,9 +1458,9 @@ export interface AgentFleetVerdict {
   label: string
   headline: string
   detail: string
-  /** Nodes with two or more recent failures attributed to the node itself, worst first. */
+  /** Nodes with recent failures attributed to the node itself in two or more builds, worst first. */
   hotNodes: AgentNodeHistory[]
-  /** Nodes with recent node-suspect failures that no second failure corroborates. */
+  /** Nodes with recent node-suspect failures that no second failure, or no second build, corroborates. */
   watchNodes: AgentNodeHistory[]
   recentFailures: number
   recentNodes: number
@@ -1454,17 +1468,24 @@ export interface AgentFleetVerdict {
   topShare: number | null
 }
 
-/** A node is hurting once this many recent failures are attributed to it. */
+/** A node is hurting once this many recent failures, from at least HURTING_NODE_BUILDS builds, are attributed to it. */
 export const HURTING_NODE_FAILURES = 2
+export const HURTING_NODE_BUILDS = 2
+
+/** Node-attributed failures confined to one build may be that build's, so they put the node on watch only. */
+export function agentNodeHurting(node: AgentNodeHistory): boolean {
+  return node.recentNode >= HURTING_NODE_FAILURES && !node.recentNodeBuild
+}
 
 const nodesWord = (count: number) => integer(count) + (count === 1 ? ' node' : ' nodes')
 const failuresWord = (count: number, noun: string) => integer(count) + ' ' + (count === 1 ? noun.replace(/s$/, '') : noun)
 
 /**
- * Whether a node is hurting CI right now: hurting when recent failures are attributed to a node
- * itself (a lost agent, or unexplained failures of several test groups), watch when node-suspect
- * failures are uncorroborated, healthy without any. `recent` breaks the recent failures down by
- * attribution so the verdict says how many were the build, the test, or shared infrastructure.
+ * Whether a node is hurting CI right now: hurting when recent failures in more than one build are
+ * attributed to a node itself (a lost agent, or unexplained failures of several test groups), watch
+ * when node-suspect failures are uncorroborated or confined to one build, healthy without any.
+ * `recent` breaks the recent failures down by attribution so the verdict says how many were the
+ * build, the test, or shared infrastructure.
  */
 export function agentFleetVerdict(
   matrix: AgentNodeDayMatrix,
@@ -1480,11 +1501,11 @@ export function agentFleetVerdict(
   const top = matrix.nodes.slice(0, 5).reduce((sum, node) => sum + node.signal, 0)
   const topShare = total ? top / total : null
   const hotNodes = matrix.nodes
-    .filter((node) => node.recentNode >= HURTING_NODE_FAILURES)
+    .filter(agentNodeHurting)
     .sort((a, b) => b.recentNode - a.recentNode || b.recentSuspect - a.recentSuspect || b.signal - a.signal)
   const watchNodes = matrix.nodes
-    .filter((node) => node.recentSuspect > 0 && node.recentNode < HURTING_NODE_FAILURES)
-    .sort((a, b) => b.recentSuspect - a.recentSuspect || b.signal - a.signal)
+    .filter((node) => node.recentSuspect > 0 && !agentNodeHurting(node))
+    .sort((a, b) => b.recentNode - a.recentNode || b.recentSuspect - a.recentSuspect || b.signal - a.signal)
   const span = matrix.recentDays === 1 ? 'today' : `in the last ${matrix.recentDays} days`
   const explained = recent.notNode
     ? ` ${capitalize(bound)}${integer(recent.notNode)} of the ${integer(recent.total)} failures ${span} were build-wide, test or shared-infrastructure failures, not node faults.`
@@ -1500,6 +1521,18 @@ export function agentFleetVerdict(
       label: 'Hurting',
       headline: `${nodesWord(hotNodes.length)} ${hotNodes.length === 1 ? 'is' : 'are'} failing jobs themselves`,
       detail: `${capitalize(bound)}${failuresWord(attributed, 'failures')} ${span} ${attributed === 1 ? 'is' : 'are'} attributed to ${hotNodes.length === 1 ? 'one node' : nodesWord(hotNodes.length)}: lost agents, or unexplained failures of several test groups on one node.${explained}${concentration}`,
+    }
+  }
+  const confined = watchNodes.filter((node) => node.recentNode >= HURTING_NODE_FAILURES)
+  if (confined.length) {
+    const attributed = confined.reduce((sum, node) => sum + node.recentNode, 0)
+    const builds = [...new Set(confined.map((node) => node.recentNodeBuild))]
+    return {
+      ...base,
+      tone: 'soft',
+      label: 'Watch',
+      headline: builds.length === 1 ? `Node failures confined to ${builds[0]}` : 'Node failures each confined to one build',
+      detail: `${capitalize(bound)}${integer(attributed)} failures ${span} are attributed to ${confined.length === 1 ? 'one node' : nodesWord(confined.length)}, but ${builds.length === 1 ? `all came from one build, ${builds[0]}` : `each node’s came from a single build (${builds.join(', ')})`}: not yet a node fault. A node is hurting once its node-attributed failures span ${HURTING_NODE_BUILDS} builds.${explained}${concentration}`,
     }
   }
   if (watchNodes.length) {
