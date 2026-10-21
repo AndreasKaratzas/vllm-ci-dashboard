@@ -384,11 +384,22 @@ def run() -> int:
     return 0
 
 
-if __name__ == "__main__":
+def main() -> int:
     try:
-        sys.exit(run())
+        return run()
     except Exception as error:
+        # The workflow step continues on error; the annotation keeps an expired
+        # Projects token from failing silently.
+        print(
+            "::warning title=AMD CI Operations Project sync::Sync failed "
+            f"({type(error).__name__}); check PROJECTS_WRITE_TOKEN / PROJECTS_TOKEN.",
+            flush=True,
+        )
         _write_step_summary(
             f"Sync failed closed before further mutations (`{type(error).__name__}`)."
         )
         raise
+
+
+if __name__ == "__main__":
+    sys.exit(main())

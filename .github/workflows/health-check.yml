@@ -14,6 +14,7 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
+  actions: read
   contents: read
   issues: write
 
@@ -49,6 +50,28 @@ jobs:
           python scripts/vllm/request_bearing_attempt_budget.py \
             --config config/data_collection_attempt_budget.json observe \
             --github-output "$GITHUB_OUTPUT"
+
+      - name: Observe automation liveness
+        id: automation-liveness
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          runs="repos/$GITHUB_REPOSITORY/actions/workflows/publication-watchdog.yml/runs"
+          # The owner's external hourly clock dispatches the watchdog; GitHub
+          # schedules alone deliver too few ticks to keep the data fresh.
+          clock_at="$(gh api "$runs?event=workflow_dispatch&branch=main&per_page=100" \
+            --jq "[.workflow_runs[] | select(.triggering_actor.login == \"$GITHUB_REPOSITORY_OWNER\") | .created_at][0] // \"\"")"
+          failures="$(gh api "$runs?branch=main&status=completed&per_page=20" \
+            --jq '[.workflow_runs[] | select(.conclusion != "cancelled" and .conclusion != "skipped")] | .[:(map(.conclusion) | index("success") // length)] | map(.created_at) | join(",")')"
+          inactive="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows?per_page=100" \
+            --jq 'if .total_count > 100 then error("workflow list exceeded one page") else [.workflows[] | select(.state != "active") | "\(.path)=\(.state)"] | join(",") end')"
+          {
+            echo "recovery_clock_at=$clock_at"
+            echo "watchdog_failures=$failures"
+            echo "inactive_workflows=$inactive"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Run synthetic site health check
         id: synthetic-health
@@ -127,6 +150,10 @@ jobs:
           CORE_REQUEST_MODE: ${{ steps.core-freshness.outputs.request_mode }}
           CORE_AVAILABLE_AT: ${{ steps.core-freshness.outputs.available_at }}
           CORE_LATEST_SUCCEEDED_AT: ${{ steps.core-freshness.outputs.latest_succeeded_at }}
+          AUTOMATION_OUTCOME: ${{ steps.automation-liveness.outcome }}
+          RECOVERY_CLOCK_AT: ${{ steps.automation-liveness.outputs.recovery_clock_at }}
+          WATCHDOG_FAILURES: ${{ steps.automation-liveness.outputs.watchdog_failures }}
+          INACTIVE_WORKFLOWS: ${{ steps.automation-liveness.outputs.inactive_workflows }}
           REPORT_PATH: ${{ runner.temp }}/site-health-checker-report.json
           EFFECTIVE_REPORT_PATH: ${{ runner.temp }}/site-health-report.json
           DETAILS_PATH: ${{ runner.temp }}/site-health-detail.md
@@ -156,6 +183,7 @@ jobs:
         env:
           HEALTHY: ${{ steps.health-result.outputs.healthy }}
           CONFIRMED: ${{ steps.health-result.outputs.confirmed }}
+          AUTOMATION_OBSERVED: ${{ steps.health-result.outputs.automation_observed }}
           NORMALIZE_OUTCOME: ${{ steps.health-result.outcome }}
           BODY_PATH: ${{ runner.temp }}/site-health-issue.md
           OWNERSHIP_MARKER: '<!-- vllm-ci-dashboard:site-health:v1 -->'
@@ -164,6 +192,7 @@ jobs:
             const fs = require('fs');
             const ownershipMarker = process.env.OWNERSHIP_MARKER;
             const labelName = 'site-health';
+            const automatedLabel = 'automated';
             const statePlaceholder = '<!-- SITE_HEALTH_STATE -->';
             const recoveryPlaceholder = '<!-- SITE_HEALTH_RECOVERY_NOTE -->';
             const healthy = process.env.HEALTHY === 'true';
@@ -171,6 +200,11 @@ jobs:
             const normalizationSucceeded = process.env.NORMALIZE_OUTCOME === 'success';
             if (!normalizationSucceeded || !confirmed) {
               core.warning('Synthetic evidence was not successfully normalized and quorum-confirmed; issue state is unchanged.');
+              core.setOutput('reconciled', 'true');
+              return;
+            }
+            if (healthy && process.env.AUTOMATION_OBSERVED !== 'true') {
+              core.warning('Automation liveness was not observed, so recovery is unproven; issue state is unchanged.');
               core.setOutput('reconciled', 'true');
               return;
             }
@@ -243,16 +277,21 @@ jobs:
 
             // Complete identity discovery before the first mutation. This
             // keeps API errors and capped recovery pages byte-for-byte safe.
-            try {
-              await github.rest.issues.getLabel({ ...context.repo, name: labelName });
-            } catch (error) {
-              if (error.status !== 404) throw error;
-              await github.rest.issues.createLabel({
-                ...context.repo,
-                name: labelName,
-                color: 'b60205',
-                description: 'Synthetic dashboard availability incidents',
-              });
+            for (const [name, color, description] of [
+              [labelName, 'b60205', 'Synthetic dashboard availability incidents'],
+              [automatedLabel, '6f42c1', 'Managed by dashboard automation'],
+            ]) {
+              try {
+                await github.rest.issues.getLabel({ ...context.repo, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({
+                  ...context.repo,
+                  name,
+                  color,
+                  description,
+                });
+              }
             }
 
             // A historical automation race must not leave two open incidents.
@@ -294,15 +333,29 @@ jobs:
               await github.rest.issues.addLabels({
                 ...context.repo,
                 issue_number: existing.number,
-                labels: [labelName],
+                labels: [labelName, automatedLabel],
               });
+              // The owner does not watch the repository; assignment on each
+              // healthy-to-unhealthy transition is what notifies them.
+              if (!healthy && existing.state !== 'open') {
+                try {
+                  await github.rest.issues.addAssignees({
+                    ...context.repo,
+                    issue_number: existing.number,
+                    assignees: [context.repo.owner],
+                  });
+                } catch (error) {
+                  if (error.status !== 422) throw error;
+                }
+              }
               core.info(`Updated site-health issue #${existing.number} (${state}).`);
             } else {
               const created = await github.rest.issues.create({
                 ...context.repo,
                 title,
                 body,
-                labels: [labelName],
+                labels: [labelName, automatedLabel],
+                assignees: [context.repo.owner],
               });
               core.info(`Created site-health issue #${created.data.number}.`);
             }

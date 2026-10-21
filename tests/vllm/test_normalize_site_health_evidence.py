@@ -223,6 +223,10 @@ def _normalizer_environment(
         "CORE_REQUEST_MODE": "success_gated",
         "CORE_AVAILABLE_AT": _iso_utc(now + timedelta(hours=1)),
         "CORE_LATEST_SUCCEEDED_AT": _iso_utc(now - timedelta(hours=1)),
+        "AUTOMATION_OUTCOME": "success",
+        "RECOVERY_CLOCK_AT": _iso_utc(now - timedelta(minutes=30)),
+        "WATCHDOG_FAILURES": "",
+        "INACTIVE_WORKFLOWS": "",
         "REPORT_PATH": str(report_path),
         "DETAILS_PATH": str(details_path),
         "BODY_PATH": str(body_path),
@@ -282,6 +286,7 @@ def test_standalone_normalizer_accepts_healthy_report_with_current_core(
     } == {
         "healthy": "true",
         "confirmed": "true",
+        "automation_observed": "true",
         "core_current": "true",
         "report_valid": "true",
         "missing_output_count": "0",
@@ -368,6 +373,7 @@ def test_standalone_normalizer_accepts_healthy_report_with_current_core(
             + "`, observation `success`, mode `success_gated`, next `"
             + environment["CORE_AVAILABLE_AT"]
             + "`)",
+            "- **Automation liveness:** `healthy`",
             "- **Missing checker outputs:** `none`",
             "",
             "<details><summary>Bounded checker details</summary><pre>"
@@ -699,6 +705,90 @@ def test_stale_durable_core_is_written_into_the_effective_uploaded_report(
     body = Path(environment["BODY_PATH"]).read_text()
     assert "Dashboard synthetic health: confirmed unhealthy" in body
     assert "- **Overall status:** `durable_core_stale`" in body
+
+
+@pytest.mark.parametrize(
+    ("change", "codes"),
+    [
+        ({"RECOVERY_CLOCK_AT": timedelta(hours=2, minutes=5)}, []),
+        ({"RECOVERY_CLOCK_AT": timedelta(hours=3)}, ["recovery-clock-stale"]),
+        ({"RECOVERY_CLOCK_AT": None}, ["recovery-clock-stale"]),
+        # One tick fans out to several runs; one failed tick is not a streak.
+        ({"WATCHDOG_FAILURES": [timedelta(minutes=minute) for minute in (1, 2, 3)]}, []),
+        (
+            {"WATCHDOG_FAILURES": [timedelta(minutes=minute) for minute in (1, 2, 61)]},
+            ["watchdog-failing"],
+        ),
+        (
+            {"INACTIVE_WORKFLOWS": ".github/workflows/hourly-master.yml=disabled_inactivity"},
+            ["workflow-disabled"],
+        ),
+    ],
+)
+def test_automation_liveness_reasons_open_a_confirmed_incident(
+    tmp_path: Path, change: dict, codes: list[str],
+) -> None:
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    environment = _normalizer_environment(tmp_path, _healthy_report(now), now)
+    for key, value in change.items():
+        if value is None:
+            value = ""
+        elif isinstance(value, timedelta):
+            value = _iso_utc(now - value)
+        elif isinstance(value, list):
+            value = ",".join(_iso_utc(now - age) for age in value)
+        environment[key] = value
+
+    completed = _run_normalizer(environment)
+
+    assert completed.returncode == 0, completed.stderr
+    outputs = _github_output(environment)
+    assert outputs["confirmed"] == "true"
+    assert outputs["automation_observed"] == "true"
+    assert outputs["healthy"] == str(not codes).lower()
+    assert bool(outputs["hourly_recovery_evidence"]) == (not codes)
+    normalized = json.loads(Path(environment["REPORT_PATH"]).read_text())
+    assert normalized["automation"]["observation_valid"] is True
+    assert [row["code"] for row in normalized["reasons"]] == codes
+    if codes:
+        assert normalized["overall_status"] == "automation_unhealthy"
+        body = Path(environment["BODY_PATH"]).read_text()
+        assert "Dashboard synthetic health: confirmed unhealthy" in body
+        assert normalized["reasons"][0]["message"] in body
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("AUTOMATION_OUTCOME", "failure"),
+        ("RECOVERY_CLOCK_AT", "not-a-time"),
+        ("WATCHDOG_FAILURES", "2026-10-20T21:37:57+00:00"),
+        ("INACTIVE_WORKFLOWS", "a b=disabled_manually"),
+    ],
+)
+def test_unobservable_automation_liveness_fails_open_with_a_warning(
+    tmp_path: Path, key: str, value: str,
+) -> None:
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    environment = _normalizer_environment(tmp_path, _healthy_report(now), now)
+    environment["RECOVERY_CLOCK_AT"] = ""
+    environment[key] = value
+
+    completed = _run_normalizer(environment)
+
+    assert completed.returncode == 0, completed.stderr
+    assert "::warning::Automation liveness could not be observed" in completed.stdout
+    outputs = _github_output(environment)
+    assert outputs["healthy"] == "true"
+    assert outputs["confirmed"] == "true"
+    assert outputs["automation_observed"] == "false"
+    assert outputs["hourly_recovery_evidence"] == ""
+    normalized = json.loads(Path(environment["REPORT_PATH"]).read_text())
+    assert normalized["automation"]["observation_valid"] is False
+    assert normalized["reasons"] == []
+    assert "- **Automation liveness:** `unobserved`" in Path(
+        environment["BODY_PATH"]
+    ).read_text()
 
 
 def test_extremely_large_publication_age_fails_closed(

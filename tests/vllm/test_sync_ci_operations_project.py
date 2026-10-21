@@ -352,3 +352,17 @@ def test_add_mutation_is_the_only_graphql_mutation():
         "updateProjectV2",
     ):
         assert forbidden not in sync.ADD_PROJECT_ITEM_MUTATION
+
+
+def test_failed_sync_emits_a_workflow_warning(monkeypatch, capsys):
+    def expired_token():
+        raise sync.requests.HTTPError("401 Client Error: Unauthorized")
+
+    monkeypatch.setattr(sync, "run", expired_token)
+
+    with pytest.raises(sync.requests.HTTPError):
+        sync.main()
+
+    assert capsys.readouterr().out.startswith(
+        "::warning title=AMD CI Operations Project sync::Sync failed (HTTPError)"
+    )

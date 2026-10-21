@@ -3,7 +3,8 @@ name: Publication Recovery Watchdog
 on:
   # Begin proactive detection at 75 minutes. Scheduler delays, proof runtime,
   # writer queues and durable admission can still exceed the three-hour limit.
-  # repository_dispatch provides an independent tick when schedules are missed.
+  # The owner's external hourly clock (deploy/recovery-tick) dispatches the
+  # ticks GitHub drops; repository_dispatch is accepted but has no sender.
   schedule:
     - cron: '11,26,41,56 * * * *'
   repository_dispatch:

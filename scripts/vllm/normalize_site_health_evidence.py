@@ -14,6 +14,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 RECOVERY_EVIDENCE_MAX_AGE_SECONDS = 15 * 60
+# One missed hourly tick plus dispatch jitter stays below this age.
+RECOVERY_CLOCK_MAX_AGE_MINUTES = 150
+# A single tick fans out to several watchdog runs, so a failing streak must
+# also span more than one tick before it is reported.
+WATCHDOG_FAILURE_STREAK = 3
+WATCHDOG_FAILURE_SPAN_MINUTES = 30
 
 
 def normalize_health_evidence() -> None:
@@ -22,6 +28,7 @@ def normalize_health_evidence() -> None:
     import json
     import math
     import os
+    import re
     from datetime import datetime, timedelta, timezone
     from pathlib import Path
     from typing import TypeGuard
@@ -695,21 +702,24 @@ def normalize_health_evidence() -> None:
         and core_mode in {"reserved", "success_gated", "retry_gated", "cap_gated"}
         and ((core_required == "true") == (core_mode == "reserved"))
     )
-    core_success_at = None
-    if core_latest_succeeded_at:
+
+    def canonical_utc(value):
         try:
-            core_success_at = datetime.fromisoformat(
-                core_latest_succeeded_at.replace("Z", "+00:00")
-            )
-            if (
-                core_success_at.tzinfo is None
-                or core_success_at.microsecond
-                or core_success_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
-                != core_latest_succeeded_at
-            ):
-                core_success_at = None
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except (OverflowError, ValueError):
-            core_success_at = None
+            return None
+        if (
+            parsed.tzinfo is None
+            or parsed.microsecond
+            or parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+            != value
+        ):
+            return None
+        return parsed
+
+    core_success_at = (
+        canonical_utc(core_latest_succeeded_at) if core_latest_succeeded_at else None
+    )
     now = datetime.now(timezone.utc)
     core_current = bool(
         core_observation_valid
@@ -729,7 +739,78 @@ def normalize_health_evidence() -> None:
             or (checker_healthy is False and os.environ.get("CHECKER_OUTCOME") == "failure")
         )
     )
-    healthy = confirmed and checker_healthy is True and core_current
+
+    automation_outcome = os.environ.get("AUTOMATION_OUTCOME", "")
+    recovery_clock_value = os.environ.get("RECOVERY_CLOCK_AT", "")
+    watchdog_failure_values = [
+        value for value in os.environ.get("WATCHDOG_FAILURES", "").split(",") if value
+    ]
+    inactive_workflows = [
+        value for value in os.environ.get("INACTIVE_WORKFLOWS", "").split(",") if value
+    ]
+    recovery_clock_at = canonical_utc(recovery_clock_value) if recovery_clock_value else None
+    watchdog_failures = [canonical_utc(value) for value in watchdog_failure_values]
+    automation_observation_valid = (
+        automation_outcome == "success"
+        and (not recovery_clock_value or recovery_clock_at is not None)
+        and len(watchdog_failures) <= 100
+        and all(value is not None for value in watchdog_failures)
+        and len(inactive_workflows) <= 100
+        and all(
+            re.fullmatch(r"[A-Za-z0-9._/-]{1,200}=[a-z_]{1,40}", value)
+            for value in inactive_workflows
+        )
+    )
+    automation_reasons = []
+    if not automation_observation_valid:
+        # The reconciler leaves the incident unchanged instead of closing it.
+        print(
+            "::warning::Automation liveness could not be observed; recovery "
+            "clock, watchdog and workflow-state checks were skipped."
+        )
+    else:
+        if recovery_clock_at is None or now - recovery_clock_at > timedelta(
+            minutes=RECOVERY_CLOCK_MAX_AGE_MINUTES
+        ):
+            automation_reasons.append(
+                {
+                    "code": "recovery-clock-stale",
+                    "message": (
+                        "The newest owner-dispatched Publication Recovery Watchdog "
+                        f"run ({recovery_clock_value or 'none of the newest 100'}) "
+                        "is older than 2.5 hours; the external recovery clock "
+                        "may have stopped."
+                    ),
+                }
+            )
+        if (
+            len(watchdog_failures) >= WATCHDOG_FAILURE_STREAK
+            and watchdog_failures[0] - watchdog_failures[-1]
+            >= timedelta(minutes=WATCHDOG_FAILURE_SPAN_MINUTES)
+        ):
+            automation_reasons.append(
+                {
+                    "code": "watchdog-failing",
+                    "message": (
+                        f"The last {len(watchdog_failures)} completed Publication "
+                        "Recovery Watchdog runs on main failed (since "
+                        f"{watchdog_failure_values[-1]})."
+                    ),
+                }
+            )
+        if inactive_workflows:
+            automation_reasons.append(
+                {
+                    "code": "workflow-disabled",
+                    "message": (
+                        "GitHub Actions workflows are not active: "
+                        f"{', '.join(inactive_workflows)}."
+                    )[:500],
+                }
+            )
+    healthy = (
+        confirmed and checker_healthy is True and core_current
+    ) and not automation_reasons
 
     effective_status = "workflow_evidence_invalid"
     if report_valid:
@@ -739,6 +820,8 @@ def normalize_health_evidence() -> None:
             effective_status = "confirmed_unhealthy"
         elif not core_current:
             effective_status = "durable_core_stale"
+        elif automation_reasons:
+            effective_status = "automation_unhealthy"
         else:
             effective_status = "healthy"
 
@@ -774,6 +857,7 @@ def normalize_health_evidence() -> None:
                     ),
                 }
             )
+        effective_reasons.extend(automation_reasons)
 
         def bounded_evidence(value):
             text = " ".join(str(value or "").split())[:200]
@@ -795,6 +879,13 @@ def normalize_health_evidence() -> None:
             "available_at": bounded_evidence(core_available_at),
             "latest_succeeded_at": bounded_evidence(core_latest_succeeded_at),
             "max_age_hours": 3,
+        }
+        report["automation"] = {
+            "observation_valid": automation_observation_valid,
+            "outcome": bounded_evidence(automation_outcome),
+            "recovery_clock_at": bounded_evidence(recovery_clock_value),
+            "watchdog_failure_count": len(watchdog_failure_values),
+            "inactive_workflows": inactive_workflows[:20],
         }
         report["workflow_confirmation"] = {
             "confirmed": confirmed,
@@ -886,6 +977,12 @@ def normalize_health_evidence() -> None:
             + "`, next `"
             + html.escape(core_available_at or "now")
             + "`)",
+            "- **Automation liveness:** "
+            + (
+                "; ".join(html.escape(row["message"]) for row in automation_reasons)
+                if automation_reasons
+                else "`healthy`" if automation_observation_valid else "`unobserved`"
+            ),
             f"- **Missing checker outputs:** `{html.escape(missing_text)}`",
             "",
             f"<details><summary>Bounded checker details</summary><pre>{safe_details}</pre></details>",
@@ -916,7 +1013,7 @@ def normalize_health_evidence() -> None:
         .replace("\n", " ")[:1000]
     )
     hourly_recovery_evidence = ""
-    if report_valid and confirmed and healthy:
+    if report_valid and confirmed and healthy and automation_observation_valid:
         publication = (
             report.get("publication")
             if isinstance(report.get("publication"), dict)
@@ -1071,6 +1168,9 @@ def normalize_health_evidence() -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
         output.write(f"healthy={str(healthy).lower()}\n")
         output.write(f"confirmed={str(confirmed).lower()}\n")
+        output.write(
+            f"automation_observed={str(automation_observation_valid).lower()}\n"
+        )
         output.write(f"core_current={str(core_current).lower()}\n")
         output.write(f"report_valid={str(report_valid).lower()}\n")
         output.write(f"missing_output_count={len(missing)}\n")

@@ -4011,6 +4011,7 @@ class TestSiteHealthWorkflow:
         assert triggers["schedule"] == [{"cron": "58 * * * *"}]
         assert "workflow_dispatch" in triggers
         assert workflow["permissions"] == {
+            "actions": "read",
             "contents": "read",
             "issues": "write",
         }
@@ -4046,6 +4047,7 @@ class TestSiteHealthWorkflow:
             "Check out monitor",
             "Set up exact Python runtime",
             "Observe durable core collection freshness",
+            "Observe automation liveness",
             "Run synthetic site health check",
             "Normalize bounded health evidence",
             "Upload bounded site health report",
@@ -4068,6 +4070,30 @@ class TestSiteHealthWorkflow:
         assert core_freshness["continue-on-error"] is True
         assert "request_bearing_attempt_budget.py" in core_freshness["run"]
         assert "data_collection_attempt_budget.json observe" in core_freshness["run"]
+
+        liveness = steps[names.index("Observe automation liveness")]
+        assert liveness["id"] == "automation-liveness"
+        assert liveness["continue-on-error"] is True
+        for token in (
+            "$runs?event=workflow_dispatch&branch=main&per_page=100",
+            '.triggering_actor.login == \\"$GITHUB_REPOSITORY_OWNER\\"',
+            "$runs?branch=main&status=completed&per_page=20",
+            "actions/workflows?per_page=100",
+            'select(.state != "active")',
+        ):
+            assert token in liveness["run"]
+        normalize_env = steps[names.index("Normalize bounded health evidence")]["env"]
+        for name, output in (
+            ("RECOVERY_CLOCK_AT", "recovery_clock_at"),
+            ("WATCHDOG_FAILURES", "watchdog_failures"),
+            ("INACTIVE_WORKFLOWS", "inactive_workflows"),
+        ):
+            assert normalize_env[name] == (
+                "${{ steps.automation-liveness.outputs." + output + " }}"
+            )
+        assert normalize_env["AUTOMATION_OUTCOME"] == (
+            "${{ steps.automation-liveness.outcome }}"
+        )
 
         checker = steps[names.index("Run synthetic site health check")]
         assert checker["id"] == "synthetic-health"
@@ -4358,7 +4384,7 @@ class TestSiteHealthWorkflow:
         update_end = script.index("});", update_start)
         assert "labels:" not in script[update_start:update_end]
         assert "github.rest.issues.addLabels" in script
-        assert "labels: [labelName]" in script
+        assert "labels: [labelName, automatedLabel]" in script
         assert "${{" not in script
         normalizer = SITE_HEALTH_NORMALIZER.read_text()
         assert "actions/runs/" in normalizer
