@@ -1083,14 +1083,19 @@ def merge_cell_variant(
     existing["parallelism"] = max(existing["parallelism"], candidate["parallelism"])
     existing["latest_matched"] = existing["latest_matched"] or candidate["latest_matched"]
     existing["latest_match_count"] += candidate["latest_match_count"]
+    severity = STATE_PRIORITY.get(candidate.get("latest_state"), 0) - STATE_PRIORITY.get(
+        existing.get("latest_state"), 0
+    )
     existing["latest_state"] = aggregate_state(
         [state for state in [existing.get("latest_state"), candidate.get("latest_state")] if state]
     )
-    if _variant_preference(candidate["label"], arch, row_title) < _variant_preference(
+    preferred = _variant_preference(candidate["label"], arch, row_title) < _variant_preference(
         existing["label"], arch, row_title
-    ):
+    )
+    if preferred:
         existing["label"] = candidate["label"]
         existing["agent_pool"] = candidate["agent_pool"]
+    if severity > 0 or (severity == 0 and preferred):
         existing["latest_url"] = candidate.get("latest_url")
 
 
@@ -1564,10 +1569,11 @@ def build_matrix(
             cell["latest_state"] = aggregate_state(
                 [v["latest_state"] for v in cell["variants"] if v["latest_state"]]
             )
-            cell["latest_url"] = next(
-                (v.get("latest_url") for v in cell["variants"] if v.get("latest_url")),
-                None,
-            )
+            cell["latest_url"] = max(
+                (v for v in cell["variants"] if v.get("latest_url")),
+                key=lambda v: STATE_PRIORITY.get(v["latest_state"], 0),
+                default={},
+            ).get("latest_url")
             if cell["latest_matched"]:
                 nightly_coverage_count += 1
         row["coverage_count"] = coverage_count
