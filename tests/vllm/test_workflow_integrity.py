@@ -3477,7 +3477,7 @@ class TestPublicationWatchdogWorkflow:
             "cancel-in-progress": False,
         }
         job = workflow["jobs"]["recover"]
-        assert job["timeout-minutes"] == 35
+        assert job["timeout-minutes"] == 40
         assert (
             job["timeout-minutes"] * 60
             >= site_health.MAX_CONFIRMATION_ELAPSED_SECONDS + 5 * 60
@@ -3967,7 +3967,7 @@ class TestSiteHealthWorkflow:
         }
         job = workflow["jobs"]["check"]
         assert job["if"] == "github.ref == 'refs/heads/main'"
-        assert job["timeout-minutes"] == 35
+        assert job["timeout-minutes"] == 40
         assert job["outputs"]["hourly_recovery_evidence"] == (
             "${{ steps.health-result.outputs.hourly_recovery_evidence }}"
         )

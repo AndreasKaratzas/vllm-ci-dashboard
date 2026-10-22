@@ -32,10 +32,10 @@ jobs:
   recover:
     runs-on: ubuntu-24.04
     # Exact state/code/Pages proofs and a failed Site Health completion can
-    # compose with the checker's 1,507-second transport/deadline bound. Every
+    # compose with the checker's 1,847-second transport/deadline bound. Every
     # wait ends by the run-budget deadline, leaving the final ledger read,
     # planning and dispatch the remaining minutes.
-    timeout-minutes: 35
+    timeout-minutes: 40
     permissions:
       actions: write
       contents: read
@@ -46,8 +46,8 @@ jobs:
           ref: main
           persist-credentials: false
 
-      # A near collector gate is awaited until this deadline; the last five of
-      # the 35 minutes stay reserved for the final ledger read and dispatch.
+      # A near collector gate is awaited until this deadline; the last ten of
+      # the 40 minutes stay reserved for the final ledger read and dispatch.
       - name: Start the run budget clock
         id: run-clock
         run: echo "wait_deadline=$(( $(date -u +%s) + 30 * 60 ))" >> "$GITHUB_OUTPUT"
