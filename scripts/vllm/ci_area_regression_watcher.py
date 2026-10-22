@@ -6,8 +6,8 @@ the operations bundle is freshly built. Test targets are attributed back to thei
 ``.buildkite/test_areas/*.yaml`` source, then assigned through the ranked owner
 chain. Working hours come only from the committed regional profiles. A missing
 schedule, an out-of-hours chain, or an unassignable selected account escalates
-to the CI lead. Each managed regression issue tags the selected owner and the
-verified assignee, then CCs every remaining ranked area owner exactly once.
+to the CI lead. An open issue keeps its verified assignee across runs, and its
+body names owners without @-mentions, so only the assignment notifies anyone.
 """
 
 from __future__ import annotations
@@ -72,9 +72,12 @@ MAX_NIGHTLY_AGE = timedelta(hours=36)
 FUTURE_SKEW = timedelta(minutes=15)
 MAX_ISSUE_ROWS = 50
 OWNERSHIP_MARKER_PREFIX = "vllm-ci-dashboard:managed-alert:ci-area-regression"
-ISSUE_BODY_SCHEMA_VERSION = 3
+ISSUE_BODY_SCHEMA_VERSION = 4
 SIGNAL_FINGERPRINT_VERSION = 2
 AREA_RETIREMENT_STREAK_REQUIRED = 3
+CI_LEAD_FALLBACK_REASONS = frozenset(
+    {"ranked_chain_unavailable_ci_lead", "selected_owner_not_assignable_ci_lead"}
+)
 GITHUB_LOGIN_RE = re.compile(
     r"(?=.{1,39}\Z)[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\Z"
 )
@@ -486,66 +489,23 @@ def _github_login(value: Any) -> str:
     return login
 
 
-def _notification_lines(area: dict) -> tuple[list[str], list[str]]:
-    """Render role-aware, case-insensitively deduplicated GitHub mentions."""
-    selected = _github_login(
-        (area.get("selected_owner") or {}).get("github_login")
-    )
-    actual = _github_login(
-        (area.get("actual_assignee") or {}).get("github_login")
-    )
-    if not selected:
-        raise ValueError("Managed CI ownership issue requires a selected owner")
-
-    lines: list[str] = []
-    mentioned: list[str] = []
-    seen: set[str] = set()
-
-    def mention(login: str) -> str:
-        folded = login.casefold()
-        if folded in seen:
-            raise ValueError(f"Duplicate ownership mention requested for {login!r}")
-        seen.add(folded)
-        mentioned.append(login)
-        return f"@{login}"
-
-    if actual and actual.casefold() == selected.casefold():
-        lines.append(
-            f"- Selected owner and GitHub assignee: {mention(selected)}"
-        )
-    else:
-        lines.append(f"- Selected owner: {mention(selected)}")
-        if actual:
-            lines.append(f"- GitHub assignee: {mention(actual)}")
-
-    cc: list[str] = []
-    for owner in sorted(
-        (row for row in (area.get("owners") or []) if isinstance(row, dict)),
-        key=lambda row: int(row.get("rank") or 0),
-    ):
-        login = _github_login(owner.get("github_login"))
-        if not login or login.casefold() in seen:
-            continue
-        cc.append(mention(login))
-    if cc:
-        lines.append(f"- CC (remaining ranked area owners): {' '.join(cc)}")
-    return lines, mentioned
+def _owner_name(owner: dict) -> str:
+    """Render an owner without an @-mention so body edits notify nobody."""
+    login = _github_login(owner.get("github_login"))
+    name = _md(owner.get("display_name"))
+    return f"{name} (`{login}`)" if login else name
 
 
 def _owner_rank(area: dict) -> str:
-    selected_login = str((area.get("selected_owner") or {}).get("github_login") or "")
+    assignee_login = str((area.get("actual_assignee") or {}).get("github_login") or "")
     for row in area.get("owners") or []:
-        if str(row.get("github_login") or "").casefold() == selected_login.casefold():
+        if str(row.get("github_login") or "").casefold() == assignee_login.casefold():
             return str(row.get("rank") or "-")
     return "CI lead"
 
 
 def _issue_title(area: dict) -> str:
-    counts = area.get("counts") or {}
-    return (
-        f"AMD CI confirmed incident [{area['source_file']}]: "
-        f"{int(counts.get('incidents') or 0)} affected target groups"
-    )
+    return f"AMD CI confirmed incident [{area['source_file']}]"
 
 
 def _displayed_failure_evidence(row: dict) -> dict:
@@ -649,9 +609,7 @@ def _issue_body(area: dict, run_url: str) -> str:
     counts = area.get("counts") or {}
     confirmed_hard = int(counts.get("confirmed_hard", counts.get("hard", 0)) or 0)
     confirmed_soft = int(counts.get("confirmed_soft", counts.get("soft", 0)) or 0)
-    selected = area.get("selected_owner") or {}
     actual = area.get("actual_assignee") or {}
-    notification_lines, expected_mentions = _notification_lines(area)
     shared = int(counts.get("shared_incidents") or 0)
     lines = [
         f"## AMD CI confirmed incident — `{_md(area['source_file'])}`",
@@ -668,13 +626,8 @@ def _issue_body(area: dict, run_url: str) -> str:
             )
         ),
         "",
-        f"Selected owner: **{_md(selected.get('display_name'))}** (rank {_owner_rank(area)}).",
-        f"GitHub assignee: **{_md(actual.get('display_name'))}**.",
+        f"GitHub assignee: **{_owner_name(actual)}** (rank {_owner_rank(area)}).",
         f"Assignment decision: `{_md(area.get('assignment_reason'))}`.",
-        "",
-        "### Notifications",
-        "",
-        *notification_lines,
         "",
         "### Escalation chain",
         "",
@@ -682,9 +635,7 @@ def _issue_body(area: dict, run_url: str) -> str:
         "|---:|---|",
     ]
     for owner in area.get("owners") or []:
-        lines.append(
-            f"| {int(owner.get('rank') or 0)} | {_md(owner.get('display_name'))} |"
-        )
+        lines.append(f"| {int(owner.get('rank') or 0)} | {_owner_name(owner)} |")
     lines.extend(
         [
             "",
@@ -768,20 +719,14 @@ def _issue_body(area: dict, run_url: str) -> str:
             "",
             (
                 f"*Managed from {run_url}. This watcher updates or closes only the tracked "
-                "issue for this test area. The selected owner, verified assignee, and "
-                "remaining ranked owners are notified once in this body.*"
+                "issue for this test area. It keeps the assignee while the issue is open "
+                "and does not mention owners; the assignment is the only notification.*"
             ),
         ]
     )
     body = "\n".join(lines) + "\n"
-    observed_mentions = [
-        match.group("login") for match in GITHUB_MENTION_RE.finditer(body)
-    ]
-    if observed_mentions != expected_mentions:
-        raise ValueError(
-            "Managed CI ownership issue mentions must contain only the deduplicated "
-            "selected owner, assignee, and ranked CC list"
-        )
+    if GITHUB_MENTION_RE.search(body):
+        raise ValueError("Managed CI ownership issue bodies must not @-mention anyone")
     return body
 
 
@@ -849,8 +794,9 @@ def _fingerprint(area: dict) -> str:
 def _content_fingerprint(area: dict) -> str:
     """Hash mutable issue presentation without changing suppression identity."""
     compact = _legacy_fingerprint_payload(area)
+    # The working-hours selection is not rendered; only the kept assignee is.
+    compact.pop("selected_owner")
     compact["source_file"] = area.get("source_file")
-    compact["selected_owner"] = area.get("selected_owner")
     compact["actual_assignee"] = area.get("actual_assignee")
     compact["owners"] = [
         {
@@ -954,14 +900,45 @@ def _owner_by_login(config: dict, login: str) -> dict:
     return dict(config["ci_lead"])
 
 
+def _kept_assignment(area_state: Any) -> dict | None:
+    """Return the assignment an open managed issue keeps across runs."""
+    if not isinstance(area_state, dict) or not (area_state.get("issue") or {}).get("number"):
+        return None
+    kept = area_state.get("assignment")
+    return kept if isinstance(kept, dict) and kept.get("github_login") else None
+
+
 def _actual_assignee(
     area: dict,
     config: dict,
     client: GitHubIssueClient,
+    kept: dict | None = None,
 ) -> tuple[dict, str]:
     selected = area.get("selected_owner") or config["ci_lead"]
     selected_login = str(selected.get("github_login") or "")
     lead_login = config["ci_lead"]["github_login"]
+    kept_login = str((kept or {}).get("github_login") or "")
+    if kept_login:
+        folded = kept_login.casefold()
+        ranked = folded in {
+            str(row.get("github_login") or "").casefold() for row in area.get("owners") or []
+        }
+        kept_reason = str((kept or {}).get("reason") or "kept_open_issue_assignee")
+        if ranked or folded == lead_login.casefold():
+            # A CI-lead fallback hands off once to a ranked owner; any other
+            # kept assignee stays regardless of later working-hours changes.
+            if (
+                kept_reason in CI_LEAD_FALLBACK_REASONS
+                and not area.get("escalated_to_ci_lead")
+                and client.is_assignable(selected_login) is True
+            ):
+                return (
+                    _owner_by_login(config, selected_login),
+                    "ranked_owner_selected_and_assignable",
+                )
+            # Only a definitive 404 moves the issue; an unknown answer keeps it.
+            if client.is_assignable(kept_login) is not False:
+                return _owner_by_login(config, kept_login), kept_reason
     if client.is_assignable(selected_login):
         reason = (
             "ranked_owner_selected_and_assignable"
@@ -1299,10 +1276,12 @@ def run() -> int:
     )
     checkpoint_areas = {**prior_areas, **next_areas}
     for area in status["areas"]:
-        actual, assignment_reason = _actual_assignee(area, config, client)
+        area_key = area["area"]
+        actual, assignment_reason = _actual_assignee(
+            area, config, client, _kept_assignment(prior_areas.get(area_key))
+        )
         area["actual_assignee"] = actual or None
         area["assignment_reason"] = assignment_reason
-        area_key = area["area"]
         active = bool((area.get("counts") or {}).get("incidents"))
         if not _can_mutate_area(active, actual):
             log.error(
@@ -1357,6 +1336,12 @@ def run() -> int:
             recovery_labels=("automated", "workstream:dev"),
         )
         reconciled["body_schema_version"] = ISSUE_BODY_SCHEMA_VERSION
+        reconciled.pop("assignment", None)
+        if reconciled.get("issue") and actual:
+            reconciled["assignment"] = {
+                "github_login": actual["github_login"],
+                "reason": assignment_reason,
+            }
         signals = next_signals.get(area_key) or {}
         if not active and not reconciled.get("issue"):
             signals = {

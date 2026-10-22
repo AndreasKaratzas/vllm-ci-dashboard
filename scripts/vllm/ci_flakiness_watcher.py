@@ -144,11 +144,7 @@ def tracked_groups(rows: list[dict], previous: dict, observed_at: str) -> dict:
     return tracked
 
 
-def _issue_title(rows: list[dict], thresholds: dict[str, int]) -> str:
-    return (
-        f"AMD MI main CI flakiness: {len(rows)} test groups unstable over "
-        f"{thresholds['window_days']} days"
-    )
+ISSUE_TITLE = "AMD MI main CI flakiness: unstable test groups"
 
 
 def _issue_body(
@@ -265,7 +261,7 @@ def run(now: datetime | None = None) -> int:
         active=bool(rows),
         fingerprint=_fingerprint(rows),
         content_fingerprint=_content_fingerprint(rows),
-        title=_issue_title(rows, thresholds),
+        title=ISSUE_TITLE,
         body=_issue_body(rows, tracked, reliability, thresholds, run_url),
         ownership_marker=OWNERSHIP_MARKER,
         recovery_body=(

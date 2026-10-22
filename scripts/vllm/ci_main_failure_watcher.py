@@ -60,10 +60,6 @@ def advance_incidents(reliability: dict, state: dict) -> dict:
     )
 
 
-def _issue_title(active: dict[str, dict]) -> str:
-    return shared._issue_title_for(active, CONFIG)
-
-
 def _issue_body(
     active: dict[str, dict],
     reliability: dict,

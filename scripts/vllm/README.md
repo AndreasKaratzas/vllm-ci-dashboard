@@ -417,9 +417,9 @@ lossy category guess. A hard result confirms immediately, while the same soft
 result must recur on two distinct completed builds; pending soft evidence stays
 visible without opening an issue. Issue assignment walks each configured rank in
 ascending order, verifies repository assignability, and falls back to the CI lead.
-Every confirmed-incident issue tags the selected owner and verified assignee,
-then CCs each remaining ranked area owner once. The shared issue client rejects
-any repository other than the dashboard.
+An open issue keeps its verified assignee across runs and never @-mentions
+owners, so the assignment is the only notification. The shared issue client
+rejects any repository other than the dashboard.
 
 `scripts/build_site.py --cache-bust-index` assembles `docs/` and `data/`
 into `_site/` using `config/public_data_manifest.json`; unlisted collector

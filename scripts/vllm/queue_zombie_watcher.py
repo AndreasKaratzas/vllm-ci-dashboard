@@ -134,7 +134,7 @@ def _owned_queue_issue(issue: object) -> dict | None:
     title = str(issue.get("title") or "")
     title_pattern = (
         rf"^Queue {re.escape(queue)}: zombie jobs > "
-        rf"{QUEUE_ZOMBIE_THRESHOLD_MIN // 60}h \(\d+\)$"
+        rf"{QUEUE_ZOMBIE_THRESHOLD_MIN // 60}h(?: \(\d+\))?$"
     )
     if not re.fullmatch(title_pattern, title):
         return None
@@ -306,8 +306,8 @@ def _fingerprint(queue: str, jobs: list[dict], jobs_ts: str) -> str:
     return json.dumps({"queue": queue, "ts": jobs_ts, "jobs": compact}, sort_keys=True, separators=(",", ":"))
 
 
-def _issue_title(queue: str, jobs: list[dict]) -> str:
-    return f"Queue {queue}: zombie jobs > {QUEUE_ZOMBIE_THRESHOLD_MIN // 60}h ({len(jobs)})"
+def _issue_title(queue: str) -> str:
+    return f"Queue {queue}: zombie jobs > {QUEUE_ZOMBIE_THRESHOLD_MIN // 60}h"
 
 
 def _issue_body(queue: str, jobs: list[dict], opened_ts: str, jobs_ts: str, run_url: str, owner_login: str) -> str:
@@ -321,7 +321,7 @@ def _issue_body(queue: str, jobs: list[dict], opened_ts: str, jobs_ts: str, run_
         "These jobs are excluded from queue analytics so they do not distort the dashboard's queue counts or wait percentiles.",
         "",
         f"Issue opened at `{opened_ts or jobs_ts or 'unknown'}`.",
-        f"Latest queue snapshot: `{jobs_ts or 'unknown'}`.",
+        f"Latest queue snapshot: `{jobs_ts or 'unknown'}`, with **{len(jobs)}** zombie jobs.",
         "",
         "| state | age | build | branch | job | review |",
         "|---|---:|---|---|---|---|",
@@ -486,7 +486,7 @@ def run() -> int:
             # a mutation has succeeded.
             continue
 
-        title = _issue_title(queue, offenders)
+        title = _issue_title(queue)
         fingerprint = _fingerprint(queue, offenders, jobs_ts)
         if canonical is None:
             opened_ts = jobs_ts

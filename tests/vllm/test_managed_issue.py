@@ -94,6 +94,26 @@ def test_client_uses_bounded_owner_and_recent_indexes(monkeypatch):
     assert all(params["page"] == 1 for _, params in calls)
 
 
+def test_is_assignable_separates_not_assignable_from_unknown(monkeypatch):
+    def respond(status_code):
+        def fake_get(url, *, headers, timeout):
+            return _Response(status_code, None)
+
+        return fake_get
+
+    client = GitHubIssueClient("token", DASHBOARD_REPO)
+    for status_code, expected in ((204, True), (404, False), (403, None), (502, None)):
+        monkeypatch.setattr(managed_issue.requests, "get", respond(status_code))
+        assert client.is_assignable("owner") is expected
+
+    def offline(url, *, headers, timeout):
+        raise managed_issue.requests.ConnectionError("offline")
+
+    monkeypatch.setattr(managed_issue.requests, "get", offline)
+    assert client.is_assignable("owner") is None
+    assert client.is_assignable(" ") is False
+
+
 def test_client_owner_exact_match_skips_recent_recovery(monkeypatch):
     calls = []
 
