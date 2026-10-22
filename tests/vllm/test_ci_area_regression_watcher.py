@@ -782,7 +782,7 @@ def test_renamed_row_carries_its_incident_to_the_row_with_its_definition(
     failing = _row_status(95663, ("LoRA TP (Distributed)", "lora-tp", "hard"))
     signals = watcher.apply_incident_hysteresis(failing, {})
     # The held run advances the watermark to a build where the old row is absent.
-    held = _row_status(95829, ("LoRA", "lora", "passed"))
+    held = _row_status(95829, ("LoRA", "lora", "unobserved"))
     signals = watcher.apply_incident_hysteresis(held, _prior_with_signals(signals))
     held_fingerprint = watcher._fingerprint(held["areas"][0])
 
@@ -808,6 +808,32 @@ def test_renamed_row_carries_its_incident_to_the_row_with_its_definition(
         assert signal["identity"]["label"] == "LoRA TP (Distributed) Shard"
         # A manual close of the issue stays suppressed across the rename.
         assert watcher._fingerprint(area) == held_fingerprint
+
+
+def test_renamed_row_retires_once_its_whole_area_passed_before_it_reappears():
+    failing = _row_status(95663, ("LoRA TP (Distributed)", "lora-tp", "hard"))
+    signals = watcher.apply_incident_hysteresis(failing, {})
+    # The old row vanished and every remaining row passed in a newer build.
+    area_passed = _row_status(95829, ("LoRA", "lora", "passed"))
+    signals = watcher.apply_incident_hysteresis(
+        area_passed,
+        _prior_with_signals(signals),
+    )
+    assert [row["label"] for row in area_passed["areas"][0]["retired_incidents"]] == [
+        "LoRA TP (Distributed)"
+    ]
+
+    renamed = _row_status(
+        96078,
+        ("LoRA TP (Distributed) Shard", "lora-tp", "hard"),
+        ("LoRA", "lora", "passed"),
+    )
+    signals = watcher.apply_incident_hysteresis(renamed, _prior_with_signals(signals))
+
+    signal = signals["kernels"]["matrix-row-LoRA TP (Distributed) Shard"]
+    assert signal["status"] == "confirmed"
+    assert signal["incident_start_build_id"] == 96078
+    assert signals["kernels"]["matrix-row-LoRA TP (Distributed)"]["status"] == "clear"
 
 
 @pytest.mark.parametrize(
@@ -876,8 +902,10 @@ def test_absence_counts_only_builds_that_ran_the_signal_architecture():
 def test_absent_row_retires_after_its_area_runs_without_it_in_newer_builds():
     signals = watcher.apply_incident_hysteresis(_raw_status("hard", 95663), {})
 
+    # An unobserved row keeps the area from proving that nothing still fails.
+    unscheduled = ("Unscheduled", "unscheduled", "unobserved")
     for build_number in (96078, 96078, 96247):
-        area_ran = _row_status(build_number, ("LoRA", "lora", "passed"))
+        area_ran = _row_status(build_number, ("LoRA", "lora", "passed"), unscheduled)
         signals = watcher.apply_incident_hysteresis(
             area_ran,
             _prior_with_signals(signals),
@@ -887,7 +915,7 @@ def test_absent_row_retires_after_its_area_runs_without_it_in_newer_builds():
     signals = watcher.apply_incident_hysteresis(not_run, _prior_with_signals(signals))
     assert signals["kernels"]["target-1"]["absent_streak"] == 2
 
-    retiring = _row_status(96400, ("LoRA", "lora", "passed"))
+    retiring = _row_status(96400, ("LoRA", "lora", "passed"), unscheduled)
     signals = watcher.apply_incident_hysteresis(retiring, _prior_with_signals(signals))
 
     area = retiring["areas"][0]
@@ -930,6 +958,186 @@ def test_open_issue_body_reports_a_retired_incident_while_others_stay_open():
     )
     assert "### Retired target groups" in body
     assert "incidents were retired: Old." in body
+
+
+def _job_status(result: str, build_number: int, job_id: str) -> dict:
+    status = _raw_status(result, build_number)
+    status["areas"][0]["targets"][0]["url"] = (
+        f"https://buildkite.com/vllm/ci/builds/{build_number}/steps/canvas"
+        f"?jid={job_id}&tab=output"
+    )
+    return status
+
+
+def test_retry_that_passes_in_the_failing_build_resolves_the_incident():
+    # Issue #766: hard at 96338, then a retry of that step passed in 96338.
+    signals = watcher.apply_incident_hysteresis(
+        _job_status("hard", 96338, "01a15d40"), {}
+    )
+    retried = _job_status("passed", 96338, "01a15e82")
+    signals = watcher.apply_incident_hysteresis(retried, _prior_with_signals(signals))
+
+    row = retried["areas"][0]["targets"][0]
+    assert retried["areas"][0]["counts"]["incidents"] == 0
+    assert row["incident_change"] == "resolved"
+    assert row["incident_observation_eligible"] is True
+    assert signals["kernels"]["target-1"]["status"] == "clear"
+    assert signals["kernels"]["target-1"]["build_watermark"] == 96338
+
+    reread = _job_status("passed", 96338, "01a15e82")
+    signals = watcher.apply_incident_hysteresis(reread, _prior_with_signals(signals))
+    assert reread["areas"][0]["targets"][0]["incident_change"] == "none"
+    assert signals["kernels"]["target-1"]["status"] == "clear"
+
+
+def test_pass_after_a_hold_in_the_same_newer_build_resolves_the_incident():
+    signals = watcher.apply_incident_hysteresis(
+        _job_status("hard", 96000, "01a15d40"), {}
+    )
+    # A canceled first attempt holds and advances the watermark to 96338.
+    signals = watcher.apply_incident_hysteresis(
+        _job_status("unobserved", 96338, "01a15e00"),
+        _prior_with_signals(signals),
+    )
+    retried = _job_status("passed", 96338, "01a15e82")
+    signals = watcher.apply_incident_hysteresis(retried, _prior_with_signals(signals))
+
+    assert retried["areas"][0]["counts"]["incidents"] == 0
+    assert signals["kernels"]["target-1"]["status"] == "clear"
+
+
+@pytest.mark.parametrize(
+    "observation",
+    [
+        ("passed", 96338, "01a15d40"),
+        ("passed", 96337, "01a15e82"),
+        ("soft", 96338, "01a15e82"),
+    ],
+    ids=["same-job", "older-build", "soft-retry"],
+)
+def test_same_build_observation_without_a_passing_retry_holds_the_incident(
+    observation,
+):
+    signals = watcher.apply_incident_hysteresis(
+        _job_status("hard", 96338, "01a15d40"), {}
+    )
+    held = _job_status(*observation)
+    signals = watcher.apply_incident_hysteresis(held, _prior_with_signals(signals))
+
+    assert held["areas"][0]["counts"]["incidents"] == 1
+    assert held["areas"][0]["targets"][0]["incident_observation_eligible"] is False
+    assert signals["kernels"]["target-1"]["severity"] == "hard"
+
+
+def test_soft_retry_in_the_same_build_cannot_confirm_a_pending_soft_incident():
+    signals = watcher.apply_incident_hysteresis(
+        _job_status("soft", 96338, "01a15d40"), {}
+    )
+    retried = _job_status("soft", 96338, "01a15e82")
+    signals = watcher.apply_incident_hysteresis(retried, _prior_with_signals(signals))
+
+    assert retried["areas"][0]["counts"]["pending_soft"] == 1
+    assert signals["kernels"]["target-1"]["soft_streak"] == 1
+
+
+def _pre_lineage_lora_signal() -> dict:
+    # Issue #717's live signal: written before lineage tracking existed.
+    return {
+        "absent_build_id": 96338,
+        "absent_streak": 2,
+        "build_watermark": 96338,
+        "confirmed_build_id": 95663,
+        "evidence": {
+            "build_number": 95663,
+            "observed_at": "2026-10-18T06:00:03.455Z",
+            "url": "https://buildkite.com/vllm/ci/builds/95663/steps/canvas"
+            "?jid=01a14ded&tab=output",
+        },
+        "identity": {
+            "area_method": "definition_parity",
+            "id": "matrix-row-b99973e18201614c",
+            "label": "LoRA TP (Distributed)",
+        },
+        "incident_start_build_id": 95663,
+        "last_eligible_build_id": 95663,
+        "peak_severity": "hard",
+        "severity": "hard",
+        "soft_streak": 0,
+        "status": "confirmed",
+    }
+
+
+def test_vanished_row_retires_once_every_current_row_of_its_area_passed():
+    current = _row_status(
+        96338,
+        ("LoRA", "lora", "passed", "mi355"),
+        ("LoRA TP (Distributed) Shard", "lora-tp-distributed", "passed"),
+    )
+    signals = watcher.apply_incident_hysteresis(
+        current,
+        {"kernels": {"signals": {"matrix-row-b99973e18201614c": _pre_lineage_lora_signal()}}},
+    )
+
+    area = current["areas"][0]
+    assert area["counts"]["incidents"] == 0
+    assert [row["label"] for row in area["retired_incidents"]] == [
+        "LoRA TP (Distributed)"
+    ]
+    assert signals["kernels"]["matrix-row-b99973e18201614c"]["retired_build_id"] == 96338
+    assert "(retired: LoRA TP (Distributed))" in watcher._recovery_body(
+        area | {"source_file": "lora.yaml"},
+        "https://example.invalid/run",
+    )
+
+
+@pytest.mark.parametrize(
+    ("rows", "build_number", "elsewhere"),
+    [
+        ((("LoRA", "lora", "hard", "mi355"),), 96338, False),
+        ((("LoRA", "lora", "unobserved", "mi355"),), 96338, False),
+        ((), 95663, False),
+        ((), 96338, True),
+    ],
+    ids=["failing-row", "unobserved-row", "not-newer", "row-in-another-area"],
+)
+def test_vanished_row_is_held_unless_its_whole_area_passed_in_a_newer_build(
+    rows, build_number, elsewhere
+):
+    current = _row_status(
+        build_number,
+        ("LoRA TP (Distributed) Shard", "lora-tp-distributed", "passed"),
+        *rows,
+    )
+    if elsewhere:
+        current["unmapped_targets"] = [
+            {"id": "matrix-row-b99973e18201614c", "label": "LoRA TP (Distributed)"}
+        ]
+    signals = watcher.apply_incident_hysteresis(
+        current,
+        {"kernels": {"signals": {"matrix-row-b99973e18201614c": _pre_lineage_lora_signal()}}},
+    )
+
+    area = current["areas"][0]
+    assert "LoRA TP (Distributed)" in [row["label"] for row in area["regressions"]]
+    assert area["retired_incidents"] == []
+    assert signals["kernels"]["matrix-row-b99973e18201614c"]["status"] == "confirmed"
+
+
+def test_vanished_row_ignores_rows_on_other_hardware_when_retiring():
+    signals = watcher.apply_incident_hysteresis(
+        _row_status(95663, ("Old", "old", "hard"), ("New", "new", "hard", "mi355")),
+        {},
+    )
+    current = _row_status(
+        95700,
+        ("New", "new", "hard", "mi355"),
+        ("Other", "other", "passed"),
+    )
+    signals = watcher.apply_incident_hysteresis(current, _prior_with_signals(signals))
+
+    area = current["areas"][0]
+    assert [row["label"] for row in area["regressions"]] == ["New"]
+    assert [row["label"] for row in area["retired_incidents"]] == ["Old"]
 
 
 def test_prior_area_missing_from_current_status_keeps_all_signal_state():
