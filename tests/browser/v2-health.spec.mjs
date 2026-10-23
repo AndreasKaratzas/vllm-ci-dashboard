@@ -315,6 +315,87 @@ test.describe('CI Health AMD test groups (view=mirrors) matches the golden page 
     expect(errors).toEqual([]);
   });
 
+  test('the Kind filter separates GPU mirrors, CPU-only mirrors, and native AMD steps', async ({ page }) => {
+    const errors = collectErrors(page);
+    // The fixture publishes GPU mirrors only, so append one native step and one CPU-only
+    // mirror to the served scan. The manifest digest is dropped so the patched scan validates.
+    const source = `https://github.com/vllm-project/vllm/blob/${'a'.repeat(40)}/.buildkite/test_areas/browser_fixture.yaml`;
+    const added = [
+      {
+        definition_id: '.buildkite/test_areas/browser_fixture.yaml#native-0', kind: 'native', nvidia_definition_id: null,
+        source_file: '.buildkite/test_areas/browser_fixture.yaml', upstream_label: null, nvidia_label: null,
+        amd_label: ':amd: (MI300) Native Rocm Only', amd_key: 'amd-native-0', device: 'mi300', amd_device: 'mi300',
+        num_devices: 1, no_gpu: false, optional: false, soft_fail: false, required: true, gate_kind: 'required',
+        commands_match: null, source_url: source,
+      },
+      {
+        definition_id: '.buildkite/test_areas/browser_fixture.yaml#cpu-0', kind: 'cpu_mirror',
+        nvidia_definition_id: '.buildkite/test_areas/browser_fixture.yaml#cpu-0', source_file: '.buildkite/test_areas/browser_fixture.yaml',
+        upstream_label: 'Cpu Entrypoints', nvidia_label: 'Cpu Entrypoints', amd_label: ':amd: Cpu Entrypoints', amd_key: 'amd-cpu-0',
+        device: 'mi300', amd_device: 'mi300', num_devices: null, no_gpu: true, optional: false, soft_fail: false, required: true,
+        gate_kind: 'required', commands_match: true, source_url: source,
+      },
+    ];
+    let gpuCount = 0;
+    let markPatched;
+    const patched = new Promise((resolve) => (markPatched = resolve));
+    await page.route('**/operations_v2_manifest.json?*', async (route) => {
+      const manifest = await (await route.fetch()).json();
+      delete manifest.sections.test_group_parity.sha256;
+      await route.fulfill({ json: manifest });
+    });
+    await page.route('**/operations_v2/test_group_parity.json?*', async (route) => {
+      const payload = await (await route.fetch()).json();
+      const inventory = payload.test_group_parity.mirror_inventory;
+      const { summary } = inventory;
+      gpuCount = inventory.rows.filter((row) => row.kind === 'gpu_mirror').length;
+      expect(gpuCount).toBe(summary.total);
+      inventory.rows.push(...added);
+      summary.total += added.length;
+      summary.required += added.length;
+      summary.by_kind = { ...summary.by_kind, native: summary.by_kind.native + 1, cpu_mirror: summary.by_kind.cpu_mirror + 1 };
+      await route.fulfill({ json: payload });
+      markPatched();
+    });
+
+    await page.goto('/#/health?view=mirrors');
+    await patched;
+    expect(gpuCount).toBeGreaterThan(0);
+    const total = gpuCount + added.length;
+    await expect(kpiValue(page.getByTestId('mirror-hero'))).toHaveText(String(total));
+    await expect(page.getByTestId('mirror-kinds')).toHaveText(`${gpuCount} GPU mirrors · 1 CPU-only mirrors · 1 native AMD steps`);
+    const inventory = page.getByTestId('mirror-inventory');
+    const rowCount = inventory.locator('[data-slot=row-count]');
+    await expect(rowCount).toHaveText(`${total} of ${total} rows`);
+    const pick = async (label) => {
+      await inventory.getByRole('combobox', { name: 'Kind' }).click();
+      await page.getByRole('option', { name: label, exact: true }).click();
+    };
+    const kinds = async () => (await tableRows(inventory, 2)).map((row) => row[1]);
+
+    await pick('Native AMD');
+    await expect(rowCount).toHaveText(`1 of ${total} rows`);
+    expect(await kinds()).toEqual(['Native AMD']);
+    await inventory.locator('tbody tr').first().click();
+    const detail = topSheet(page);
+    await expect(detail.getByRole('heading').first()).toHaveText(added[0].amd_label);
+    const fields = lower(await detailFields(detail));
+    expect(fields).toContainEqual(['kind', 'Native AMD']);
+    // A native step has no upstream CUDA definition, so no field names one.
+    expect(fields.find(([label]) => label === 'source test group')).toEqual(['source test group', added[0].amd_label]);
+    expect(fields.filter(([label, value]) => /nvidia|cuda|upstream/i.test(`${label} ${value}`))).toEqual([]);
+    await closeSheets(page);
+
+    await pick('CPU-only mirror');
+    await expect(rowCount).toHaveText(`1 of ${total} rows`);
+    expect(await kinds()).toEqual(['CPU-only mirror']);
+
+    await pick('GPU mirror');
+    await expect(rowCount).toHaveText(`${gpuCount} of ${total} rows`);
+    expect(new Set(await kinds())).toEqual(new Set(['GPU mirror']));
+    expect(errors).toEqual([]);
+  });
+
   test('Overview mirror summary matches the golden card and opens the mirrors view', async ({ page }) => {
     const expected = golden['mirror summary'];
     await page.goto('/#/health');

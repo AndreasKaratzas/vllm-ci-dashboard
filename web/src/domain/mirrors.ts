@@ -57,7 +57,18 @@ export interface MirrorInventoryState {
   detailComplete: boolean
   omitted: number
   kinds: Record<TestGroupKind, number>
+  /** All three kind counts are exact. */
   kindsExact: boolean
+  /**
+   * The snapshot publishes kinds: summary.by_kind, or an explicit kind on every row.
+   * Older mirror-only snapshots published GPU mirrors alone, so their CPU-only and
+   * native counts are unknown rather than zero.
+   */
+  kindsPublished: boolean
+}
+
+function isTestGroupKind(kind: unknown): kind is TestGroupKind {
+  return TEST_GROUP_KINDS.some((item) => item.key === kind)
 }
 
 export function amdMirrorInventoryState(inventory: Rec | null | undefined): MirrorInventoryState {
@@ -80,15 +91,19 @@ export function amdMirrorInventoryState(inventory: Rec | null | undefined): Mirr
     byKind && typeof byKind === 'object' && TEST_GROUP_KINDS.every((item) => Number.isInteger(byKind[item.key]) && byKind[item.key] >= 0)
       ? (Object.fromEntries(TEST_GROUP_KINDS.map((item) => [item.key, byKind[item.key]])) as Record<TestGroupKind, number>)
       : null
-  const kindsExact = Boolean(exactKinds) && aggregateComplete
+  // Check the raw rows: amdMirrorInventoryRows defaults a missing kind to gpu_mirror.
+  const rawRows = currentSource && Array.isArray((inventory || {}).rows) ? (inventory as Rec).rows.filter((row: unknown) => row && typeof row === 'object') : []
+  const rowsTyped = rawRows.length > 0 && rawRows.every((row: Rec) => isTestGroupKind(row.kind))
+  const aggregateKinds = Boolean(exactKinds) && aggregateComplete
   return {
     total,
     rows,
     aggregateComplete,
     detailComplete,
     omitted: Math.max(0, total === null ? 0 : total - rows.length),
-    kinds: exactKinds && kindsExact ? exactKinds : published,
-    kindsExact: kindsExact || detailComplete,
+    kinds: exactKinds && aggregateKinds ? exactKinds : published,
+    kindsExact: aggregateKinds || (rowsTyped && detailComplete),
+    kindsPublished: Boolean(exactKinds) || rowsTyped,
   }
 }
 
@@ -131,11 +146,25 @@ export function amdTestGroupKinds(rows: Rec[] | null | undefined): Record<TestGr
   )
 }
 
+/**
+ * One kind count: ≥ when only published rows are known, and '—' for the CPU-only and
+ * native counts of an older mirror-only snapshot (its rows are all GPU mirrors).
+ */
+export function amdTestGroupKindDisplay(state: MirrorInventoryState, kind: TestGroupKind): string {
+  if (!state.kindsPublished && kind !== 'gpu_mirror') return '—'
+  const exact = state.kindsPublished ? state.kindsExact : state.detailComplete
+  return (exact ? '' : '≥') + integer(state.kinds[kind])
+}
+
 /** "219 GPU mirrors · 2 CPU-only mirrors · 19 native AMD steps", with ≥ when only published rows are known. */
 export function amdTestGroupKindText(state: MirrorInventoryState): string {
-  const prefix = state.kindsExact ? '' : '≥'
-  return TEST_GROUP_KINDS.map((item) => prefix + integer(state.kinds[item.key]) + ' ' + item.plural).join(' · ')
+  return TEST_GROUP_KINDS.map((item) => {
+    const display = amdTestGroupKindDisplay(state, item.key)
+    return display === '—' ? item.plural + ' not published' : display + ' ' + item.plural
+  }).join(' · ')
 }
+
+export const OLDER_MIRROR_SNAPSHOT_NOTE = 'Older mirror-only snapshot: CPU-only mirrors and native AMD steps were not published. '
 
 export function amdMirrorAreaRows(inventory: Rec | null | undefined, groups: Rec[] | null | undefined): Rec[] {
   const byFile = new Map<string, Rec>()
@@ -341,7 +370,7 @@ export function amdMirrorInventoryView(inventory: Rec | null | undefined) {
     kinds: TEST_GROUP_KINDS.map((item) => ({
       ...item,
       count: state.kinds[item.key],
-      display: state.kindsExact || groups.length ? (state.kindsExact ? '' : '≥') + integer(state.kinds[item.key]) : '—',
+      display: state.kindsExact || groups.length ? amdTestGroupKindDisplay(state, item.key) : '—',
     })),
     hero: {
       totalDisplay,
@@ -353,13 +382,16 @@ export function amdMirrorInventoryView(inventory: Rec | null | undefined) {
           ? '. ' + hardwareRows.map((row) => row.label + ': ' + integer(row.count)).join(', ')
           : '. Complete hardware breakdown unavailable'),
       meta:
-        state.total === null
+        (state.total !== null && !state.kindsPublished ? OLDER_MIRROR_SNAPSHOT_NOTE : '') +
+        (state.total === null
           ? 'The configured group total is unavailable in this snapshot.'
           : !totalExact
             ? 'The published aggregate is a lower bound in this snapshot.'
             : !breakdownComplete
               ? 'The total is exact; the hardware breakdown is unavailable because published detail is incomplete.'
-              : 'Each group is one AMD YAML definition on vLLM main: a GPU or CPU-only mirror.amd declaration, or a native AMD step.',
+              : !state.kindsPublished
+                ? 'Each group is one GPU mirror.amd declaration on vLLM main.'
+                : 'Each group is one AMD YAML definition on vLLM main: a GPU or CPU-only mirror.amd declaration, or a native AMD step.'),
       legend: breakdownComplete && hardwareRows.length ? hardwareRows : [],
     },
     configuration: {

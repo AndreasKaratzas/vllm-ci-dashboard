@@ -48,12 +48,26 @@
     }, {gpu_mirror: 0, cpu_mirror: 0, native: 0});
   }
 
+  function isTestGroupKind(kind) {
+    return TEST_GROUP_KINDS.some(function (item) { return item.key === kind; });
+  }
+
+  // One kind count: ≥ when only published rows are known, and '—' for the CPU-only
+  // and native counts of an older mirror-only snapshot (its rows are all GPU mirrors).
+  function amdTestGroupKindDisplay(inventoryState, kind, ui) {
+    if (!inventoryState.kindsPublished && kind !== 'gpu_mirror') return '—';
+    const exact = inventoryState.kindsPublished ? inventoryState.kindsExact : inventoryState.detailComplete;
+    return (exact ? '' : '≥') + ui.integer(inventoryState.kinds[kind]);
+  }
+
   function amdTestGroupKindText(inventoryState, ui) {
-    const prefix = inventoryState.kindsExact ? '' : '≥';
     return TEST_GROUP_KINDS.map(function (item) {
-      return prefix + ui.integer(inventoryState.kinds[item.key]) + ' ' + item.plural;
+      const display = amdTestGroupKindDisplay(inventoryState, item.key, ui);
+      return display === '—' ? item.plural + ' not published' : display + ' ' + item.plural;
     }).join(' · ');
   }
+
+  const OLDER_MIRROR_SNAPSHOT_NOTE = 'Older mirror-only snapshot: CPU-only mirrors and native AMD steps were not published. ';
 
   function amdTestGroupSubtitle(row) {
     const kind = amdTestGroupKind(row);
@@ -102,15 +116,23 @@
     })
       ? Object.fromEntries(TEST_GROUP_KINDS.map(function (item) { return [item.key, byKind[item.key]]; }))
       : null;
-    const kindsExact = Boolean(exactKinds) && aggregateComplete;
+    // Check the raw rows: amdMirrorInventoryRows defaults a missing kind to gpu_mirror.
+    // Older mirror-only snapshots published GPU mirrors alone, so their CPU-only and
+    // native counts are unknown rather than zero.
+    const rawRows = currentSource && Array.isArray((inventory || {}).rows)
+      ? inventory.rows.filter(function (row) { return row && typeof row === 'object'; })
+      : [];
+    const rowsTyped = rawRows.length > 0 && rawRows.every(function (row) { return isTestGroupKind(row.kind); });
+    const aggregateKinds = Boolean(exactKinds) && aggregateComplete;
     return {
       total: total,
       rows: rows,
       aggregateComplete: aggregateComplete,
       detailComplete: detailComplete,
       omitted: Math.max(0, total === null ? 0 : total - rows.length),
-      kinds: exactKinds && kindsExact ? exactKinds : published,
-      kindsExact: kindsExact || detailComplete,
+      kinds: exactKinds && aggregateKinds ? exactKinds : published,
+      kindsExact: aggregateKinds || (rowsTyped && detailComplete),
+      kindsPublished: Boolean(exactKinds) || rowsTyped,
     };
   }
 
@@ -345,13 +367,16 @@
     copy.append(ui.n(
       'p',
       'ops-mirror-hero-meta',
-      inventoryState.total === null
+      (inventoryState.total !== null && !inventoryState.kindsPublished ? OLDER_MIRROR_SNAPSHOT_NOTE : '')
+      + (inventoryState.total === null
         ? 'The configured group total is unavailable in this snapshot.'
         : !totalExact
           ? 'The published aggregate is a lower bound in this snapshot.'
           : !breakdownComplete
             ? 'The total is exact; the hardware breakdown is unavailable because published detail is incomplete.'
-            : 'Each group is one AMD YAML definition on vLLM main: a GPU or CPU-only mirror.amd declaration, or a native AMD step.'
+            : !inventoryState.kindsPublished
+              ? 'Each group is one GPU mirror.amd declaration on vLLM main.'
+              : 'Each group is one AMD YAML definition on vLLM main: a GPU or CPU-only mirror.amd declaration, or a native AMD step.')
     ));
     if (inventoryState.kindsExact || inventoryState.rows.length) {
       copy.append(ui.n('p', 'ops-mirror-kind-breakdown', amdTestGroupKindText(inventoryState, ui)));

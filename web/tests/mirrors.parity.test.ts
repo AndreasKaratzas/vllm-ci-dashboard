@@ -25,6 +25,7 @@ const INTERNALS = [
   'amdTestGroupKindLabel',
   'amdTestGroupKinds',
   'amdTestGroupKindText',
+  'amdTestGroupKindDisplay',
   'amdTestGroupSubtitle',
   'renderAmdMirrorSummary',
   'renderAmdMirrorInventory',
@@ -138,6 +139,9 @@ function compareFunctions(inv: Rec) {
   parity('amdMirrorModes', v2.amdMirrorModes(state.rows), mirror.amdMirrorModes!(state.rows))
   parity('amdTestGroupKinds', v2.amdTestGroupKinds(state.rows), mirror.amdTestGroupKinds!(state.rows))
   parity('amdTestGroupKindText', v2.amdTestGroupKindText(state), mirror.amdTestGroupKindText!(state, ui))
+  for (const item of v2.TEST_GROUP_KINDS) {
+    parity('amdTestGroupKindDisplay', v2.amdTestGroupKindDisplay(state, item.key), mirror.amdTestGroupKindDisplay!(state, item.key, ui))
+  }
   for (const row of state.rows) {
     parity('amdTestGroupKind', v2.amdTestGroupKind(row), mirror.amdTestGroupKind!(row))
     parity('amdTestGroupKindLabel', v2.amdTestGroupKindLabel(row), mirror.amdTestGroupKindLabel!(row))
@@ -358,10 +362,11 @@ describe('AMD mirror inventory matches the classic module', () => {
       if (view.preview.rows.length) seen.add('preview')
       if (state.total === 0) seen.add('zero')
       if (state.kindsExact && !state.detailComplete) seen.add('aggregate-kinds')
+      if (state.rows.length && !state.kindsPublished) seen.add('kinds-unpublished')
       if (state.rows.some((row) => row.kind === 'native')) seen.add('native')
       if (state.rows.some((row) => row.kind === 'cpu_mirror')) seen.add('cpu-only')
     }
-    expect([...seen].sort()).toEqual(['aggregate-kinds', 'areas', 'complete', 'cpu-only', 'lower-bound', 'native', 'no-total', 'partial', 'preview', 'zero'])
+    expect([...seen].sort()).toEqual(['aggregate-kinds', 'areas', 'complete', 'cpu-only', 'kinds-unpublished', 'lower-bound', 'native', 'no-total', 'partial', 'preview', 'zero'])
   })
 })
 
@@ -381,7 +386,7 @@ describe('AMD mirror helpers on hand-written inputs', () => {
       source: { pipeline: 'ci', current_definition_commit_sha: 'a'.repeat(40), repository: 'vllm-project/vllm' },
       summary: { total: 2 },
       rows: [
-        { definition_id: 'd1', source_file: '.buildkite/test_areas/attention.yaml', device: 'mi300_1' },
+        { definition_id: 'd1', source_file: '.buildkite/test_areas/attention.yaml', device: 'mi300_1', kind: 'gpu_mirror' },
         { definition_id: 'd2', source_file: '.buildkite/test_areas/attention.yaml', device: 'mi355_8', optional: true, kind: 'native' },
       ],
     }
@@ -432,6 +437,48 @@ describe('AMD mirror helpers on hand-written inputs', () => {
       ['native', '1'],
     ])
     expect(v2.amdMirrorDetail(view.groups[0]!, {}).fields[0]).toEqual({ label: 'Kind', value: 'GPU mirror' })
+  })
+
+  it('does not claim exact zero kinds for an older mirror-only snapshot', () => {
+    // The pre-kind builder: complete GPU-mirror rows, no kind field, no summary.by_kind.
+    const legacy: Rec = {
+      source: { pipeline: 'ci', current_definition_commit_sha: 'a'.repeat(40), repository: 'vllm-project/vllm' },
+      summary: { total: 3 },
+      rows: [
+        { definition_id: 'a', source_file: '.buildkite/test_areas/attention.yaml', device: 'mi300_1' },
+        { definition_id: 'b', source_file: '.buildkite/test_areas/attention.yaml', device: 'mi325_1', optional: true },
+        { definition_id: 'c', source_file: '.buildkite/test_areas/kernels.yaml', device: 'mi355_8' },
+      ],
+    }
+    const state = compareFunctions(legacy)
+    expect(state.detailComplete).toBe(true)
+    expect(state.kindsPublished).toBe(false)
+    expect(state.kindsExact).toBe(false)
+    const kindText = '3 GPU mirrors · CPU-only mirrors not published · native AMD steps not published'
+    expect(v2.amdTestGroupKindText(state)).toBe(kindText)
+    expect(v2.amdTestGroupKindText(state)).not.toMatch(/\b0 (CPU-only|native)/)
+    const view = compareView(legacy)
+    expect(view.kinds.map((kind) => [kind.key, kind.display])).toEqual([
+      ['gpu_mirror', '3'],
+      ['cpu_mirror', '—'],
+      ['native', '—'],
+    ])
+    expect(view.hero.kinds).toBe(kindText)
+    expect(view.hero.meta).toBe(`${v2.OLDER_MIRROR_SNAPSHOT_NOTE}Each group is one GPU mirror.amd declaration on vLLM main.`)
+    expect(compareSummary(legacy, 2).facts).toContain(kindText)
+    // Partial old-shape detail: the GPU count is a lower bound, the rest stays unknown.
+    const partial = compareFunctions({ ...legacy, summary: { total: 5 } })
+    expect(v2.amdTestGroupKindText(partial)).toBe('≥3 GPU mirrors · CPU-only mirrors not published · native AMD steps not published')
+    compareView({ ...legacy, summary: { total: 5 } })
+    // One explicit kind on every raw row, or summary.by_kind, makes the breakdown exact again.
+    const typed = compareFunctions({ ...legacy, rows: legacy.rows.map((row: Rec) => ({ ...row, kind: 'gpu_mirror' })) })
+    expect([typed.kindsPublished, typed.kindsExact]).toEqual([true, true])
+    expect(v2.amdTestGroupKindText(typed)).toBe('3 GPU mirrors · 0 CPU-only mirrors · 0 native AMD steps')
+    const aggregate = compareFunctions({ ...legacy, summary: { total: 3, by_kind: { gpu_mirror: 3, cpu_mirror: 0, native: 0 } } })
+    expect([aggregate.kindsPublished, aggregate.kindsExact]).toEqual([true, true])
+    // A single untyped row is enough to withhold the exact claim.
+    const mixed = compareFunctions({ ...legacy, rows: legacy.rows.map((row: Rec, i: number) => (i ? { ...row, kind: 'gpu_mirror' } : row)) })
+    expect([mixed.kindsPublished, mixed.kindsExact]).toEqual([false, false])
   })
 
   it('tones gate modes', () => {
