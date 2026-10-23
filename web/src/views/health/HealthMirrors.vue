@@ -74,7 +74,7 @@ const kindFootnote = (kind: { key: TestGroupKind; count: number; display: string
     <StatGrid :cols="4">
       <KpiCard label="AMD test groups" :value="total === null ? null : view.hero.totalDisplay" :footnote="view.hero.meta" data-testid="mirror-hero">
         <ProportionBar v-if="view.configuration.track" :segments="modeSegments" :label="view.configuration.trackLabel" :legend="false" />
-        <p v-if="view.hero.kinds" class="text-xs font-medium" data-testid="mirror-kinds">{{ view.hero.kinds }}</p>
+        <p v-if="view.hero.kinds" class="text-xs font-medium" :class="view.configuration.track && 'mt-2.5'" data-testid="mirror-kinds">{{ view.hero.kinds }}</p>
       </KpiCard>
       <KpiCard
         v-for="kind in view.kinds"
