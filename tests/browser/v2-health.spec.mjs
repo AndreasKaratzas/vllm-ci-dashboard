@@ -249,7 +249,7 @@ test.describe('CI Health AMD hardware matches the golden page facts', () => {
   });
 });
 
-test.describe('CI Health AMD mirrors matches the golden page facts', () => {
+test.describe('CI Health AMD test groups (view=mirrors) matches the golden page facts', () => {
   test('totals, families, areas, inventory, and drawers', async ({ page }) => {
     const errors = collectErrors(page);
     const expected = golden.mirrors;
@@ -266,6 +266,8 @@ test.describe('CI Health AMD mirrors matches the golden page facts', () => {
     await expect(page.locator('[data-slot=freshness-detail]')).toContainText(`${expected.observed} ·`);
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('mirror-hero')).toContainText(expected.meta);
+    await expect(page.getByTestId('mirror-kinds')).toHaveText(expected.kindBreakdown);
+    expect(await texts(page.getByTestId('mirror-kind').locator('[data-slot=kpi-value]'))).toEqual(expected.kinds);
     const legend = await page
       .getByTestId('mirror-families')
       .locator('[data-slot=donut-legend-item]')
@@ -290,7 +292,11 @@ test.describe('CI Health AMD mirrors matches the golden page facts', () => {
     const inventory = page.getByTestId('mirror-inventory');
     await expect(inventory.getByRole('heading', { level: 2 })).toHaveText(inventoryBrowser.title);
     await expect(inventory.locator('[data-slot=row-count]')).toHaveText(inventoryBrowser.count);
-    expect(await tableRows(inventory, 6)).toEqual(inventoryBrowser.rows.map((row) => row.map(unarrow)));
+    expect(await tableRows(inventory, 7)).toEqual(inventoryBrowser.rows.map((row) => row.map(unarrow)));
+    // The kind filter narrows the inventory to one kind of AMD test group.
+    await inventory.getByRole('combobox', { name: 'Kind' }).click();
+    await page.getByRole('option', { name: 'GPU mirror', exact: true }).click();
+    await expect(inventory.locator('[data-slot=row-count]')).toHaveText(inventoryBrowser.count);
 
     await inventory.locator('tbody tr').first().click();
     const detail = topSheet(page);
@@ -322,7 +328,7 @@ test.describe('CI Health AMD mirrors matches the golden page facts', () => {
     await expect(kpiValue(page.getByTestId('mirror-hero'))).toHaveText(expected.count);
   });
 
-  test('legacy links to AMD hardware and AMD mirrors open the views', async ({ page }) => {
+  test('legacy links to AMD hardware and AMD test groups open the views', async ({ page }) => {
     await page.goto('/?ops_health_view=coverage&ops_health_sort=area#ci-health');
     await expect(page).toHaveURL(/#\/health\?view=coverage&sort=area$/);
     await expect(page.getByTestId('matrix-sort-description')).toHaveText('Test areas sorted alphabetically, then by test-group name');

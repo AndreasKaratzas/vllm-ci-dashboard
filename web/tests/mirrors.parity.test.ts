@@ -1,5 +1,5 @@
-// Differential parity for CI Health "AMD mirrors" and the Overview mirror
-// summary: the v2 port against docs/assets/js/amd-mirror-inventory.js, both its
+// Differential parity for CI Health "AMD test groups" (view id 'mirrors') and
+// the Overview summary: the v2 port against docs/assets/js/amd-mirror-inventory.js, both its
 // internal functions and the DOM it renders with the classic UI helpers.
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -21,6 +21,11 @@ const INTERNALS = [
   'amdMirrorAreaRows',
   'amdMirrorHardwareRows',
   'amdMirrorLabel',
+  'amdTestGroupKind',
+  'amdTestGroupKindLabel',
+  'amdTestGroupKinds',
+  'amdTestGroupKindText',
+  'amdTestGroupSubtitle',
   'renderAmdMirrorSummary',
   'renderAmdMirrorInventory',
 ]
@@ -67,6 +72,7 @@ function generateInventory(rand: () => number): Rec {
   const pick = <T,>(xs: T[]) => xs[Math.floor(rand() * xs.length)]!
   const rows: Rec[] = Array.from({ length: Math.floor(rand() * 18) }, (_, i) => ({
     definition_id: rand() < 0.9 ? `def-${i % 7}` : undefined,
+    kind: pick(['gpu_mirror', 'gpu_mirror', 'cpu_mirror', 'native', undefined, 'other']),
     source_file: pick(FILES),
     upstream_label: rand() < 0.5 ? pick([':nvidia: (H100) Alpha', ':nvidia: (B200) beta', 'Gamma (L4)', 'alpha']) : undefined,
     nvidia_label: rand() < 0.3 ? ':nvidia: (A100) Delta' : undefined,
@@ -91,7 +97,21 @@ function generateInventory(rand: () => number): Rec {
       main_commit: pick([SHA, undefined]),
       repository: pick(['vllm-project/vllm', 'x/y', 'bad repo', undefined]),
     },
-    summary: rand() < 0.95 ? { total } : undefined,
+    summary:
+      rand() < 0.95
+        ? {
+            total,
+            by_kind: pick([
+              undefined,
+              { gpu_mirror: 5, cpu_mirror: 1, native: 2 },
+              { gpu_mirror: 0, cpu_mirror: 0, native: 0 },
+              { gpu_mirror: 3, native: 1 },
+              { gpu_mirror: -1, cpu_mirror: 0, native: 0 },
+              { gpu_mirror: '4', cpu_mirror: 0, native: 0 },
+              'x',
+            ]),
+          }
+        : undefined,
     publication_retention:
       rand() < 0.3
         ? { aggregate_summaries_complete: pick([true, false, undefined]), group_index: { complete_relative_to_source: pick([true, false, undefined]) } }
@@ -116,7 +136,12 @@ function compareFunctions(inv: Rec) {
   parity('amdMirrorAreaRows', v2.amdMirrorAreaRows(inv, state.rows), mirror.amdMirrorAreaRows!(inv, state.rows, ui))
   parity('amdMirrorHardwareRows', v2.amdMirrorHardwareRows(state.rows), mirror.amdMirrorHardwareRows!(state.rows, ui))
   parity('amdMirrorModes', v2.amdMirrorModes(state.rows), mirror.amdMirrorModes!(state.rows))
+  parity('amdTestGroupKinds', v2.amdTestGroupKinds(state.rows), mirror.amdTestGroupKinds!(state.rows))
+  parity('amdTestGroupKindText', v2.amdTestGroupKindText(state), mirror.amdTestGroupKindText!(state, ui))
   for (const row of state.rows) {
+    parity('amdTestGroupKind', v2.amdTestGroupKind(row), mirror.amdTestGroupKind!(row))
+    parity('amdTestGroupKindLabel', v2.amdTestGroupKindLabel(row), mirror.amdTestGroupKindLabel!(row))
+    parity('amdTestGroupSubtitle', v2.amdTestGroupSubtitle(row), mirror.amdTestGroupSubtitle!(row))
     parity('amdMirrorGateMode', v2.amdMirrorGateMode(row), mirror.amdMirrorGateMode!(row))
     parity('amdMirrorLabel', v2.amdMirrorLabel(row), mirror.amdMirrorLabel!(row, ui))
     parity('amdMirrorSourceUrl', v2.amdMirrorSourceUrl(inv, row), mirror.amdMirrorSourceUrl!(inv, row))
@@ -130,7 +155,7 @@ function compareSummary(inv: Rec, runtime: number | null | undefined) {
   const summary = v2.amdMirrorSummary(inv, runtime)
   parity('summaryAriaLabel', summary.ariaLabel, card.getAttribute('aria-label'))
   parity('summaryUnavailable', summary.unavailable, card.classList.contains('is-unavailable'))
-  parity('summaryTitle', [summary.countLabel, 'configured AMD mirror groups'], children(card.querySelector('.ops-health-mirror-title')))
+  parity('summaryTitle', [summary.countLabel, 'configured AMD test groups'], children(card.querySelector('.ops-health-mirror-title')))
   parity('summaryMeta', summary.meta, text(card.querySelector('.ops-health-mirror-meta')))
   parity('summaryFacts', summary.facts, text(card.querySelector('.ops-health-mirror-facts')))
   const track = card.querySelector('.ops-health-mirror-track')
@@ -150,8 +175,10 @@ function compareView(inv: Rec) {
   // Count hero.
   const ring = host.querySelector('.ops-mirror-count-ring') as HTMLElement
   parity('heroAriaLabel', view.hero.ariaLabel, ring.getAttribute('aria-label'))
-  parity('heroTitle', [view.hero.totalDisplay, 'mirror groups'], children(ring))
+  parity('heroTitle', [view.hero.totalDisplay, 'test groups'], children(ring))
   parity('heroMeta', view.hero.meta, text(host.querySelector('.ops-mirror-hero-meta')))
+  const kindBreakdown = host.querySelector('.ops-mirror-kind-breakdown')
+  parity('heroKinds', view.hero.kinds || null, kindBreakdown ? text(kindBreakdown) : null)
   parity(
     'heroLegend',
     view.hero.legend.map((row) => [row.count.toLocaleString(), row.label]),
@@ -209,7 +236,7 @@ function compareView(inv: Rec) {
     parity('areaChartBrowseLabel', view.areaChart.browseLabel, text(browse))
     browse.click()
     const config = captured.browsers.pop()!
-    expect(config.title).toBe('AMD mirrors by test-area file')
+    expect(config.title).toBe('AMD test groups by test-area file')
     parity('areaBrowserRows', view.areas, config.rows)
     for (const row of view.areas) {
       parity('areaSearchText', v2.mirrorAreaSearchText(row), config.searchText(row))
@@ -258,7 +285,7 @@ function compareView(inv: Rec) {
   })
   const browseInventory = preview.querySelector('.ops-mirror-actions button') as HTMLElement | null
   parity('previewBrowseLabel', view.preview.browseLabel, browseInventory ? text(browseInventory) : null)
-  if (!view.groups.length) expect(text(preview)).toContain('No published AMD mirror groups are available.')
+  if (!view.groups.length) expect(text(preview)).toContain('No published AMD test groups are available.')
   if (browseInventory) {
     browseInventory.click()
     const config = captured.browsers.pop()!
@@ -274,6 +301,7 @@ function compareView(inv: Rec) {
         'inventoryBrowserCells',
         [
           v2.amdMirrorLabel(row),
+          v2.amdTestGroupKindLabel(row),
           row.area === '' || row.area === undefined ? '-' : row.area,
           hardwareDisplayLabel(row.device),
           row.num_devices === null || row.num_devices === undefined ? '—' : Number(row.num_devices).toLocaleString(),
@@ -299,6 +327,11 @@ describe('AMD mirror inventory matches the classic module', () => {
     const state = compareFunctions(inventory)
     expect(state.rows.length).toBeGreaterThan(100)
     expect(state.detailComplete).toBe(state.total === state.rows.length)
+    // Every AMD test group on main: GPU mirrors, CPU-only mirrors, and native AMD steps.
+    expect(state.total).toBe(240)
+    expect(state.kinds).toEqual({ gpu_mirror: 219, cpu_mirror: 2, native: 19 })
+    expect(v2.amdTestGroupKinds(state.rows)).toEqual(state.kinds)
+    expect(state.kindsExact).toBe(true)
     const view = compareView(inventory)
     expect(view.areas.length).toBeGreaterThan(5)
     expect(view.hardwareRows.length).toBeGreaterThan(1)
@@ -324,8 +357,11 @@ describe('AMD mirror inventory matches the classic module', () => {
       if (view.areaChart) seen.add('areas')
       if (view.preview.rows.length) seen.add('preview')
       if (state.total === 0) seen.add('zero')
+      if (state.kindsExact && !state.detailComplete) seen.add('aggregate-kinds')
+      if (state.rows.some((row) => row.kind === 'native')) seen.add('native')
+      if (state.rows.some((row) => row.kind === 'cpu_mirror')) seen.add('cpu-only')
     }
-    expect([...seen].sort()).toEqual(['areas', 'complete', 'lower-bound', 'no-total', 'partial', 'preview', 'zero'])
+    expect([...seen].sort()).toEqual(['aggregate-kinds', 'areas', 'complete', 'cpu-only', 'lower-bound', 'native', 'no-total', 'partial', 'preview', 'zero'])
   })
 })
 
@@ -336,7 +372,7 @@ describe('AMD mirror helpers on hand-written inputs', () => {
     expect([{ amd_label: ':amd: (MI300) Alpha' }, { label: ':nvidia: (H100) Beta', device: 'mi355_8' }, {}].map((row) => v2.amdMirrorLabel(row))).toEqual([
       ':amd: (MI300) Alpha',
       ':amd: (MI355) Beta',
-      'AMD mirror',
+      'AMD test group',
     ])
   })
 
@@ -346,21 +382,56 @@ describe('AMD mirror helpers on hand-written inputs', () => {
       summary: { total: 2 },
       rows: [
         { definition_id: 'd1', source_file: '.buildkite/test_areas/attention.yaml', device: 'mi300_1' },
-        { definition_id: 'd2', source_file: '.buildkite/test_areas/attention.yaml', device: 'mi355_8', optional: true },
+        { definition_id: 'd2', source_file: '.buildkite/test_areas/attention.yaml', device: 'mi355_8', optional: true, kind: 'native' },
       ],
     }
     expect(v2.amdMirrorSummary(inv, 3)).toEqual({
       unavailable: false,
       countLabel: '2',
-      ariaLabel: '2 configured AMD mirror groups. Open the AMD mirror inventory.',
-      meta: 'Physical mirror.amd declarations · separate from 3 runtime groups',
+      ariaLabel: '2 configured AMD test groups. Open the AMD test-group inventory.',
+      meta: 'Mirror and native AMD definitions · separate from 3 runtime groups',
       track: [
         { key: 'required', label: 'Required', count: 1, width: 50 },
         { key: 'optional', label: 'Optional', count: 1, width: 50 },
         { key: 'soft_fail', label: 'Soft fail', count: 0, width: 0 },
       ],
-      facts: '1 required · 1 optional · 0 soft fail · 1 files',
+      facts: '1 GPU mirrors · 0 CPU-only mirrors · 1 native AMD steps · 1 required · 1 optional · 0 soft fail · 1 files',
     })
+  })
+
+  it('classifies test-group kinds and prefers the exact aggregate breakdown', () => {
+    expect([{ kind: 'gpu_mirror' }, { kind: 'cpu_mirror' }, { kind: 'native' }, {}, { kind: 'bogus' }].map((row) => v2.amdTestGroupKind(row))).toEqual([
+      'gpu_mirror',
+      'cpu_mirror',
+      'native',
+      'gpu_mirror',
+      'gpu_mirror',
+    ])
+    expect([{ kind: 'native' }, { kind: 'cpu_mirror' }, {}].map((row) => v2.amdTestGroupSubtitle(row))).toEqual([
+      'Native AMD step on vLLM main',
+      'CPU-only mirror.amd declaration on vLLM main',
+      'Physical mirror.amd declaration on vLLM main',
+    ])
+    const source = { pipeline: 'ci', current_definition_commit_sha: 'a'.repeat(40) }
+    const rows = [
+      { definition_id: 'a', source_file: 'x.yaml', kind: 'gpu_mirror' },
+      { definition_id: 'b', source_file: 'x.yaml', kind: 'native' },
+    ]
+    // Partial detail rows: the published aggregate breakdown stays exact.
+    const partial = v2.amdMirrorInventoryState({ source, summary: { total: 5, by_kind: { gpu_mirror: 3, cpu_mirror: 1, native: 1 } }, rows })
+    expect(partial.detailComplete).toBe(false)
+    expect(partial.kinds).toEqual({ gpu_mirror: 3, cpu_mirror: 1, native: 1 })
+    expect(v2.amdTestGroupKindText(partial)).toBe('3 GPU mirrors · 1 CPU-only mirrors · 1 native AMD steps')
+    // No aggregate breakdown: published rows are a lower bound.
+    const lower = v2.amdMirrorInventoryState({ source, summary: { total: 5 }, rows })
+    expect(v2.amdTestGroupKindText(lower)).toBe('≥1 GPU mirrors · ≥0 CPU-only mirrors · ≥1 native AMD steps')
+    const view = v2.amdMirrorInventoryView({ source, summary: { total: 2, by_kind: { gpu_mirror: 1, cpu_mirror: 0, native: 1 } }, rows })
+    expect(view.kinds.map((kind) => [kind.key, kind.display])).toEqual([
+      ['gpu_mirror', '1'],
+      ['cpu_mirror', '0'],
+      ['native', '1'],
+    ])
+    expect(v2.amdMirrorDetail(view.groups[0]!, {}).fields[0]).toEqual({ label: 'Kind', value: 'GPU mirror' })
   })
 
   it('tones gate modes', () => {

@@ -1,5 +1,7 @@
 /**
- * Lazy AMD mirror inventory renderer for the CI Health mirrors view.
+ * Lazy AMD test-group inventory renderer for the CI Health mirrors view: every
+ * AMD test group on vLLM main (GPU and CPU-only mirror.amd declarations plus
+ * native AMD steps).
  */
 (function (global) {
   'use strict';
@@ -22,12 +24,50 @@
     return ui;
   }
 
+  const TEST_GROUP_KINDS = [
+    {key: 'gpu_mirror', label: 'GPU mirror', plural: 'GPU mirrors'},
+    {key: 'cpu_mirror', label: 'CPU-only mirror', plural: 'CPU-only mirrors'},
+    {key: 'native', label: 'Native AMD', plural: 'native AMD steps'},
+  ];
+
+  // Rows published before kinds existed were GPU mirrors only.
+  function amdTestGroupKind(row) {
+    const kind = (row || {}).kind;
+    return kind === 'cpu_mirror' || kind === 'native' ? kind : 'gpu_mirror';
+  }
+
+  function amdTestGroupKindLabel(row) {
+    const kind = amdTestGroupKind(row);
+    return TEST_GROUP_KINDS.find(function (item) { return item.key === kind; }).label;
+  }
+
+  function amdTestGroupKinds(rows) {
+    return (rows || []).reduce(function (counts, row) {
+      counts[amdTestGroupKind(row)] += 1;
+      return counts;
+    }, {gpu_mirror: 0, cpu_mirror: 0, native: 0});
+  }
+
+  function amdTestGroupKindText(inventoryState, ui) {
+    const prefix = inventoryState.kindsExact ? '' : '≥';
+    return TEST_GROUP_KINDS.map(function (item) {
+      return prefix + ui.integer(inventoryState.kinds[item.key]) + ' ' + item.plural;
+    }).join(' · ');
+  }
+
+  function amdTestGroupSubtitle(row) {
+    const kind = amdTestGroupKind(row);
+    if (kind === 'native') return 'Native AMD step on vLLM main';
+    if (kind === 'cpu_mirror') return 'CPU-only mirror.amd declaration on vLLM main';
+    return 'Physical mirror.amd declaration on vLLM main';
+  }
+
   function amdMirrorInventoryRows(inventory, ui) {
     return (Array.isArray((inventory || {}).rows) ? inventory.rows : [])
       .filter(function (row) { return row && typeof row === 'object'; })
       .map(function (row) {
         const sourceFile = String(row.source_file || '');
-        return Object.assign({}, row, {yaml_file: sourceFile, label: row.upstream_label || row.nvidia_label || row.amd_label, key: row.definition_id, area: row.area || sourceFile.split('/').pop().replace(/\.ya?ml$/i, '').replaceAll('_', ' ')});
+        return Object.assign({}, row, {yaml_file: sourceFile, label: row.upstream_label || row.nvidia_label || row.amd_label, key: row.definition_id, kind: amdTestGroupKind(row), area: row.area || sourceFile.split('/').pop().replace(/\.ya?ml$/i, '').replaceAll('_', ' ')});
       })
       .sort(function (left, right) {
         return ui.compareText(left.area, right.area)
@@ -55,12 +95,22 @@
       && groupIndex.complete_relative_to_source !== false
       && total !== null
       && rows.length === total;
+    const published = amdTestGroupKinds(rows);
+    const byKind = currentSource ? summary.by_kind : null;
+    const exactKinds = byKind && typeof byKind === 'object' && TEST_GROUP_KINDS.every(function (item) {
+      return Number.isInteger(byKind[item.key]) && byKind[item.key] >= 0;
+    })
+      ? Object.fromEntries(TEST_GROUP_KINDS.map(function (item) { return [item.key, byKind[item.key]]; }))
+      : null;
+    const kindsExact = Boolean(exactKinds) && aggregateComplete;
     return {
       total: total,
       rows: rows,
       aggregateComplete: aggregateComplete,
       detailComplete: detailComplete,
       omitted: Math.max(0, total === null ? 0 : total - rows.length),
+      kinds: exactKinds && kindsExact ? exactKinds : published,
+      kindsExact: kindsExact || detailComplete,
     };
   }
 
@@ -173,7 +223,7 @@
 
   function amdMirrorLabel(row, ui) {
     if ((row || {}).amd_label) return row.amd_label;
-    const sourceLabel = String((row || {}).label || (row || {}).key || 'AMD mirror');
+    const sourceLabel = String((row || {}).label || (row || {}).key || 'AMD test group');
     const deviceFamily = String((row || {}).device || '').split('_')[0];
     const hardware = deviceFamily ? ui.hardwareDisplayLabel(deviceFamily) : 'AMD';
     return sourceLabel
@@ -187,16 +237,17 @@
     const sources = [
       sourceUrl ? {label: 'Open pinned test-area YAML', url: sourceUrl} : null,
       source.current_definition_commit_sha || source.main_commit ? {label: 'Open current main CI commit', url: 'https://github.com/vllm-project/vllm/commit/' + (source.current_definition_commit_sha || source.main_commit)} : null,
-      {label: 'Open published AMD mirror scan', url: SOURCE_ASSET_URL},
+      {label: 'Open published AMD test-group scan', url: SOURCE_ASSET_URL},
     ].filter(Boolean);
     const identity = [row.yaml_file, row.yaml_index, row.key].join('-')
       .toLowerCase().replace(/[^a-z0-9-]+/g, '-');
     ui.openDetailDrawer({
       id: 'amd-mirror-' + identity,
       title: amdMirrorLabel(row, ui),
-      subtitle: 'Physical mirror.amd declaration on vLLM main',
-      description: 'This source definition counts once in the configured AMD mirror total. Parallel execution changes potential job fan-out, not the declaration count.',
+      subtitle: amdTestGroupSubtitle(row),
+      description: 'This source definition counts once in the AMD test-group total. Parallel execution changes potential job fan-out, not the declaration count.',
       fields: [
+        {label: 'Kind', value: amdTestGroupKindLabel(row)},
         {label: 'Source test group', value: row.label},
         {label: 'Source definition ID', value: row.key},
         {label: 'Test area', value: row.area},
@@ -216,7 +267,7 @@
     return [
       {label: 'Test-area file', sticky: true, width: '310px', render: function (row) { return row.source_url ? ui.externalLink(row.yaml_file.split('/').pop() + ' ↗', row.source_url, 'ops-cell-primary') : ui.n('span', 'ops-cell-primary', row.yaml_file); }},
       {label: 'Test area', width: '230px', render: function (row) { return ui.value(row.area); }},
-      {label: 'Mirror groups', numeric: true, width: '130px', render: function (row) { return ui.integer(row.count); }},
+      {label: 'Test groups', numeric: true, width: '130px', render: function (row) { return ui.integer(row.count); }},
       {label: 'Required', numeric: true, width: '110px', render: function (row) { return ui.integer(row.required); }},
       {label: 'Optional', numeric: true, width: '110px', render: function (row) { return ui.integer(row.optional); }},
       {label: 'Soft fail', numeric: true, width: '110px', render: function (row) { return ui.integer(row.soft_fail); }},
@@ -227,8 +278,8 @@
   function openAmdMirrorAreaBrowser(inventory, areas, ui) {
     ui.openTableBrowser({
       id: 'amd-mirror-area-browser',
-      title: 'AMD mirrors by test-area file',
-      subtitle: 'Physical mirror.amd declarations grouped by their pinned source YAML file',
+      title: 'AMD test groups by test-area file',
+      subtitle: 'AMD test-group definitions grouped by their pinned source YAML file',
       rows: areas,
       columns: amdMirrorAreaColumns(inventory, ui),
       searchPlaceholder: 'Filter test area, YAML file, device, or queue',
@@ -242,6 +293,7 @@
   function amdMirrorInventoryColumns(inventory, ui) {
     return [
       {label: 'Source test group', sticky: true, width: '390px', render: function (row) { return ui.linkButton(amdMirrorLabel(row, ui), function () { openAmdMirrorDetail(row, inventory, ui); }); }},
+      {label: 'Kind', width: '150px', render: function (row) { return ui.badge(amdTestGroupKindLabel(row), amdTestGroupKind(row) === 'gpu_mirror' ? 'is-neutral' : 'is-info'); }},
       {label: 'Test area', width: '210px', render: function (row) { return ui.value(row.area); }},
       {label: 'AMD device', width: '130px', render: function (row) { return ui.badge(ui.hardwareDisplayLabel(row.device), 'is-info'); }},
       {label: 'GPU width', numeric: true, width: '115px', render: function (row) { return row.num_devices === null || row.num_devices === undefined ? '—' : ui.integer(row.num_devices); }},
@@ -253,15 +305,15 @@
   function openAmdMirrorInventoryBrowser(inventory, groups, ui) {
     ui.openTableBrowser({
       id: 'amd-mirror-inventory-browser',
-      title: 'AMD mirror inventory',
-      subtitle: ui.integer(groups.length) + ' published mirror groups from vLLM main',
+      title: 'AMD test-group inventory',
+      subtitle: ui.integer(groups.length) + ' published AMD test groups from vLLM main',
       rows: groups,
       columns: amdMirrorInventoryColumns(inventory, ui),
-      searchPlaceholder: 'Filter test group, area, YAML file, device, mode, or key',
+      searchPlaceholder: 'Filter test group, kind, area, YAML file, device, mode, or key',
       searchText: function (row) {
-        return [row.amd_label, row.label, row.key, row.area, row.yaml_file, row.device, amdMirrorGateMode(row)].join(' ');
+        return [row.amd_label, row.label, row.key, row.area, row.yaml_file, row.device, amdMirrorGateMode(row), amdTestGroupKindLabel(row)].join(' ');
       },
-      geometry: {name: 'amd-mirror-inventory', minWidth: '1285px'},
+      geometry: {name: 'amd-mirror-inventory', minWidth: '1435px'},
     });
   }
 
@@ -279,17 +331,17 @@
     ring.setAttribute('role', 'img');
     ring.setAttribute(
       'aria-label',
-      (inventoryState.total === null ? 'Configured AMD mirror group total unavailable' : totalDisplay + ' configured AMD mirror groups')
+      (inventoryState.total === null ? 'Configured AMD test-group total unavailable' : totalDisplay + ' configured AMD test groups')
         + (breakdownComplete && hardwareRows.length
           ? '. ' + hardwareRows.map(function (row) { return row.label + ': ' + ui.integer(row.count); }).join(', ')
           : '. Complete hardware breakdown unavailable')
     );
     ring.append(ui.n('strong', '', totalDisplay));
-    ring.append(ui.n('span', '', 'mirror groups'));
+    ring.append(ui.n('span', '', 'test groups'));
 
     const copy = ui.n('div', 'ops-mirror-hero-copy');
-    copy.append(ui.n('div', 'ops-eyebrow', 'AMD MIRROR CONFIGURATION ON MAIN'));
-    copy.append(ui.n('h2', 'ops-mirror-hero-title', 'Configured AMD mirror groups'));
+    copy.append(ui.n('div', 'ops-eyebrow', 'AMD TEST GROUPS ON MAIN'));
+    copy.append(ui.n('h2', 'ops-mirror-hero-title', 'Configured AMD test groups'));
     copy.append(ui.n(
       'p',
       'ops-mirror-hero-meta',
@@ -299,8 +351,11 @@
           ? 'The published aggregate is a lower bound in this snapshot.'
           : !breakdownComplete
             ? 'The total is exact; the hardware breakdown is unavailable because published detail is incomplete.'
-            : 'Each group is one mirror.amd declaration on vLLM main.'
+            : 'Each group is one AMD YAML definition on vLLM main: a GPU or CPU-only mirror.amd declaration, or a native AMD step.'
     ));
+    if (inventoryState.kindsExact || inventoryState.rows.length) {
+      copy.append(ui.n('p', 'ops-mirror-kind-breakdown', amdTestGroupKindText(inventoryState, ui)));
+    }
     const legend = ui.n('div', 'ops-mirror-hardware-legend');
     hardwareRows.forEach(function (row, index) {
       const item = ui.n('span', 'ops-mirror-hardware-item');
@@ -336,7 +391,7 @@
 
     const track = ui.n('div', 'ops-mirror-mode-track');
     track.setAttribute('role', 'img');
-    track.setAttribute('aria-label', ui.integer(required) + ' required and ' + ui.integer(optional) + ' optional and ' + ui.integer(softFail) + ' soft-fail published mirror groups');
+    track.setAttribute('aria-label', ui.integer(required) + ' required and ' + ui.integer(optional) + ' optional and ' + ui.integer(softFail) + ' soft-fail published AMD test groups');
     if (publishedTotal) {
       const requiredBar = ui.n('span', 'is-required');
       requiredBar.style.width = required / publishedTotal * 100 + '%';
@@ -379,7 +434,7 @@
         control.target = '_blank';
         control.rel = 'noopener';
       }
-      control.setAttribute('aria-label', row.area + ': ' + ui.integer(row.count) + ' mirror groups, ' + ui.integer(row.required) + ' required and ' + ui.integer(row.optional) + ' optional and ' + ui.integer(row.soft_fail) + ' soft fail' + (row.source_url ? '. Opens pinned YAML in a new tab.' : ''));
+      control.setAttribute('aria-label', row.area + ': ' + ui.integer(row.count) + ' test groups, ' + ui.integer(row.required) + ' required and ' + ui.integer(row.optional) + ' optional and ' + ui.integer(row.soft_fail) + ' soft fail' + (row.source_url ? '. Opens pinned YAML in a new tab.' : ''));
       const label = ui.n('span', 'ops-mirror-area-label');
       label.append(ui.n('strong', '', row.area), ui.n('small', '', row.yaml_file.split('/').pop()));
       const track = ui.n('span', 'ops-mirror-area-track');
@@ -411,7 +466,7 @@
       body.append(actions);
     }
     return ui.panel(
-      'Where the mirror groups live',
+      'Where the AMD test groups live',
       (inventoryState.detailComplete ? '' : 'Published detail · ') + 'Top ' + ui.integer(topAreas.length) + ' of ' + ui.integer(areas.length) + ' source files by group count',
       body,
       'ops-mirror-area-panel'
@@ -439,25 +494,25 @@
       );
       list.append(control);
     });
-    if (!groups.length) list.append(ui.n('div', 'ops-empty', 'No published AMD mirror groups are available.'));
+    if (!groups.length) list.append(ui.n('div', 'ops-empty', 'No published AMD test groups are available.'));
     body.append(list);
     if (groups.length) {
       const mirrorCount = inventoryState.total === null ? groups.length : inventoryState.total;
       const actions = ui.n('div', 'ops-mirror-actions');
       actions.append(ui.button(
         inventoryState.detailComplete
-          ? 'Browse all ' + ui.integer(mirrorCount) + ' AMD mirrors'
-          : 'Browse ' + ui.integer(groups.length) + ' published AMD mirrors',
+          ? 'Browse all ' + ui.integer(mirrorCount) + ' AMD test groups'
+          : 'Browse ' + ui.integer(groups.length) + ' published AMD test groups',
         function () { openAmdMirrorInventoryBrowser(inventory, groups, ui); },
         true
       ));
       body.append(actions);
     }
     return ui.panel(
-      'Configured mirror groups',
+      'Configured AMD test groups',
       inventoryState.total === null
         ? ui.integer(groups.length) + ' published groups; exact aggregate unavailable'
-        : ui.integer(groups.length) + ' of ' + ui.integer(inventoryState.total) + ' physical mirror.amd declarations',
+        : ui.integer(groups.length) + ' of ' + ui.integer(inventoryState.total) + ' AMD test-group definitions (mirror.amd and native)',
       body,
       'ops-mirror-inventory-panel'
     );
@@ -482,8 +537,8 @@
     root.addEventListener('click', typeof onOpen === 'function' ? onOpen : function () {});
     root.setAttribute(
       'aria-label',
-      (inventoryState.total === null ? 'AMD mirror count unavailable' : countLabel + ' configured AMD mirror groups')
-        + '. Open the AMD mirror inventory.'
+      (inventoryState.total === null ? 'AMD test-group count unavailable' : countLabel + ' configured AMD test groups')
+        + '. Open the AMD test-group inventory.'
     );
 
     const mark = ui.n('span', 'ops-health-mirror-mark');
@@ -497,15 +552,15 @@
     const title = ui.n('span', 'ops-health-mirror-title');
     title.append(
       ui.n('strong', '', countLabel),
-      ui.n('span', '', 'configured AMD mirror groups')
+      ui.n('span', '', 'configured AMD test groups')
     );
     copy.append(
-      ui.n('span', 'ops-eyebrow', 'AMD MIRROR CONFIGURATION ON MAIN'),
+      ui.n('span', 'ops-eyebrow', 'AMD TEST GROUPS ON MAIN'),
       title,
       ui.n(
         'span',
         'ops-health-mirror-meta',
-        'Physical mirror.amd declarations · '
+        'Mirror and native AMD definitions · '
           + (runtimeGroupCount === null || runtimeGroupCount === undefined
             ? 'runtime group count unavailable'
             : 'separate from ' + ui.integer(runtimeGroupCount) + ' runtime groups')
@@ -527,6 +582,7 @@
     const facts = [];
     if (rows.length || inventoryState.total === 0) {
       facts.push(
+        amdTestGroupKindText(inventoryState, ui),
         detailPrefix + ui.integer(required) + ' required',
         detailPrefix + ui.integer(optional) + ' optional',
         detailPrefix + ui.integer(softFail) + ' soft fail',
@@ -535,7 +591,7 @@
     }
     shape.append(ui.n('span', 'ops-health-mirror-facts', facts.length ? facts.join(' · ') : 'Open the inventory for configuration details'));
 
-    root.append(mark, copy, shape, ui.n('span', 'ops-health-mirror-action', 'Open AMD mirrors →'));
+    root.append(mark, copy, shape, ui.n('span', 'ops-health-mirror-action', 'Open AMD test groups →'));
     return root;
   }
 
@@ -563,7 +619,7 @@
         'ops-evidence-note is-warning',
         coverageLead + 'the published detail index contains '
           + ui.integer(groups.length) + ' of ' + ui.integer(inventoryState.total)
-          + ' AMD mirror declarations. File and configured-mode breakdowns are lower bounds.'
+          + ' AMD test-group definitions. File, kind, and configured-mode breakdowns are lower bounds.'
       ));
     }
 
@@ -572,7 +628,8 @@
 
     host.append(ui.methodDisclosure('How this live count is built', [
       ui.n('span', '', 'The dashboard pins vLLM main to one commit and scans every .buildkite/test_areas/*.yaml file.'),
-      ui.n('span', '', 'One top-level YAML step with a non-empty mirror.amd mapping counts once. Optional and soft-fail mirrors are included; parallelism and shard templates do not multiply the total.'),
+      ui.n('span', '', 'Every AMD test group counts once: each top-level YAML step with a non-empty mirror.amd mapping (GPU or CPU-only) and each native AMD step (device mi*/amd_mi*). Optional and soft-fail groups are included; parallelism and shard templates do not multiply the total.'),
+      ui.n('span', '', 'Only GPU mirrors feed CUDA-to-AMD upstream coverage; CPU-only mirrors and native AMD steps are inventory only.'),
       ui.n('span', '', 'This physical configuration count is separate from runtime logical groups and current upstream logical route coverage.'),
       source.current_definition_commit_sha || source.main_commit ? ui.externalLink('Open scanned commit ' + String(source.current_definition_commit_sha || source.main_commit || '').slice(0, 12) + ' ↗', 'https://github.com/vllm-project/vllm/commit/' + (source.current_definition_commit_sha || source.main_commit)) : null,
     ]));

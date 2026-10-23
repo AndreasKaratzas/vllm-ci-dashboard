@@ -27,7 +27,7 @@ operational data are published by the scheduled/dispatch
 | View | Description |
 |------|-------------|
 | **Home** | PRs, project #39 issues, and configured AMD coverage against upstream GPU source definitions |
-| **CI Health** | Current main CI AMD MI runtime health, configured upstream GPU coverage, AMD mirror inventory, and MI architecture drilldowns |
+| **CI Health** | Current main CI AMD MI runtime health, configured upstream GPU coverage, the AMD test-group inventory (GPU and CPU-only mirrors plus native AMD steps), and MI architecture drilldowns |
 | **CI Analytics** | AMD MI test health, median latency over the latest five completed relevant main CI nightlies, reliability, DNS, and agent health |
 | **Omni** | Current Omni MI active-job evidence, MI queue windows, queued-age bands, and daily deltas |
 

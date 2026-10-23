@@ -67,7 +67,7 @@ const movementTotals = computed(() =>
   (['new', 'recurring', 'fixed'] as const).map((key) => movement.value.reduce((sum, build) => sum + (nightlyFailureCount(build, key) ?? 0), 0)),
 )
 
-// Mirror configuration on main: a separate, physical count.
+// AMD test groups on main (mirrors and native steps): a separate, physical count.
 const mirrorInventory = computed<Rec>(() => (props.ops.test_group_parity || {}).mirror_inventory || {})
 const mirror = computed(() => amdMirrorSummary(mirrorInventory.value, logical.value.available ? Number(counts.value.total || 0) : null))
 const mirrorSlices = computed<DonutSlice[]>(() =>
@@ -174,11 +174,11 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
         data-testid="kpi-failing-jobs"
       />
       <KpiCard
-        label="AMD mirror groups"
+        label="AMD test groups"
         :value="mirror.unavailable ? null : mirror.countLabel"
         :footnote="mirror.meta"
         :action="{ label: mirror.ariaLabel, to: { path: route.path, query: { ...route.query, view: 'mirrors' } } }"
-        headline="Open AMD mirrors"
+        headline="Open AMD test groups"
         data-testid="mirror-summary"
       >
         <div class="flex flex-col gap-2">
@@ -186,7 +186,7 @@ const failureColumns = computed(() => exactJobColumns(latestBuild.value))
             v-if="mirrorSlices.length"
             :slices="mirrorSlices"
             size="sm"
-            :label="`Mirror groups by GPU family: ${mirrorSlices.map((s) => `${s.label} ${s.value}`).join(', ')}`"
+            :label="`AMD test groups by hardware family: ${mirrorSlices.map((s) => `${s.label} ${s.value}`).join(', ')}`"
           />
           <p class="text-xs text-muted-foreground" data-testid="mirror-summary-facts">{{ mirror.facts }}</p>
         </div>

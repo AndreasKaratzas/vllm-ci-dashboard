@@ -34,8 +34,11 @@ const commit = computed(() => mirrorCommit((props.ops?.test_group_parity || {}).
   </template>
   <template v-else>
     <p>The dashboard pins vLLM main to one commit and scans every .buildkite/test_areas/*.yaml file.</p>
-    <p>One top-level YAML step with a non-empty mirror.amd mapping counts once. Optional and soft-fail mirrors are included; parallelism and shard templates do not multiply the total.</p>
-    <p>This physical configuration count is separate from runtime logical groups and from upstream route coverage.</p>
+    <p>
+      Every AMD test group counts once: each top-level YAML step with a non-empty mirror.amd mapping (GPU or CPU-only) and each native AMD step (device mi* or amd_mi*).
+      Optional and soft-fail groups are included; parallelism and shard templates do not multiply the total.
+    </p>
+    <p>Only GPU mirrors feed upstream route coverage; CPU-only mirrors and native AMD steps are inventory only. This physical configuration count is separate from runtime logical groups.</p>
     <p v-if="commit">
       <a :href="`https://github.com/vllm-project/vllm/commit/${commit}`" target="_blank" rel="noopener" class="font-medium text-foreground underline-offset-4 hover:underline">
         Scanned commit {{ shortSha(commit) }}

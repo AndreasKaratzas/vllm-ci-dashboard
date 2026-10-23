@@ -455,7 +455,10 @@ Parity and AMD mirrors are derived from an immutable upstream `main` commit;
 `config/vllm_upstream_test_group_parity.json` stores explicit unsupported-group
 classification policy, rather than a frozen coverage inventory. Coverage and
 required blocking gates are distinct counts, with optional and soft-fail routes
-shown separately. Runtime definitions remain pinned to the observed nightly.
+shown separately. The AMD test-group inventory (`mirror_inventory`) lists every
+AMD YAML definition on that commit, one row per definition with a `kind` of
+`gpu_mirror`, `cpu_mirror` (mirror.amd with `no_gpu`), or `native` (native AMD
+step); only GPU mirrors feed coverage. Runtime definitions remain pinned to the observed nightly.
 An MI queue is physical routing evidence; it cannot override an exact source
 step marked `no_gpu`. Compact private execution indexes bind these exclusions
 to each full runtime commit and its verified Git definition tree. The manual

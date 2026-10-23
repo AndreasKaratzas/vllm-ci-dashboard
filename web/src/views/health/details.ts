@@ -23,7 +23,7 @@ import {
   type ArchitectureHealth,
   type MatrixBrowserMode,
 } from '@/domain/healthHardware'
-import { amdMirrorDetail, amdMirrorGateMode, amdMirrorLabel, amdMirrorSourceUrl, mirrorAreaSearchText, mirrorDevicesLabel, type MirrorMode } from '@/domain/mirrors'
+import { TEST_GROUP_KINDS, amdMirrorDetail, amdMirrorGateMode, amdMirrorLabel, amdMirrorSourceUrl, amdTestGroupKind, amdTestGroupKindLabel, mirrorAreaSearchText, mirrorDevicesLabel, type MirrorMode } from '@/domain/mirrors'
 import CommandsBlock from '@/features/amd-groups/CommandsBlock.vue'
 import { hardwareCell, resultCell } from '@/features/amd-groups/details'
 import GroupHistory from '@/features/amd-groups/GroupHistory.vue'
@@ -328,7 +328,7 @@ export function matrixColumns(architectures: Rec[], ops: Rec | null): ColumnSpec
   ]
 }
 
-// --- AMD mirrors ---
+// --- AMD test groups (view id 'mirrors') ---
 
 export function mirrorDetail(row: Rec, inventory: Rec | null): Detail {
   const detail = amdMirrorDetail(row, inventory)
@@ -352,6 +352,7 @@ export function mirrorDetail(row: Rec, inventory: Rec | null): Detail {
 export function mirrorInventoryColumns(inventory: Rec | null): ColumnSpec<Rec>[] {
   return [
     { id: 'label', label: 'Source test group', hideable: false, value: (row) => amdMirrorLabel(row), cell: (row) => drill(amdMirrorLabel(row), () => mirrorDetail(row, inventory)) },
+    { id: 'kind', label: 'Kind', value: (row) => amdTestGroupKindLabel(row), class: 'hidden sm:table-cell' },
     { id: 'area', label: 'Test area', value: (row) => value(row.area), class: 'hidden lg:table-cell' },
     { id: 'device', label: 'AMD device', value: (row) => hardwareDisplayLabel(row.device), cell: (row) => hardwareCell(row.device), class: 'hidden sm:table-cell' },
     { id: 'width', label: 'GPU width', numeric: true, value: (row) => Number(row.num_devices ?? -1), cell: (row) => num(row.num_devices ?? null), class: 'hidden md:table-cell' },
@@ -362,7 +363,15 @@ export function mirrorInventoryColumns(inventory: Rec | null): ColumnSpec<Rec>[]
 
 export function mirrorInventoryFilters(groups: Rec[]): FilterSpec<Rec>[] {
   const devices = [...new Set(groups.map((row) => hardwareDisplayLabel(String(row.device || '').split('_')[0])))].sort()
+  const kinds = new Set(groups.map((row) => amdTestGroupKind(row)))
   return [
+    {
+      id: 'kind',
+      label: 'Kind',
+      allLabel: 'All kinds',
+      options: TEST_GROUP_KINDS.filter((item) => kinds.has(item.key)).map((item) => ({ value: item.key, label: item.label })),
+      predicate: (row, selected) => amdTestGroupKind(row) === selected,
+    },
     {
       id: 'mode',
       label: 'Mode',
@@ -383,8 +392,8 @@ export function mirrorInventoryFilters(groups: Rec[]): FilterSpec<Rec>[] {
 export function mirrorAreasDetail(areas: Rec[]): Detail {
   return {
     id: 'mirror-areas',
-    title: 'AMD mirrors by test-area file',
-    subtitle: 'Physical mirror.amd declarations grouped by their pinned source YAML file',
+    title: 'AMD test groups by test-area file',
+    subtitle: 'AMD test-group definitions grouped by their pinned source YAML file',
     tables: [
       {
         rows: areas,
@@ -395,7 +404,7 @@ export function mirrorAreasDetail(areas: Rec[]): Detail {
         columns: [
           { id: 'file', label: 'Test-area file', value: (row: Rec) => String(row.yaml_file), cell: (row: Rec) => link(String(row.yaml_file).split('/').pop(), row.source_url) },
           { id: 'area', label: 'Test area', value: (row: Rec) => value(row.area) },
-          { id: 'count', label: 'Mirror groups', numeric: true, value: (row: Rec) => Number(row.count || 0), cell: (row: Rec) => num(Number(row.count || 0)) },
+          { id: 'count', label: 'Test groups', numeric: true, value: (row: Rec) => Number(row.count || 0), cell: (row: Rec) => num(Number(row.count || 0)) },
           { id: 'required', label: 'Required', numeric: true, value: (row: Rec) => Number(row.required || 0), cell: (row: Rec) => num(Number(row.required || 0)) },
           { id: 'optional', label: 'Optional', numeric: true, value: (row: Rec) => Number(row.optional || 0), cell: (row: Rec) => num(Number(row.optional || 0)) },
           { id: 'soft', label: 'Soft fail', numeric: true, value: (row: Rec) => Number(row.soft_fail || 0), cell: (row: Rec) => num(Number(row.soft_fail || 0)) },

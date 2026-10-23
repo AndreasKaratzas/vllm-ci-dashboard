@@ -4945,6 +4945,14 @@ def _current_parity_fixture():
                         },
                     },
                     {"key": "missing", "label": ":nvidia: (H100) Missing", "device": "h100"},
+                    {
+                        "key": "metadata",
+                        "label": ":nvidia: (H100) Metadata",
+                        "device": "h100",
+                        "no_gpu": True,
+                        "mirror": {"amd": {"label": ":amd: (MI250) Metadata", "device": "mi250_1"}},
+                    },
+                    {"key": "native", "label": ":amd: (MI355) Native", "device": "mi355_4"},
                 ],
             },
         },
@@ -4952,6 +4960,14 @@ def _current_parity_fixture():
     )
     return build_payload(
         {"schema_version": 4, "pipeline": "ci", "not_applicable": []}, snapshot=snapshot
+    )
+
+
+def _mirror_row(payload, key):
+    return next(
+        row
+        for row in payload["mirror_inventory"]["rows"]
+        if row["definition_id"].endswith(f"#{key}")
     )
 
 
@@ -4964,6 +4980,11 @@ def test_current_source_parity_audit_distinguishes_configured_coverage_from_requ
     assert not audit.report.errors
     assert payload["summary"]["main_applicable_rate_pct"] == 66.7
     assert payload["summary"]["main_required_rate_pct"] == 33.3
+    assert payload["mirror_inventory"]["summary"]["by_kind"] == {
+        "gpu_mirror": 2,
+        "cpu_mirror": 1,
+        "native": 1,
+    }
 
 
 @pytest.mark.parametrize(
@@ -4974,14 +4995,26 @@ def test_current_source_parity_audit_distinguishes_configured_coverage_from_requ
         (lambda p: p["summary"].update(main_applicable_rate_pct=97), "current-parity-rate"),
         (lambda p: p["groups"][0].update(state="existing"), "current-parity-rows"),
         (
-            lambda p: p["mirror_inventory"]["rows"][0].update(required=True),
+            lambda p: _mirror_row(p, "optional").update(required=True),
             "current-mirror-provenance",
         ),
         (
-            lambda p: p["mirror_inventory"]["rows"][0].update(
+            lambda p: _mirror_row(p, "native").update(
                 source_url="https://example.invalid/stale.yaml"
             ),
             "current-mirror-provenance",
+        ),
+        (
+            lambda p: p["mirror_inventory"]["summary"]["by_kind"].update(native=0),
+            "current-mirror-kinds",
+        ),
+        (
+            lambda p: _mirror_row(p, "native").update(kind="gpu_mirror"),
+            "current-mirror-kinds",
+        ),
+        (
+            lambda p: p["mirror_inventory"]["rows"].pop(),
+            "current-mirror-source",
         ),
     ],
 )

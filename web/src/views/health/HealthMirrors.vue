@@ -14,7 +14,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import type { SheetStack } from '@/composables/useSheetStack'
 import { integer, type Rec } from '@/domain/format'
 import { hardwareDisplayLabel } from '@/domain/health'
-import { amdMirrorGateMode, amdMirrorInventoryView, mirrorAreaBreakdown, mirrorInventorySearchText, type MirrorMode } from '@/domain/mirrors'
+import { amdMirrorGateMode, amdMirrorInventoryView, mirrorAreaBreakdown, mirrorInventorySearchText, type MirrorMode, type TestGroupKind } from '@/domain/mirrors'
 import { hardwareColor } from '@/lib/palette'
 import { ROUTE_MODE_COLOR, count, mirrorAreasDetail, mirrorDetail, mirrorInventoryColumns, mirrorInventoryFilters } from './details'
 
@@ -58,14 +58,35 @@ const columns = computed(() => mirrorInventoryColumns(inventory.value))
 const filters = computed(() => mirrorInventoryFilters(view.value.groups))
 const total = computed(() => view.value.state.total)
 const share = (n: number) => (total.value ? `${((n / total.value) * 100).toFixed(0)}% of groups` : '')
+
+// What each kind of AMD test group is, and whether it feeds upstream coverage.
+const KIND_HINTS: Record<TestGroupKind, string> = {
+  gpu_mirror: 'mirror.amd on a GPU; counts toward upstream coverage',
+  cpu_mirror: 'mirror.amd with no_gpu; inventory only',
+  native: 'AMD-only steps on MI devices; inventory only',
+}
+const kindFootnote = (kind: { key: TestGroupKind; count: number; display: string }) =>
+  `${KIND_HINTS[kind.key]}${kind.display !== '—' && share(kind.count) ? ` · ${share(kind.count)}` : ''}`
 </script>
 
 <template>
   <div class="flex flex-col gap-4 md:gap-6">
     <StatGrid :cols="4">
-      <KpiCard label="AMD mirror groups" :value="total === null ? null : view.hero.totalDisplay" :footnote="view.hero.meta" data-testid="mirror-hero">
+      <KpiCard label="AMD test groups" :value="total === null ? null : view.hero.totalDisplay" :footnote="view.hero.meta" data-testid="mirror-hero">
         <ProportionBar v-if="view.configuration.track" :segments="modeSegments" :label="view.configuration.trackLabel" :legend="false" />
+        <p v-if="view.hero.kinds" class="text-xs font-medium" data-testid="mirror-kinds">{{ view.hero.kinds }}</p>
       </KpiCard>
+      <KpiCard
+        v-for="kind in view.kinds"
+        :key="kind.key"
+        :label="kind.plural.charAt(0).toUpperCase() + kind.plural.slice(1)"
+        :value="kind.display"
+        :footnote="kindFootnote(kind)"
+        data-testid="mirror-kind"
+      />
+    </StatGrid>
+
+    <StatGrid :cols="3">
       <KpiCard
         v-for="mode in MODES"
         :key="mode.key"
@@ -77,7 +98,7 @@ const share = (n: number) => (total.value ? `${((n / total.value) * 100).toFixed
         <ProportionBar
           :segments="[{ key: mode.key, label: mode.key, count: view.modes[mode.key], color: ROUTE_MODE_COLOR[mode.key] }]"
           :max="view.groups.length || 1"
-          :label="`${mode.label} share of published mirror groups`"
+          :label="`${mode.label} share of published AMD test groups`"
           :legend="false"
         />
       </KpiCard>
@@ -88,7 +109,7 @@ const share = (n: number) => (total.value ? `${((n / total.value) * 100).toFixed
     <div class="grid grid-cols-1 items-start gap-4 md:gap-6 @5xl/main:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] *:min-w-0">
       <Card v-if="view.areaChart" class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="mirror-areas">
         <CardHeader>
-          <CardTitle as="h2">Where the mirror groups live</CardTitle>
+          <CardTitle as="h2">Where the AMD test groups live</CardTitle>
           <CardDescription data-testid="mirror-areas-subtitle">{{ view.areaChart.subtitle }}</CardDescription>
         </CardHeader>
         <CardContent class="flex flex-1 flex-col gap-1 px-3">
@@ -102,14 +123,14 @@ const share = (n: number) => (total.value ? `${((n / total.value) * 100).toFixed
             :rel="row.source_url ? 'noopener' : undefined"
             class="group/area grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)_auto] items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-accent focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1"
             :style="{ animationDelay: `${index * 30}ms` }"
-            :aria-label="`${row.area}: ${count(row.count, 'mirror group')}, ${integer(row.required)} required, ${integer(row.optional)} optional, ${integer(row.soft_fail)} soft fail${row.source_url ? '. Opens pinned YAML in a new tab.' : ''}`"
+            :aria-label="`${row.area}: ${count(row.count, 'test group')}, ${integer(row.required)} required, ${integer(row.optional)} optional, ${integer(row.soft_fail)} soft fail${row.source_url ? '. Opens pinned YAML in a new tab.' : ''}`"
             data-testid="mirror-area"
           >
             <span class="flex min-w-0 flex-col">
               <strong class="truncate text-sm font-medium capitalize" data-testid="mirror-area-name">{{ row.area }}</strong>
               <small class="truncate font-mono text-xs text-muted-foreground" data-testid="mirror-area-file">{{ row.yaml_file.split('/').pop() }}</small>
             </span>
-            <ProportionBar :segments="areaSegments(row)" :max="maxAreaCount" :label="`${row.area} mirror modes`" :legend="false" />
+            <ProportionBar :segments="areaSegments(row)" :max="maxAreaCount" :label="`${row.area} test-group modes`" :legend="false" />
             <span class="flex items-center gap-1.5">
               <span class="sr-only" data-testid="mirror-area-breakdown">{{ mirrorAreaBreakdown(row) }}</span>
               <strong class="w-8 text-right font-semibold tabular-nums" data-testid="mirror-area-count">{{ integer(row.count) }}</strong>
@@ -125,19 +146,19 @@ const share = (n: number) => (total.value ? `${((n / total.value) * 100).toFixed
       <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="mirror-families">
         <CardHeader>
           <CardTitle as="h2">GPU families</CardTitle>
-          <CardDescription>Mirror groups per AMD GPU family; newer generations are drawn stronger</CardDescription>
+          <CardDescription>AMD test groups per MI hardware family; newer generations are drawn stronger</CardDescription>
         </CardHeader>
         <CardContent class="flex flex-col gap-5">
           <EmptyState v-if="!slices.length" :icon="GitFork" title="Hardware breakdown unavailable" :description="view.hero.meta" />
           <template v-else>
-            <Donut :slices="slices" :center-value="view.hero.totalDisplay" center-label="mirror groups" :label="view.hero.ariaLabel" data-testid="mirror-hardware-legend" />
+            <Donut :slices="slices" :center-value="view.hero.totalDisplay" center-label="test groups" :label="view.hero.ariaLabel" data-testid="mirror-hardware-legend" />
             <div class="flex flex-col gap-2.5 border-t pt-4" data-testid="mirror-family-modes">
               <h3 class="text-sm font-medium">Route mode by family</h3>
               <div v-for="family in familyModes" :key="family.key" class="grid grid-cols-[4.5rem_minmax(0,1fr)_auto] items-center gap-3 text-sm">
                 <span class="inline-flex items-center gap-1.5 font-medium">
                   <span class="size-2 rounded-full" :style="{ backgroundColor: family.color }" aria-hidden="true" />{{ family.label }}
                 </span>
-                <ProportionBar :segments="family.segments" :max="maxFamily" :label="`${family.label} mirror groups by route mode`" :legend="false" />
+                <ProportionBar :segments="family.segments" :max="maxFamily" :label="`${family.label} test groups by route mode`" :legend="false" />
                 <span class="w-6 text-right text-xs text-muted-foreground tabular-nums">{{ integer(family.value) }}</span>
               </div>
             </div>
@@ -159,11 +180,11 @@ const share = (n: number) => (total.value ? `${((n / total.value) * 100).toFixed
 
     <Card class="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300" data-testid="mirror-inventory">
       <CardHeader>
-        <CardTitle as="h2">AMD mirror inventory</CardTitle>
+        <CardTitle as="h2">AMD test-group inventory</CardTitle>
         <CardDescription data-testid="mirror-inventory-subtitle">{{ view.preview.subtitle }}</CardDescription>
       </CardHeader>
       <CardContent>
-        <EmptyState v-if="!view.groups.length" :icon="GitFork" title="No published AMD mirror groups are available." />
+        <EmptyState v-if="!view.groups.length" :icon="GitFork" title="No published AMD test groups are available." />
         <DataTable
           v-else
           :columns="columns"
@@ -172,8 +193,8 @@ const share = (n: number) => (total.value ? `${((n / total.value) * 100).toFixed
           :search-text="mirrorInventorySearchText"
           :on-row-click="(row: Rec) => sheets.open(mirrorDetail(row, inventory))"
           @drill="sheets.open"
-          search-placeholder="Filter test group, area, YAML file, device, mode, or key"
-          label="AMD mirror inventory"
+          search-placeholder="Filter test group, kind, area, YAML file, device, mode, or key"
+          label="AMD test-group inventory"
           show-total
         />
       </CardContent>

@@ -4362,6 +4362,21 @@ class DashboardAudit:
                     f"AMD mirror {key} count disagrees with current source flags",
                     relpath,
                 )
+        by_kind = mirror_summary.get("by_kind")
+        if by_kind is not None:
+            kinds = Counter(_mapping(row).get("kind") for row in mirror_rows)
+            if (
+                not isinstance(by_kind, dict)
+                or set(by_kind) != {"gpu_mirror", "cpu_mirror", "native"}
+                or any(by_kind.get(kind) != kinds[kind] for kind in by_kind)
+                or sum(kinds.values()) != len(mirror_rows)
+                or set(kinds) - set(by_kind)
+            ):
+                self.error(
+                    "current-mirror-kinds",
+                    "AMD test-group kind breakdown must reconcile with the published rows",
+                    relpath,
+                )
         for raw_row in mirror_rows:
             row = _mapping(raw_row)
             required_flag = not bool(row.get("optional") or row.get("soft_fail"))

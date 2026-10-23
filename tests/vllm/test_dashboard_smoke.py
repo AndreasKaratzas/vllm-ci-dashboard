@@ -102,12 +102,12 @@ class TestIndexHtml:
 
     def test_current_operations_renderer_has_a_cache_busted_release(self):
         html = (DOCS / "classic.html").read_text()
-        assert 'assets/css/ops-v2.css?v=17' in html
-        assert 'assets/js/ops-v2.js?v=39' in html
+        assert 'assets/css/ops-v2.css?v=18' in html
+        assert 'assets/js/ops-v2.js?v=40' in html
         assert 'assets/js/utils.js?v=64' in html
         assert 'assets/js/dashboard-nav.js?v=5' in html
         source = (JS / "ops-v2.js").read_text()
-        assert "assets/js/amd-mirror-inventory.js?v=3" in source
+        assert "assets/js/amd-mirror-inventory.js?v=4" in source
         assert "queueLifecycle" not in source
         assert "function renderQueue(" not in source
         assert "function renderTrajectory(" not in source

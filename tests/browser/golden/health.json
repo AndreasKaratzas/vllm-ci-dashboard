@@ -510,13 +510,13 @@
   },
   "mirror summary": {
     "count": "10",
-    "meta": "Physical mirror.amd declarations · separate from 4 runtime groups",
-    "facts": "8 required · 1 optional · 1 soft fail · 1 files",
-    "label": "10 configured AMD mirror groups. Open the AMD mirror inventory."
+    "meta": "Mirror and native AMD definitions · separate from 4 runtime groups",
+    "facts": "10 GPU mirrors · 0 CPU-only mirrors · 0 native AMD steps · 8 required · 1 optional · 1 soft fail · 1 files",
+    "label": "10 configured AMD test groups. Open the AMD test-group inventory."
   },
   "mirrors": {
     "total": "10",
-    "meta": "Each group is one mirror.amd declaration on vLLM main.",
+    "meta": "Each group is one AMD YAML definition on vLLM main: a GPU or CPU-only mirror.amd declaration, or a native AMD step.",
     "legend": [
       [
         "8",
@@ -546,7 +546,7 @@
         "https://github.com/vllm-project/vllm/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/.buildkite/test_areas/browser_fixture.yaml"
       ]
     ],
-    "inventorySubtitle": "10 of 10 physical mirror.amd declarations",
+    "inventorySubtitle": "10 of 10 AMD test-group definitions (mirror.amd and native)",
     "preview": [
       [
         ":amd: (MI300) Attention Kernels Shard 1",
@@ -581,7 +581,7 @@
     ],
     "browse": [
       "Browse all 1 test-area files",
-      "Browse all 10 AMD mirrors"
+      "Browse all 10 AMD test groups"
     ],
     "headerAction": [
       [
@@ -593,6 +593,10 @@
     "drawer": {
       "title": ":amd: (MI300) Attention Kernels Shard 1",
       "fields": [
+        [
+          "Kind",
+          "GPU mirror"
+        ],
         [
           "Source test group",
           ":nvidia: (H100) Attention Kernels Shard 1"
@@ -631,7 +635,7 @@
     "browsers": [
       {
         "label": "Browse all 1 test-area files",
-        "title": "AMD mirrors by test-area file",
+        "title": "AMD test groups by test-area file",
         "count": "1 of 1 rows",
         "rows": [
           [
@@ -646,12 +650,13 @@
         ]
       },
       {
-        "label": "Browse all 10 AMD mirrors",
-        "title": "AMD mirror inventory",
+        "label": "Browse all 10 AMD test groups",
+        "title": "AMD test-group inventory",
         "count": "10 of 10 rows",
         "rows": [
           [
             ":amd: (MI300) Attention Kernels Shard 1",
+            "GPU mirror",
             "browser fixture",
             "MI300",
             "1",
@@ -660,6 +665,7 @@
           ],
           [
             ":amd: (MI300) Attention Kernels Shard 2",
+            "GPU mirror",
             "browser fixture",
             "MI300",
             "1",
@@ -668,6 +674,7 @@
           ],
           [
             ":amd: (MI300) Basic Models (Other)",
+            "GPU mirror",
             "browser fixture",
             "MI300",
             "1",
@@ -676,6 +683,7 @@
           ],
           [
             ":amd: (MI355) Broken Group",
+            "GPU mirror",
             "browser fixture",
             "MI355",
             "1",
@@ -684,6 +692,7 @@
           ],
           [
             ":amd: (MI300) Extra kernels",
+            "GPU mirror",
             "browser fixture",
             "MI300",
             "1",
@@ -692,6 +701,7 @@
           ],
           [
             ":amd: (MI300) Extra models",
+            "GPU mirror",
             "browser fixture",
             "MI300",
             "1",
@@ -700,6 +710,7 @@
           ],
           [
             ":amd: (MI300) Optional integration",
+            "GPU mirror",
             "browser fixture",
             "MI300",
             "1",
@@ -708,6 +719,7 @@
           ],
           [
             ":amd: (MI300) Routed Alpha",
+            "GPU mirror",
             "browser fixture",
             "MI300",
             "1",
@@ -716,6 +728,7 @@
           ],
           [
             ":amd: (MI355) Routed Beta",
+            "GPU mirror",
             "browser fixture",
             "MI355",
             "1",
@@ -724,6 +737,7 @@
           ],
           [
             ":amd: (MI300) Soft integration",
+            "GPU mirror",
             "browser fixture",
             "MI300",
             "1",
@@ -732,6 +746,12 @@
           ]
         ]
       }
-    ]
+    ],
+    "kinds": [
+      "10",
+      "0",
+      "0"
+    ],
+    "kindBreakdown": "10 GPU mirrors · 0 CPU-only mirrors · 0 native AMD steps"
   }
 }

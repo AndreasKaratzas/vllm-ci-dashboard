@@ -34,7 +34,7 @@ export const SUB_VIEWS: Record<SubViewPage, SubViews> = {
       { value: 'overview', label: 'Overview' },
       { value: 'parity', label: 'Upstream parity' },
       { value: 'coverage', label: 'AMD hardware' },
-      { value: 'mirrors', label: 'AMD mirrors' },
+      { value: 'mirrors', label: 'AMD test groups' },
     ],
   },
   analytics: {

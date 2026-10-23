@@ -553,7 +553,7 @@ test('CI health summaries stay scoped to the selected view', async ({ page }) =>
   await expect(health.getByText(/WITH PROPOSED CHANGES/i)).toHaveCount(0);
 });
 
-test('CI health overview exposes configured AMD mirror groups and routes to the inventory', async ({ page }) => {
+test('CI health overview exposes configured AMD test groups and routes to the inventory', async ({ page }) => {
   const parityResponse = page.waitForResponse(response => (
     new URL(response.url()).pathname.endsWith('/data/vllm/ci/operations_v2/test_group_parity.json')
   ));
@@ -568,12 +568,16 @@ test('CI health overview exposes configured AMD mirror groups and routes to the 
   await expect(mirrorSummary).toBeVisible();
   await expect(mirrorSummary).toHaveAttribute('type', 'button');
   await expect(mirrorSummary).toContainText(String(mirrorCount));
-  await expect(mirrorSummary).toContainText(/AMD mirrors/i);
-  await expect(mirrorSummary).toContainText(/configured AMD mirror groups/i);
+  await expect(mirrorSummary).toContainText(/Open AMD test groups/i);
+  await expect(mirrorSummary).toContainText(/configured AMD test groups/i);
+  const byKind = payload.test_group_parity.mirror_inventory.summary.by_kind;
+  await expect(mirrorSummary).toContainText(
+    `${byKind.gpu_mirror} GPU mirrors · ${byKind.cpu_mirror} CPU-only mirrors · ${byKind.native} native AMD steps`,
+  );
 
   await mirrorSummary.click();
   await expect(page).toHaveURL(/ops_health_view=mirrors/);
-  await expect(health.getByRole('button', { name: 'AMD mirrors', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(health.getByRole('button', { name: 'AMD test groups', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });
 
 test('CI health overview remains usable when the mirror enhancement cannot load', async ({ page }) => {
@@ -618,7 +622,7 @@ test('CI health mobile deep links keep the active view visible', async ({ page }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/classic.html?ops_health_view=mirrors#ci-health', { waitUntil: 'domcontentloaded' });
   const tabs = page.locator('#tab-ci-health .ops-health-tabs');
-  const active = tabs.getByRole('button', { name: 'AMD mirrors', exact: true });
+  const active = tabs.getByRole('button', { name: 'AMD test groups', exact: true });
   await expect(active).toHaveAttribute('aria-pressed', 'true');
   await page.waitForTimeout(50);
   const tabsBox = await tabs.boundingBox();
@@ -639,12 +643,12 @@ test('CI health tabs retain keyboard focus after route-backed rerenders', async 
   await expect(parity).toBeFocused();
 
   await parity.press('End');
-  const mirrors = health.getByRole('button', { name: 'AMD mirrors', exact: true });
+  const mirrors = health.getByRole('button', { name: 'AMD test groups', exact: true });
   await expect(mirrors).toHaveAttribute('aria-pressed', 'true');
   await expect(mirrors).toBeFocused();
 });
 
-test('CI health AMD mirrors uses graphical summaries and retains the full inventory browser', async ({ page }) => {
+test('CI health AMD test groups uses graphical summaries and retains the full inventory browser', async ({ page }) => {
   const parityResponse = page.waitForResponse(response => (
     new URL(response.url()).pathname.endsWith('/data/vllm/ci/operations_v2/test_group_parity.json')
   ));
@@ -676,7 +680,7 @@ test('CI health AMD mirrors uses graphical summaries and retains the full invent
   await expect(health.locator('.ops-mirror-preview-list')).toBeVisible();
   await health.getByText('How this live count is built', { exact: true }).click();
   await expect(
-    health.getByText(/One top-level YAML step with a non-empty mirror\.amd mapping counts once/),
+    health.getByText(/Every AMD test group counts once/),
   ).toBeVisible();
 
   if (!inventory.complete) {
@@ -684,26 +688,26 @@ test('CI health AMD mirrors uses graphical summaries and retains the full invent
       ? 'The aggregate total remains exact, but'
       : 'The published aggregate is marked incomplete, and';
     await expect(health.getByText(
-      `${coverageLead} the published detail index contains ${inventory.publishedRows} of ${inventory.count} AMD mirror declarations.`,
+      `${coverageLead} the published detail index contains ${inventory.publishedRows} of ${inventory.count} AMD test-group definitions.`,
       { exact: false },
     )).toBeVisible();
   }
   const browseName = inventory.complete
-    ? `Browse all ${inventory.count} AMD mirrors`
-    : `Browse ${inventory.publishedRows} published AMD mirrors`;
+    ? `Browse all ${inventory.count} AMD test groups`
+    : `Browse ${inventory.publishedRows} published AMD test groups`;
   if (inventory.publishedRows === 0) {
     await expect(health.getByRole('button', { name: browseName, exact: true })).toHaveCount(0);
     return;
   }
   await health.getByRole('button', { name: browseName, exact: true }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('heading', { name: 'AMD mirror inventory', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'AMD test-group inventory', exact: true })).toBeVisible();
   await expect(dialog.locator('.ops-browser-count')).toHaveText(
     `${inventory.publishedRows} of ${inventory.publishedRows} rows`,
   );
 });
 
-test('CI health AMD mirrors does not overstate an incomplete hardware breakdown', async ({ page }) => {
+test('CI health AMD test groups does not overstate an incomplete hardware breakdown', async ({ page }) => {
   let aggregateCount = 0;
   await page.route(/\/data\/vllm\/ci\/operations_v2\/test_group_parity\.json(?:\?.*)?$/, async route => {
     const response = await route.fetch();
@@ -1227,7 +1231,7 @@ test(`latency comparison uses five current main CI nightlies and exact ${evidenc
 }
 }
 
-test('current AMD mirror inventory separates required optional and soft-fail source modes',async ({page})=>{
+test('current AMD test-group inventory separates required optional and soft-fail source modes',async ({page})=>{
   const response=page.waitForResponse(row=>new URL(row.url()).pathname.endsWith('/operations_v2/test_group_parity.json'));
   const requested=[];page.on('request',request=>requested.push(request.url()));
   await page.goto('/classic.html?ops_health_view=mirrors#ci-health',{waitUntil:'domcontentloaded'});
@@ -1236,9 +1240,9 @@ test('current AMD mirror inventory separates required optional and soft-fail sou
   const health=page.locator('#tab-ci-health');
   await expect(health.locator('.ops-mirror-mode-headline strong')).toHaveText([String(modes.required),String(modes.optional),String(modes['soft fail'])]);
   expect(requested.some(url=>url.includes('capacity_monitor.json'))).toBe(false);
-  await health.getByRole('button',{name:`Browse all ${mirror.summary.total} AMD mirrors`,exact:true}).click();
+  await health.getByRole('button',{name:`Browse all ${mirror.summary.total} AMD test groups`,exact:true}).click();
   const browser=page.getByRole('dialog');
-  await browser.getByPlaceholder('Filter test group, area, YAML file, device, mode, or key').fill('soft fail');
+  await browser.getByPlaceholder('Filter test group, kind, area, YAML file, device, mode, or key').fill('soft fail');
   await expect(browser.locator('tbody tr')).toHaveCount(modes['soft fail']);
   await expect(browser.locator('tbody tr').first()).toContainText('soft fail');
 });
@@ -1252,7 +1256,7 @@ test('offline fixture preserves exact current-CI source and five-nightly evidenc
   expect(health.latest_logical_test_groups.available).toBe(true);
   expect(health.latest_logical_test_groups.summary.total).toBe(4);
   expect(parity.source.pipeline).toBe('ci');expect(parity.source.current_definition_commit_sha).toBe('a'.repeat(40));
-  expect(parity.mirror_inventory.summary).toMatchObject({total:10,required:8,optional:1,soft_fail:1});
+  expect(parity.mirror_inventory.summary).toMatchObject({total:10,by_kind:{gpu_mirror:10,cpu_mirror:0,native:0},required:8,optional:1,soft_fail:1});
   expect(latency.source_pipeline).toBe('ci');expect(latency.build_limit).toBe(5);
   expect(latency.cohort.nightlies.map(row=>row.number)).toEqual([30005,30004,30003,30002,30001]);
   expect(latency.cohort.nightlies.map(row=>row.created_at.slice(0,10))).toEqual(['2026-10-08','2026-10-07','2026-10-06','2026-10-05','2026-10-04']);

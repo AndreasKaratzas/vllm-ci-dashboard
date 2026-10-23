@@ -127,8 +127,9 @@ def test_source_counts_logical_workloads_and_separates_configured_required_route
     assert payload["rocm_inventory"]["main"]["physical_definitions"] == 5
     assert payload["rocm_inventory"]["main"]["inline_mirror_definitions"] == 4
     assert payload["mirror_inventory"]["summary"] == {
-        "total": 4,
-        "required": 2,
+        "total": 5,
+        "by_kind": {"gpu_mirror": 4, "cpu_mirror": 0, "native": 1},
+        "required": 3,
         "optional": 1,
         "soft_fail": 1,
     }
@@ -222,6 +223,51 @@ def test_gpu_inventory_excludes_explicit_cpu_execution_even_on_mi_routes():
     assert by_title["CPU audit"]["state"] == "action"
     assert by_title["GPU CPU offload"]["state"] == "existing"
     assert payload["source"]["hardware_scope"] == "amd_mi_gpu"
+
+
+def test_inventory_lists_every_amd_test_group_without_changing_coverage():
+    baseline = parity.build_payload(policy(), snapshot=snapshot(), generated_at=GENERATED_AT)
+    current = snapshot()
+    current.files[FILE]["steps"].extend([
+        {"key": "torch-abi", "label": ":amd: (MI300) Torch Stable ABI Audit", "device": "mi300_1",
+         "no_gpu": True},
+        {"key": "metadata", "label": ":nvidia: (H100) Docker Build Metadata", "device": "h100",
+         "no_gpu": True, "parallelism": 4,
+         "mirror": {"amd": {"label": ":amd: (MI250) Docker Build Metadata", "device": "mi250_1"}}},
+        {"key": "monokernel", "label": ":amd: (MI355) MiniMax M3 MonoKernel", "device": "mi355_4",
+         "parallelism": 3, "soft_fail": True},
+    ])
+    payload = parity.build_payload(policy(), snapshot=current, generated_at=GENERATED_AT)
+    # CUDA-to-AMD coverage stays GPU-mirror based: inventory-only kinds change nothing.
+    for key in ("summary", "groups", "areas", "scope"):
+        assert payload[key] == baseline[key], key
+    # The ROCm route inventory stays GPU-only; the CPU-only native step and
+    # CPU-only mirror never enter it, while the GPU native step does.
+    assert payload["rocm_inventory"]["main"]["inline_mirror_definitions"] == 4
+    assert payload["rocm_inventory"]["main"]["native_amd_definitions"] == 2
+    inventory = payload["mirror_inventory"]
+    assert inventory["summary"]["total"] == len(inventory["rows"]) == 8
+    assert inventory["summary"]["by_kind"] == {"gpu_mirror": 4, "cpu_mirror": 1, "native": 3}
+    rows = {row["definition_id"].rsplit("#", 1)[1]: row for row in inventory["rows"]}
+    assert set(rows) == {"required", "required-replica", "optional", "soft", "native",
+                         "torch-abi", "metadata", "monokernel"}
+    assert rows["metadata"]["kind"] == "cpu_mirror"
+    assert rows["metadata"]["no_gpu"] is True
+    assert rows["metadata"]["upstream_label"] == ":nvidia: (H100) Docker Build Metadata"
+    assert rows["metadata"]["amd_key"] == "amd-metadata"
+    assert rows["torch-abi"]["kind"] == "native"
+    assert rows["torch-abi"]["no_gpu"] is True
+    native = rows["monokernel"]
+    assert native["kind"] == "native"
+    assert native["upstream_label"] is None and native["nvidia_definition_id"] is None
+    assert native["commands_match"] is None
+    assert native["amd_label"] == ":amd: (MI355) MiniMax M3 MonoKernel"
+    assert native["amd_key"] == "monokernel"
+    assert native["gate_kind"] == "soft_fail" and native["required"] is False
+    assert native["source_url"] == f"https://github.com/vllm-project/vllm/blob/{SHA}/{FILE}"
+    assert rows["required"]["kind"] == "gpu_mirror" and rows["required"]["no_gpu"] is False
+    # Shards and parallel jobs still count once per YAML definition.
+    assert sum(row["definition_id"].endswith("#monokernel") for row in inventory["rows"]) == 1
 
 
 def test_runtime_cpu_annotation_requires_exact_commit_step_and_physical_route():

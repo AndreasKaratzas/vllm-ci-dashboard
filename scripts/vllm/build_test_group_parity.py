@@ -25,6 +25,7 @@ from vllm.main_ci_definitions import (  # noqa: E402
     FULL_SHA,
     MainCISnapshot,
     amd_source_steps,
+    is_cpu_only_definition,
     is_cuda_definition,
     load_snapshot,
     logical_title,
@@ -79,6 +80,58 @@ def load_review(path: Path = CONFIG) -> dict[str, Any]:
 def _commands(step: dict[str, Any]) -> list[str]:
     raw = [step["command"]] if "command" in step else step.get("commands", [])
     return flatten_execution_commands(raw)
+
+
+INVENTORY_KINDS = {
+    "gpu_mirror": "Inline mirror.amd declaration that runs on an AMD GPU",
+    "cpu_mirror": "Inline mirror.amd declaration that runs CPU-only (no_gpu) on an AMD agent",
+    "native": "Native AMD step (device mi*/amd_mi*) with no upstream CUDA definition",
+}
+
+
+def inventory_kind(route: dict[str, Any]) -> str:
+    if route["source_kind"] == "native_amd":
+        return "native"
+    return "cpu_mirror" if is_cpu_only_definition(route) else "gpu_mirror"
+
+
+def test_group_inventory_rows(
+    snapshot: MainCISnapshot, steps: list[dict[str, Any]] | None = None
+) -> list[dict[str, Any]]:
+    """One row per AMD YAML definition on main: GPU mirrors, CPU-only mirrors, native steps."""
+    step_index = {row["definition_id"]: row for row in steps or source_steps(snapshot)}
+    rows = []
+    for route in amd_source_steps(snapshot, include_cpu=True):
+        kind = inventory_kind(route)
+        upstream = step_index.get(route["upstream_definition_id"]) if kind != "native" else None
+        required = route_is_required(route)
+        rows.append(
+            {
+                "definition_id": route["definition_id"],
+                "kind": kind,
+                "nvidia_definition_id": route["definition_id"] if upstream else None,
+                "source_file": route["source_file"],
+                "upstream_label": upstream["label"] if upstream else None,
+                "nvidia_label": upstream["label"] if upstream else None,
+                "amd_label": route.get("label"),
+                "amd_key": route.get("key") or None,
+                "device": route.get("device"),
+                "amd_device": route.get("device"),
+                "num_devices": route.get("num_devices"),
+                "no_gpu": is_cpu_only_definition(route),
+                "optional": bool(route.get("optional")),
+                "soft_fail": bool(route.get("soft_fail")),
+                "required": required,
+                "gate_kind": "required"
+                if required
+                else "soft_fail"
+                if route.get("soft_fail")
+                else "optional",
+                "commands_match": _commands(upstream) == _commands(route) if upstream else None,
+                "source_url": f"https://github.com/vllm-project/vllm/blob/{snapshot.commit_sha}/{route['source_file']}",
+            }
+        )
+    return sorted(rows, key=lambda row: row["definition_id"])
 
 
 def build_payload(
@@ -188,33 +241,8 @@ def build_payload(
         "fetched_at": snapshot.fetched_at,
         "url": f"https://github.com/vllm-project/vllm/tree/{snapshot.commit_sha}/.buildkite/test_areas",
     }
-    mirror_rows = []
-    step_index = {row["definition_id"]: row for row in steps}
-    for identity, route in sorted(mirrors.items()):
-        upstream = step_index.get(identity)
-        mirror_rows.append(
-            {
-                "definition_id": identity,
-                "nvidia_definition_id": identity,
-                "source_file": route["source_file"],
-                "upstream_label": upstream["label"],
-                "nvidia_label": upstream["label"],
-                "amd_label": route["label"],
-                "device": route.get("device"),
-                "amd_device": route.get("device"),
-                "num_devices": route.get("num_devices"),
-                "optional": bool(route.get("optional")),
-                "soft_fail": bool(route.get("soft_fail")),
-                "required": route_is_required(route),
-                "gate_kind": "required"
-                if route_is_required(route)
-                else "soft_fail"
-                if route.get("soft_fail")
-                else "optional",
-                "commands_match": _commands(upstream) == _commands(route),
-                "source_url": f"https://github.com/vllm-project/vllm/blob/{snapshot.commit_sha}/{route['source_file']}",
-            }
-        )
+    inventory_rows = test_group_inventory_rows(snapshot, steps)
+    mirror_rows = [row for row in inventory_rows if row["kind"] == "gpu_mirror"]
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -260,13 +288,22 @@ def build_payload(
         },
         "mirror_inventory": {
             "source": source,
-            "summary": {
-                "total": len(mirror_rows),
-                "required": sum(row["required"] for row in mirror_rows),
-                "optional": sum(row["optional"] for row in mirror_rows),
-                "soft_fail": sum(row["soft_fail"] for row in mirror_rows),
+            "scope": {
+                "count_basis": "Every AMD test group in current main ci: one row per YAML definition (inline mirror.amd declaration or native AMD step); parallelism and shards count once.",
+                "kinds": dict(INVENTORY_KINDS),
+                "coverage_note": "Only GPU mirrors feed CUDA-to-AMD coverage; CPU-only mirrors and native AMD steps are inventory only.",
             },
-            "rows": mirror_rows,
+            "summary": {
+                "total": len(inventory_rows),
+                "by_kind": {
+                    kind: sum(row["kind"] == kind for row in inventory_rows)
+                    for kind in INVENTORY_KINDS
+                },
+                "required": sum(row["required"] for row in inventory_rows),
+                "optional": sum(row["optional"] for row in inventory_rows),
+                "soft_fail": sum(row["soft_fail"] for row in inventory_rows),
+            },
+            "rows": inventory_rows,
         },
         "areas": areas,
         "groups": groups,

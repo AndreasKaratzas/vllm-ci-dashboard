@@ -818,7 +818,7 @@ def test_ci_health_navigation_is_scoped_history_safe_and_accessible():
         "pendingSegmentFocus = {group: groupLabel, id: item.id}",
         "active.control.focus({preventScroll: true})",
         "{id: 'coverage', label: 'AMD hardware'}",
-        "{id: 'mirrors', label: 'AMD mirrors'}",
+        "{id: 'mirrors', label: 'AMD test groups'}",
         "openHealthDataFreshness(ops)",
         "setQueryValue(queryKey || key, next, {history: 'push'})",
         "window.history.pushState(null, '', nextUrl.pathname",
@@ -864,8 +864,9 @@ def test_ci_health_overview_surfaces_the_physical_amd_mirror_count():
     for contract in (
         "inventoryState.total",
         "ops-health-mirror-summary",
-        "AMD MIRROR CONFIGURATION ON MAIN",
-        "configured AMD mirror groups",
+        "AMD TEST GROUPS ON MAIN",
+        "configured AMD test groups",
+        "amdTestGroupKindText(inventoryState, ui)",
         "runtime group count unavailable",
         "ui.n('button', 'ops-health-mirror-summary",
     ):
@@ -910,9 +911,12 @@ def test_ci_health_amd_mirrors_uses_the_physical_declaration_inventory():
         "const breakdownComplete = inventoryState.detailComplete",
         "Complete hardware breakdown unavailable",
         "ops-mirror-area-breakdown",
-        "AMD mirror inventory",
-        "'Browse all ' + ui.integer(mirrorCount) + ' AMD mirrors'",
-        "One top-level YAML step with a non-empty mirror.amd mapping counts once",
+        "AMD test-group inventory",
+        "'Browse all ' + ui.integer(mirrorCount) + ' AMD test groups'",
+        "Every AMD test group counts once",
+        "summary.by_kind",
+        "{label: 'Kind', value: amdTestGroupKindLabel(row)}",
+        "ops-mirror-kind-breakdown",
     ):
         assert contract in AMD_MIRROR_INVENTORY_JS
 
@@ -927,6 +931,7 @@ def test_ci_health_amd_mirrors_uses_the_physical_declaration_inventory():
         ".ops-page .ops-mirror-area-bars",
         ".ops-page .ops-mirror-preview-list",
         ".ops-page .ops-mirror-area-breakdown",
+        ".ops-page .ops-mirror-kind-breakdown",
     ):
         assert selector in OPS_CSS
 
@@ -2262,9 +2267,9 @@ def test_ci_health_uses_unique_group_policy_and_exact_evidence_drilldown():
         "resolved groups passing",
     ):
         assert retired_contract not in OPS_JS
-    assert 'assets/css/ops-v2.css?v=17' in INDEX
-    assert 'assets/js/ops-v2.js?v=39' in INDEX
-    assert "assets/js/amd-mirror-inventory.js?v=3" in OPS_JS
+    assert 'assets/css/ops-v2.css?v=18' in INDEX
+    assert 'assets/js/ops-v2.js?v=40' in INDEX
+    assert "assets/js/amd-mirror-inventory.js?v=4" in OPS_JS
     assert "Number(policy.passing_groups || 0) / included * 100" in OPS_JS
     assert "gated groups passing" not in OPS_JS
     for retired_gate_label in (

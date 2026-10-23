@@ -36,7 +36,7 @@
     perf: 'data/vllm/perf_eval/perf_eval.json',
   };
   const CHART_LIBRARY_URL = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js';
-  const AMD_MIRROR_INVENTORY_MODULE_URL = 'assets/js/amd-mirror-inventory.js?v=3';
+  const AMD_MIRROR_INVENTORY_MODULE_URL = 'assets/js/amd-mirror-inventory.js?v=4';
   const state = {
     healthView: 'overview',
     healthCoverageSort: 'platform',
@@ -3036,7 +3036,7 @@
     host.append(tabList([
       {id: 'overview', label: 'Overview'}, {id: 'parity', label: 'Upstream parity'},
       {id: 'coverage', label: 'AMD hardware'},
-      {id: 'mirrors', label: 'AMD mirrors'},
+      {id: 'mirrors', label: 'AMD test groups'},
     ], state.healthView, function (id) { setRouteState('ci-health', 'healthView', id, 'health_view'); }, 'CI Health view'));
   }
 
@@ -3494,7 +3494,7 @@
       overview: 'Latest main CI AMD gating-job outcomes and failure movement. Logical test groups are separate from exact Buildkite job variants.',
       parity: 'Current main CI AMD route coverage against upstream source definitions. Configured route modes and runtime pass/fail are separate.',
       coverage: 'Configured AMD test groups by architecture and the fixed best-hardware health policy.',
-      mirrors: 'Current AMD mirror declarations parsed from every .buildkite/test_areas/*.yaml file on vLLM main.',
+      mirrors: 'Every AMD test group on vLLM main: GPU and CPU-only mirror.amd declarations plus native AMD steps, parsed from every .buildkite/test_areas/*.yaml file.',
     };
     let headerAction = null;
     let observedAt = ops.generated_at;

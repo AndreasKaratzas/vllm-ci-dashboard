@@ -1,5 +1,7 @@
-// CI Health "AMD mirrors" view and the Overview mirror summary: ports of
-// docs/assets/js/amd-mirror-inventory.js with the classic UI helpers inlined.
+// CI Health "AMD test groups" view (view id 'mirrors') and the Overview summary:
+// ports of docs/assets/js/amd-mirror-inventory.js with the classic UI helpers
+// inlined. The inventory lists every AMD test group on vLLM main: GPU and
+// CPU-only mirror.amd declarations plus native AMD steps.
 import { integer, value, type Rec, type Tone } from './format'
 import { hardwareDisplayLabel } from './health'
 import { compareText } from './healthHardware'
@@ -7,6 +9,24 @@ import { compareText } from './healthHardware'
 export const MIRROR_SOURCE_ASSET_URL = 'data/vllm/ci/operations_v2/test_group_parity.json'
 
 export type MirrorMode = 'required' | 'optional' | 'soft fail'
+export type TestGroupKind = 'gpu_mirror' | 'cpu_mirror' | 'native'
+
+export const TEST_GROUP_KINDS: { key: TestGroupKind; label: string; plural: string }[] = [
+  { key: 'gpu_mirror', label: 'GPU mirror', plural: 'GPU mirrors' },
+  { key: 'cpu_mirror', label: 'CPU-only mirror', plural: 'CPU-only mirrors' },
+  { key: 'native', label: 'Native AMD', plural: 'native AMD steps' },
+]
+
+/** Rows published before kinds existed were GPU mirrors only. */
+export function amdTestGroupKind(row: Rec | null | undefined): TestGroupKind {
+  const kind = (row || {}).kind
+  return kind === 'cpu_mirror' || kind === 'native' ? kind : 'gpu_mirror'
+}
+
+export function amdTestGroupKindLabel(row: Rec | null | undefined): string {
+  const kind = amdTestGroupKind(row)
+  return TEST_GROUP_KINDS.find((item) => item.key === kind)!.label
+}
 
 export function amdMirrorInventoryRows(inventory: Rec | null | undefined): Rec[] {
   return (Array.isArray((inventory || {}).rows) ? (inventory as Rec).rows : [])
@@ -17,6 +37,7 @@ export function amdMirrorInventoryRows(inventory: Rec | null | undefined): Rec[]
         yaml_file: sourceFile,
         label: row.upstream_label || row.nvidia_label || row.amd_label,
         key: row.definition_id,
+        kind: amdTestGroupKind(row),
         area: row.area || sourceFile.split('/').pop()!.replace(/\.ya?ml$/i, '').replaceAll('_', ' '),
       })
     })
@@ -35,6 +56,8 @@ export interface MirrorInventoryState {
   aggregateComplete: boolean
   detailComplete: boolean
   omitted: number
+  kinds: Record<TestGroupKind, number>
+  kindsExact: boolean
 }
 
 export function amdMirrorInventoryState(inventory: Rec | null | undefined): MirrorInventoryState {
@@ -51,12 +74,21 @@ export function amdMirrorInventoryState(inventory: Rec | null | undefined): Mirr
   const aggregateComplete = retention.aggregate_summaries_complete !== false
   const detailComplete =
     aggregateComplete && groupIndex.complete_relative_to_source !== false && total !== null && rows.length === total
+  const published = amdTestGroupKinds(rows)
+  const byKind = currentSource ? summary.by_kind : null
+  const exactKinds =
+    byKind && typeof byKind === 'object' && TEST_GROUP_KINDS.every((item) => Number.isInteger(byKind[item.key]) && byKind[item.key] >= 0)
+      ? (Object.fromEntries(TEST_GROUP_KINDS.map((item) => [item.key, byKind[item.key]])) as Record<TestGroupKind, number>)
+      : null
+  const kindsExact = Boolean(exactKinds) && aggregateComplete
   return {
     total,
     rows,
     aggregateComplete,
     detailComplete,
     omitted: Math.max(0, total === null ? 0 : total - rows.length),
+    kinds: exactKinds && kindsExact ? exactKinds : published,
+    kindsExact: kindsExact || detailComplete,
   }
 }
 
@@ -87,6 +119,22 @@ export function amdMirrorModes(rows: Rec[] | null | undefined): Record<MirrorMod
     },
     { required: 0, optional: 0, 'soft fail': 0 },
   )
+}
+
+export function amdTestGroupKinds(rows: Rec[] | null | undefined): Record<TestGroupKind, number> {
+  return (rows || []).reduce<Record<TestGroupKind, number>>(
+    (counts, row) => {
+      counts[amdTestGroupKind(row)] += 1
+      return counts
+    },
+    { gpu_mirror: 0, cpu_mirror: 0, native: 0 },
+  )
+}
+
+/** "219 GPU mirrors · 2 CPU-only mirrors · 19 native AMD steps", with ≥ when only published rows are known. */
+export function amdTestGroupKindText(state: MirrorInventoryState): string {
+  const prefix = state.kindsExact ? '' : '≥'
+  return TEST_GROUP_KINDS.map((item) => prefix + integer(state.kinds[item.key]) + ' ' + item.plural).join(' · ')
 }
 
 export function amdMirrorAreaRows(inventory: Rec | null | undefined, groups: Rec[] | null | undefined): Rec[] {
@@ -151,7 +199,7 @@ export function amdMirrorHardwareRows(groups: Rec[] | null | undefined): Rec[] {
 
 export function amdMirrorLabel(row: Rec | null | undefined): string {
   if ((row || {}).amd_label) return row!.amd_label
-  const sourceLabel = String((row || {}).label || (row || {}).key || 'AMD mirror')
+  const sourceLabel = String((row || {}).label || (row || {}).key || 'AMD test group')
   const deviceFamily = String((row || {}).device || '').split('_')[0]
   const hardware = deviceFamily ? hardwareDisplayLabel(deviceFamily) : 'AMD'
   return sourceLabel.replace(/:nvidia:/i, ':amd:').replace(/\((?:A|B|H|L)\d[^)]*\)/i, '(' + hardware + ')')
@@ -168,10 +216,11 @@ export function amdMirrorDetail(row: Rec, inventory: Rec | null | undefined) {
   const commit = mirrorCommit(inventory)
   return {
     title: amdMirrorLabel(row),
-    subtitle: 'Physical mirror.amd declaration on vLLM main',
+    subtitle: amdTestGroupSubtitle(row),
     description:
-      'This source definition counts once in the configured AMD mirror total. Parallel execution changes potential job fan-out, not the declaration count.',
+      'This source definition counts once in the AMD test-group total. Parallel execution changes potential job fan-out, not the declaration count.',
     fields: [
+      { label: 'Kind', value: amdTestGroupKindLabel(row) },
       { label: 'Source test group', value: row.label },
       { label: 'Source definition ID', value: row.key },
       { label: 'Test area', value: row.area },
@@ -188,9 +237,16 @@ export function amdMirrorDetail(row: Rec, inventory: Rec | null | undefined) {
     sources: [
       sourceUrl ? { label: 'Open pinned test-area YAML', url: sourceUrl } : null,
       commit ? { label: 'Open current main CI commit', url: 'https://github.com/vllm-project/vllm/commit/' + commit } : null,
-      { label: 'Open published AMD mirror scan', url: MIRROR_SOURCE_ASSET_URL },
+      { label: 'Open published AMD test-group scan', url: MIRROR_SOURCE_ASSET_URL },
     ].filter(Boolean) as { label: string; url: string }[],
   }
+}
+
+export function amdTestGroupSubtitle(row: Rec | null | undefined): string {
+  const kind = amdTestGroupKind(row)
+  if (kind === 'native') return 'Native AMD step on vLLM main'
+  if (kind === 'cpu_mirror') return 'CPU-only mirror.amd declaration on vLLM main'
+  return 'Physical mirror.amd declaration on vLLM main'
 }
 
 export function mirrorAreaSearchText(row: Rec): string {
@@ -198,7 +254,7 @@ export function mirrorAreaSearchText(row: Rec): string {
 }
 
 export function mirrorInventorySearchText(row: Rec): string {
-  return [row.amd_label, row.label, row.key, row.area, row.yaml_file, row.device, amdMirrorGateMode(row)].join(' ')
+  return [row.amd_label, row.label, row.key, row.area, row.yaml_file, row.device, amdMirrorGateMode(row), amdTestGroupKindLabel(row)].join(' ')
 }
 
 export function mirrorDevicesLabel(row: Rec): string {
@@ -216,6 +272,7 @@ export function amdMirrorSummary(inventory: Rec | null | undefined, runtimeGroup
   const facts: string[] = []
   if (rows.length || state.total === 0) {
     facts.push(
+      amdTestGroupKindText(state),
       detailPrefix + integer(modes.required) + ' required',
       detailPrefix + integer(modes.optional) + ' optional',
       detailPrefix + integer(modes['soft fail']) + ' soft fail',
@@ -226,10 +283,10 @@ export function amdMirrorSummary(inventory: Rec | null | undefined, runtimeGroup
     unavailable: state.total === null,
     countLabel,
     ariaLabel:
-      (state.total === null ? 'AMD mirror count unavailable' : countLabel + ' configured AMD mirror groups') +
-      '. Open the AMD mirror inventory.',
+      (state.total === null ? 'AMD test-group count unavailable' : countLabel + ' configured AMD test groups') +
+      '. Open the AMD test-group inventory.',
     meta:
-      'Physical mirror.amd declarations · ' +
+      'Mirror and native AMD definitions · ' +
       (runtimeGroupCount === null || runtimeGroupCount === undefined
         ? 'runtime group count unavailable'
         : 'separate from ' + integer(runtimeGroupCount) + ' runtime groups'),
@@ -273,7 +330,7 @@ export function amdMirrorInventoryView(inventory: Rec | null | undefined) {
       integer(groups.length) +
       ' of ' +
       integer(state.total) +
-      ' AMD mirror declarations. File and configured-mode breakdowns are lower bounds.'
+      ' AMD test-group definitions. File, kind, and configured-mode breakdowns are lower bounds.'
   }
   return {
     state,
@@ -281,11 +338,17 @@ export function amdMirrorInventoryView(inventory: Rec | null | undefined) {
     areas,
     hardwareRows,
     modes,
+    kinds: TEST_GROUP_KINDS.map((item) => ({
+      ...item,
+      count: state.kinds[item.key],
+      display: state.kindsExact || groups.length ? (state.kindsExact ? '' : '≥') + integer(state.kinds[item.key]) : '—',
+    })),
     hero: {
       totalDisplay,
       breakdownComplete,
+      kinds: state.kindsExact || groups.length ? amdTestGroupKindText(state) : '',
       ariaLabel:
-        (state.total === null ? 'Configured AMD mirror group total unavailable' : totalDisplay + ' configured AMD mirror groups') +
+        (state.total === null ? 'Configured AMD test-group total unavailable' : totalDisplay + ' configured AMD test groups') +
         (breakdownComplete && hardwareRows.length
           ? '. ' + hardwareRows.map((row) => row.label + ': ' + integer(row.count)).join(', ')
           : '. Complete hardware breakdown unavailable'),
@@ -296,7 +359,7 @@ export function amdMirrorInventoryView(inventory: Rec | null | undefined) {
             ? 'The published aggregate is a lower bound in this snapshot.'
             : !breakdownComplete
               ? 'The total is exact; the hardware breakdown is unavailable because published detail is incomplete.'
-              : 'Each group is one mirror.amd declaration on vLLM main.',
+              : 'Each group is one AMD YAML definition on vLLM main: a GPU or CPU-only mirror.amd declaration, or a native AMD step.',
       legend: breakdownComplete && hardwareRows.length ? hardwareRows : [],
     },
     configuration: {
@@ -311,7 +374,7 @@ export function amdMirrorInventoryView(inventory: Rec | null | undefined) {
         integer(modes.optional) +
         ' optional and ' +
         integer(modes['soft fail']) +
-        ' soft-fail published mirror groups',
+        ' soft-fail published AMD test groups',
       files: shown ? prefix + integer(areas.length) : '—',
       families: shown ? prefix + integer(amdMirrorHardwareRows(state.rows).length) : '—',
       lowerBound: !state.detailComplete && state.total !== null,
@@ -334,15 +397,15 @@ export function amdMirrorInventoryView(inventory: Rec | null | undefined) {
       subtitle:
         state.total === null
           ? integer(groups.length) + ' published groups; exact aggregate unavailable'
-          : integer(groups.length) + ' of ' + integer(state.total) + ' physical mirror.amd declarations',
+          : integer(groups.length) + ' of ' + integer(state.total) + ' AMD test-group definitions (mirror.amd and native)',
       rows: groups.slice(0, 6),
       browseLabel: groups.length
         ? state.detailComplete
-          ? 'Browse all ' + integer(mirrorCount) + ' AMD mirrors'
-          : 'Browse ' + integer(groups.length) + ' published AMD mirrors'
+          ? 'Browse all ' + integer(mirrorCount) + ' AMD test groups'
+          : 'Browse ' + integer(groups.length) + ' published AMD test groups'
         : null,
     },
-    inventoryBrowserSubtitle: integer(groups.length) + ' published mirror groups from vLLM main',
+    inventoryBrowserSubtitle: integer(groups.length) + ' published AMD test groups from vLLM main',
     commit,
     commitUrl: commit ? 'https://github.com/vllm-project/vllm/commit/' + commit : '',
   }
