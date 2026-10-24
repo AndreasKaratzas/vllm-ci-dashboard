@@ -809,7 +809,7 @@ def test_canonical_issue_540_zero_mi_migration_refreshes_before_close_and_retrie
     assert client.closed == [540]
     assert len(client.comments) == 1
     assert len(client.updated) == 2
-    assert client.updated[-1][1] == "AMD MI main CI: 0 confirmed test-group failures (0 peak hard, 0 soft)"
+    assert {row[1] for row in client.updated} == {"AMD MI main CI: confirmed test-group failures"}
     assert upstream.OWNERSHIP_MARKER in client.body
     assert "0 strict AMD MI GPU CI test groups" in client.body
     assert all(value not in client.body for value in ("B200", "CUDA", "CPU failures"))
@@ -1375,6 +1375,7 @@ def test_agent_health_issue_body_refreshes_on_new_counts_but_not_on_each_collect
     )
     run("3", "2026-07-17T14:00:00Z")
     assert len(client.updated) == 1
+    assert client.opened[0][1] == client.updated[0][1] == "AMD CI agent health: nodes failing jobs themselves"
     assert "Of 3 failing attempts in the window" in client.updated[0][2]
     assert "2026-07-17T14:00:00Z" in client.updated[0][2]
 

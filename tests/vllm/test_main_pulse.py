@@ -186,7 +186,7 @@ def test_new_hard_failure_opens_the_issue_in_the_pulse_run(now):
 
     assert summary["opened"] == 1 and summary["issue_action"] == "opened"
     (number, title, body), = client.opened
-    assert title == "AMD MI main CI: 1 confirmed test-group failures (1 peak hard, 0 soft)"
+    assert title == "AMD MI main CI: confirmed test-group failures"
     (row,) = [row for row in overlay["groups"].values() if row["status"] == "active"]
     assert row["entry"]["bad_build_number"] == 303
     # The good bound comes from the collection state's last observed pass.

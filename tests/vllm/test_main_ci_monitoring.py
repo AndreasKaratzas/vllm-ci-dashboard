@@ -217,7 +217,7 @@ def test_new_hard_failure_on_main_opens_issue_in_the_same_run_and_reaches_main_c
 
     assert len(client.opened) == 1
     number, title, body = client.opened[0]
-    assert title == "AMD MI main CI: 1 confirmed test-group failures (1 peak hard, 0 soft)"
+    assert title == "AMD MI main CI: confirmed test-group failures"
     assert f"{202:040x}"[:12] in body and f"{203:040x}"[:12] in body
     state = json.loads(config.state.read_text())
     (incident,) = state["active"].values()
@@ -546,7 +546,8 @@ def test_flakiness_watcher_opens_then_resolves_one_managed_issue(monkeypatch, tm
     assert flaky.run(now=now) == 0
 
     (number, title, body), = client.opened
-    assert title == "AMD MI main CI flakiness: 2 test groups unstable over 7 days"
+    assert title == "AMD MI main CI flakiness: unstable test groups"
+    assert "**2 strict AMD MI test groups crossed a flakiness threshold" in body
     assert "Flipper" in body and "Rescued" in body and "Steady" not in body
     assert "https://buildkite.com/vllm/ci/builds/1007" in body
     state = json.loads(flaky.STATE.read_text())
@@ -639,7 +640,8 @@ def test_flakiness_state_keeps_only_the_groups_shown_in_the_issue(monkeypatch, t
     state = _flaky_issue_run(tmp_path, datetime.now(timezone.utc).replace(microsecond=0))
 
     (_number, title, body), = client.opened
-    assert title.startswith("AMD MI main CI flakiness: 2 test groups")
+    assert title == "AMD MI main CI flakiness: unstable test groups"
+    assert "**2 strict AMD MI test groups crossed a flakiness threshold" in body
     assert len(state["groups"]) == 1
     assert "1 additional groups are listed on the dashboard." in body
 
