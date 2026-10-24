@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from vllm.ci.ownership import (
+    apply_incident_hysteresis,
     build_ownership_status,
     evaluate_availability,
     infer_target_area,
@@ -769,3 +770,65 @@ def test_matrix_projection_disambiguates_duplicate_titles_by_signature():
         "Quantization [MI300]",
         "Quantization [MI355]",
     ]
+
+
+def _matrix_status(**cells: tuple[str, str]) -> dict:
+    matrix = {
+        "generated_at": "2026-10-20T12:00:00Z",
+        "summary": {"latest_build_number": 96338},
+        "rows": [
+            {
+                "id": "row-1",
+                "title": "Kernels Attention Test %N",
+                "cells": {
+                    architecture: {
+                        "exists": True,
+                        "latest_state": state,
+                        "latest_url": "https://buildkite.com/vllm/ci/builds/96338"
+                        f"/steps/canvas?jid={job_id}&tab=output",
+                    }
+                    for architecture, (state, job_id) in cells.items()
+                },
+            }
+        ],
+    }
+    parity = {
+        "matches": [
+            {
+                "amd_label": "Kernels Attention Test %N",
+                "nvidia_source": ".buildkite/test_areas/kernels.yaml",
+            }
+        ]
+    }
+    availability, availability_source = evaluate_availability(
+        _config()["owners"],
+        now=NOW,
+    )
+    return build_ownership_status(
+        {"active_target_groups": matrix_runtime_targets(matrix)},
+        parity,
+        _config(),
+        availability,
+        availability_source,
+        generated_at="2026-10-20T12:00:00Z",
+    )
+
+
+@pytest.mark.parametrize(
+    ("mi300", "incidents"),
+    # A same-architecture pass by another job resolves even when the failing
+    # job's retry was canceled; the matrix cannot tell the two apart.
+    [(("passed", "retry"), 0), (("canceled", "retry"), 1), (("passed", "shard"), 0)],
+    ids=["retry-passed", "retry-canceled", "other-job-same-architecture"],
+)
+def test_same_build_pass_resolves_only_on_the_failing_architecture(mi300, incidents):
+    failing = _matrix_status(mi300=("failed", "first"), mi355=("passed", "other"))
+    signals = apply_incident_hysteresis(failing, {})
+    assert failing["areas"][0]["regressions"][0]["architecture"] == "mi300"
+
+    current = _matrix_status(mi300=mi300, mi355=("passed", "other"))
+    apply_incident_hysteresis(current, {"kernels": {"signals": signals["kernels"]}})
+
+    area = current["areas"][0]
+    assert area["targets"][0]["result"] == "passed"
+    assert area["counts"]["incidents"] == incidents

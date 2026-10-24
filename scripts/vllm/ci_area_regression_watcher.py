@@ -35,7 +35,7 @@ from vllm.ci.managed_issue import (  # noqa: E402
 )
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 from vllm.ci.ownership import (  # noqa: E402
-    SIGNAL_RETIREMENT_STREAK_REQUIRED,
+    JOB_ID_RE,
     apply_incident_hysteresis,
     build_ownership_status,
     evaluate_availability,
@@ -65,7 +65,6 @@ MATRIX = DATA / "amd_test_matrix.json"
 STATE = DATA / "open_ci_area_regression_issues.json"
 STATUS = DATA / "ci_ownership.json"
 CUDA_EVIDENCE = DATA / ".cache" / "cuda_evidence.json"
-JOB_ID_RE = re.compile(r"[?&]jid=([^&#]+)")
 CI_OWNERSHIP_MAX_BYTES = writer_max_bytes("ci_ownership")
 MAX_SOURCE_AGE = timedelta(hours=3)
 MAX_NIGHTLY_AGE = timedelta(hours=36)
@@ -742,9 +741,8 @@ def _issue_body(area: dict, run_url: str) -> str:
                 "### Retired target groups",
                 "",
                 (
-                    "This area ran without these target groups in "
-                    f"{SIGNAL_RETIREMENT_STREAK_REQUIRED} newer builds, so their "
-                    "incidents were retired: "
+                    "These target groups left this area, so their incidents "
+                    "were retired: "
                     f"{', '.join(_md(row.get('label')) for row in retired)}."
                 ),
             ]
@@ -1182,9 +1180,8 @@ def _recovery_body(area: dict, run_url: str) -> str:
         outcome = "have recovered"
     else:
         outcome = (
-            "have recovered or were retired after this area ran without their "
-            f"target group in {SIGNAL_RETIREMENT_STREAK_REQUIRED} newer builds "
-            f"(retired: {', '.join(retired)})"
+            "have recovered or were retired after their target group left this "
+            f"area (retired: {', '.join(retired)})"
         )
     shared = [
         f"{_md(row.get('label'))}: {_md(_shared_reason(row['cuda_evidence']))}"
