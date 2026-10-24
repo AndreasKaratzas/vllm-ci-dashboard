@@ -1,0 +1,58 @@
+{
+  "details_observed_at": "2026-10-24T11:45:23Z",
+  "details_refresh_attempted_at": null,
+  "details_request_page_cap": null,
+  "details_status": "retained_not_refreshed",
+  "execution_scope_contract": "ci_exact_source_cpu_exclusions_v1",
+  "hardware_scope": "amd_mi_gpu",
+  "metrics_observed_at": "2026-10-24T12:38:39Z",
+  "pending": [],
+  "publication_retention": {
+    "complete_relative_to_source": true,
+    "max_bytes": 2097152,
+    "pending": {
+      "complete": true,
+      "omitted": 0,
+      "published": 0,
+      "source": 0
+    },
+    "policy": "retain_longest_waiting_and_source_order_whole_job_rows",
+    "queue_snapshot_counts_complete": true,
+    "running": {
+      "complete": true,
+      "omitted": 0,
+      "published": 1,
+      "source": 1
+    }
+  },
+  "running": [
+    {
+      "analysis_excluded": false,
+      "branch": "main",
+      "build": 97037,
+      "commit": "1bd56eaef38d",
+      "exclusion_reason": "",
+      "execution_proof": {
+        "classification": "amd_mi_gpu",
+        "definition_tree": "0b6d26ef30939f4d7b5bc6adfc3ec8360a2a35f2",
+        "source_commit": "1bd56eaef38d0db35852fc38932d0c63003ef9f1",
+        "version": 1
+      },
+      "fork_url": "",
+      "name": ":amd: (MI300) Distributed Models Shard 1",
+      "pipeline": "ci",
+      "queue": "amd_mi300_2",
+      "queue_url": "https://buildkite.com/organizations/vllm/clusters/9cecc6b1-94cd-43d1-a256-ab438083f4f5/queues/59d42278-4327-4340-a6df-849fc21b973a",
+      "queue_wait_before_start_min": 0.1,
+      "run_min": 28.2,
+      "source": "",
+      "state": "running",
+      "url": "https://buildkite.com/vllm/ci/builds/97037/steps/canvas?jid=01a16d92-fc21-4234-a29e-04e0fc989c21&tab=output",
+      "workload": "vllm",
+      "zombie_threshold_min": 240
+    }
+  ],
+  "schema_version": 2,
+  "ts": "2026-10-24T11:45:23Z",
+  "zombie_threshold_min": 240
+}
