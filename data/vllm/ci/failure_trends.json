@@ -1,0 +1,138 @@
+{
+  "generated_at": "2026-10-24T13:04:00Z",
+  "mttf": {
+    "avg_days": null,
+    "median_days": null,
+    "count": 0
+  },
+  "top_offenders": [
+    {
+      "test_id": ":amd: (MI355) Distributed DP + EP::__job_level__",
+      "label": "flaky",
+      "pass_rate": 0.75,
+      "appearances": 8,
+      "last_seen": "2026-10-24",
+      "first_failure": null,
+      "failure_streak": 0,
+      "history": [
+        "P",
+        "F",
+        "F",
+        "P",
+        "P",
+        "P",
+        "P",
+        "P"
+      ],
+      "module": ":amd: (MI355) Distributed DP + EP",
+      "mean_duration": 0.0
+    }
+  ],
+  "new_failures": [],
+  "recently_fixed": [],
+  "degrading_modules": [
+    {
+      "module": ":amd: (MI355) Distributed DP + EP",
+      "avg_pass_rate": 0.75,
+      "total_tests": 1,
+      "failing": 0,
+      "flaky": 1,
+      "passing": 0
+    }
+  ],
+  "pass_rate_trend": [
+    {
+      "build_number": 97017,
+      "date": "2026-10-24",
+      "pass_rate": 0.9999,
+      "total": 56818,
+      "failed": 5
+    },
+    {
+      "build_number": 96830,
+      "date": "2026-10-23",
+      "pass_rate": 1.0,
+      "total": 57137,
+      "failed": 1
+    },
+    {
+      "build_number": 96581,
+      "date": "2026-10-22",
+      "pass_rate": 1.0,
+      "total": 54700,
+      "failed": 2
+    },
+    {
+      "build_number": 96338,
+      "date": "2026-10-21",
+      "pass_rate": 1.0,
+      "total": 54335,
+      "failed": 0
+    },
+    {
+      "build_number": 96078,
+      "date": "2026-10-20",
+      "pass_rate": 0.9997,
+      "total": 54096,
+      "failed": 14
+    },
+    {
+      "build_number": 95829,
+      "date": "2026-10-19",
+      "pass_rate": 1.0,
+      "total": 53339,
+      "failed": 2
+    },
+    {
+      "build_number": 95663,
+      "date": "2026-10-18",
+      "pass_rate": 0.9996,
+      "total": 53578,
+      "failed": 17
+    },
+    {
+      "build_number": 95553,
+      "date": "2026-10-17",
+      "pass_rate": 1.0,
+      "total": 53085,
+      "failed": 0
+    }
+  ],
+  "publication_retention": {
+    "policy": "retain_ranked_whole_failure_trend_rows",
+    "max_bytes": 1048576,
+    "complete_relative_to_source": true,
+    "collections": {
+      "top_offenders": {
+        "source": 1,
+        "published": 1,
+        "omitted": 0,
+        "complete": true
+      },
+      "new_failures": {
+        "source": 0,
+        "published": 0,
+        "omitted": 0,
+        "complete": true
+      },
+      "recently_fixed": {
+        "source": 0,
+        "published": 0,
+        "omitted": 0,
+        "complete": true
+      },
+      "degrading_modules": {
+        "source": 1,
+        "published": 1,
+        "omitted": 0,
+        "complete": true
+      },
+      "pass_rate_trend": {
+        "source": 8,
+        "published": 8,
+        "omitted": 0,
+        "complete": true
+      }
+    }
+  }
+}
