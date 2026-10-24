@@ -1,6 +1,6 @@
 """Regression tests for atomic dashboard publication-surface fallback."""
 
-# cspell:ignore kwonlyargs
+# cspell:ignore kwonlyargs nodeid
 
 from __future__ import annotations
 
@@ -5500,3 +5500,33 @@ def test_live_data_surface_map_names_existing_tests_and_excuses_only_unavailable
     assert excused_live_data_failure(analytics, frozenset({"ci_analytics", "ci_core"})) == {
         "ci_analytics", "ci_core"
     }
+
+
+@pytest.mark.parametrize("nodeid, owner", [
+    ("tests/vllm/test_data_freshness.py::TestCIDataFreshness::test_ci_health_exists", "ci_core"),
+    ("tests/vllm/test_data_freshness.py::TestQueueDataFreshness::test_queue_lifecycle_exists", "queue_lifecycle"),
+    ("tests/vllm/test_data_freshness.py::TestQueueDataFreshness::test_latest_snapshot_valid", "queue"),
+    ("tests/vllm/test_number_correctness.py::TestGroupCountCorrectness::test_ci_health_test_counts_match_jsonl", "ci_core"),
+    ("tests/vllm/test_queue_automation.py::TestQueueTimeseriesSchema::test_totals_match_sum", "queue"),
+    ("tests/vllm/test_rendering_data.py::TestJSRenderingSafety::test_ci_health_group_pass_math_is_self_consistent", "ci_core"),
+])
+def test_single_surface_live_data_check_cannot_block_publication_once_its_owner_is_unavailable(nodeid, owner) -> None:
+    from tests.vllm.conftest import excused_live_data_failure
+
+    others = frozenset(SURFACE_SPECS) - {owner}
+    assert excused_live_data_failure(nodeid, frozenset({owner})) == {owner}
+    assert excused_live_data_failure(nodeid, others) == frozenset()
+
+
+@pytest.mark.parametrize("nodeid", [
+    "tests/vllm/test_number_correctness.py::TestNormalizationInvariants::test_all_merges_are_shard_based",
+    "tests/vllm/test_number_correctness.py::TestCurrentMiExecutionScope::test_current_health_has_only_mi_execution_and_no_cuda_role",
+    "tests/vllm/test_data_freshness.py::TestQueueDataFreshness::test_unmapped_future_check",
+    "tests/vllm/test_number_correctness.py::TestGroupCountCorrectness::test_per_hw_test_counts_match_jsonl",
+    "tests/vllm/test_queue_automation.py::TestQueueTimeseriesSchema::test_release_normalizer_prevents_workload_history_overstatement",
+    "tests/vllm/test_rendering_data.py::TestVLLMCIData::test_shard_bases_exists",
+])
+def test_live_data_checks_that_exercise_code_or_are_unmapped_are_never_excused(nodeid) -> None:
+    from tests.vllm.conftest import excused_live_data_failure
+
+    assert excused_live_data_failure(nodeid, frozenset(SURFACE_SPECS)) == frozenset()
