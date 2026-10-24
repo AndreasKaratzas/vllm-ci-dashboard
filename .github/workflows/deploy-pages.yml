@@ -1,0 +1,1422 @@
+name: Deploy to GitHub Pages
+run-name: >-
+  Deploy to GitHub Pages${{ inputs.recovery_key != '' && format(' [recovery:{0}]', inputs.recovery_key) || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      recovery_key:
+        description: Optional incident-scoped watchdog recovery key
+        required: false
+        type: string
+        default: ''
+
+concurrency:
+  group: gh-pages-deploy
+  queue: max
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      # The trusted default branch supplies only the state validator. The site
+      # itself is built with the exact code SHA recorded by dashboard-state.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+          cache: 'pip'
+          cache-dependency-path: |
+            constraints.txt
+            pyproject.toml
+
+      - name: Validate recovery key
+        env:
+          RAW_RECOVERY_KEY: ${{ inputs.recovery_key }}
+        run: |
+          set -euo pipefail
+          if [ -n "$RAW_RECOVERY_KEY" ] && \
+             ! [[ "$RAW_RECOVERY_KEY" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::recovery_key must be empty or 64 lowercase hex"
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pip install -c constraints.txt requests pyyaml cryptography
+
+      - name: Restore exact validated dashboard state
+        id: dashboard-state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TRUSTED_MAIN_SHA=$(git rev-parse --verify 'HEAD^{commit}')
+          TRUSTED_VALIDATOR_DIR="$RUNNER_TEMP/trusted-dashboard-state-validator"
+          mkdir -p "$TRUSTED_VALIDATOR_DIR"
+          install -m 0644 scripts/vllm/dashboard_state.py \
+            "$TRUSTED_VALIDATOR_DIR/dashboard_state.py"
+          install -m 0644 scripts/vllm/public_projection.py \
+            "$TRUSTED_VALIDATOR_DIR/public_projection.py"
+          install -m 0644 scripts/vllm/publication_limits.py \
+            "$TRUSTED_VALIDATOR_DIR/publication_limits.py"
+          install -m 0644 scripts/vllm/github_git_proof.py \
+            "$TRUSTED_VALIDATOR_DIR/github_git_proof.py"
+          install -m 0644 config/dashboard_state.json \
+            "$TRUSTED_VALIDATOR_DIR/dashboard_state.json"
+          STATE_BRANCH=$(python -c \
+            'import json; print(json.load(open("config/dashboard_state.json"))["branch"])')
+          PREVIOUS_BRANCH=$(python -c \
+            'import json; print(json.load(open("config/dashboard_state.json"))["previous_branch"])')
+
+          probe_ref() {
+            local branch="$1"
+            local output="$2"
+            set +e
+            git ls-remote --exit-code --refs origin "refs/heads/$branch" \
+              > "$output"
+            local status=$?
+            set -e
+            if [ "$status" -eq 0 ]; then
+              local count
+              count=$(wc -l < "$output")
+              local sha
+              sha=$(awk -v ref="refs/heads/$branch" \
+                '$2 == ref {print $1}' "$output")
+              if [ "$count" -ne 1 ] || ! [[ "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+                echo "::error::Remote state ref $branch resolved ambiguously." >&2
+                exit 1
+              fi
+              printf '%s\n' "$sha"
+              return 0
+            fi
+            if [ "$status" -eq 2 ]; then
+              if [ -s "$output" ]; then
+                echo "::error::Absent state ref $branch returned ambiguous output." >&2
+                exit 1
+              fi
+              printf '%s\n' absent
+              return 0
+            fi
+            echo "::error::Could not determine whether remote state ref $branch exists." >&2
+            exit "$status"
+          }
+
+          OBSERVED_STATE_SHA=$(probe_ref \
+            "$STATE_BRANCH" "$RUNNER_TEMP/dashboard-state.ls-remote")
+          OBSERVED_PREVIOUS_SHA=$(probe_ref \
+            "$PREVIOUS_BRANCH" "$RUNNER_TEMP/dashboard-state-previous.ls-remote")
+          if [ "$OBSERVED_STATE_SHA" = absent ] && \
+             [ "$OBSERVED_PREVIOUS_SHA" = absent ]; then
+            echo "::error::Dashboard state has not been bootstrapped; run Data Collection before deploy-only."
+            exit 1
+          fi
+
+          hydrate_proven_blob() {
+            local object_id="$1"
+            local expected_size="$2"
+            local max_bytes="$3"
+            local label="$4"
+            local object_type object_size
+            if ! [[ "$object_id" =~ ^[0-9a-f]{40}$ ]] || \
+               ! [[ "$expected_size" =~ ^[0-9]+$ ]] || \
+               [ "$expected_size" -gt "$max_bytes" ]; then
+              echo "::error::$label server-side size proof is malformed."
+              return 90
+            fi
+            if ! GIT_NO_LAZY_FETCH=1 git cat-file -e "$object_id"; then
+              if ! git fetch --no-tags --filter=blob:none origin "$object_id"; then
+                echo "::error::Could not fetch size-proven $label object $object_id."
+                return 90
+              fi
+            fi
+            if ! object_type=$(GIT_NO_LAZY_FETCH=1 git cat-file -t "$object_id") || \
+               ! object_size=$(GIT_NO_LAZY_FETCH=1 git cat-file -s "$object_id"); then
+              echo "::error::Could not inspect fetched $label object."
+              return 90
+            fi
+            if [ "$object_type" != blob ] || [ "$object_size" != "$expected_size" ]; then
+              echo "::error::$label object disagrees with its GitHub tree proof."
+              return 90
+            fi
+          }
+
+          PROOF_ROWS="$RUNNER_TEMP/dashboard-state-ancestry-proofs.jsonl"
+          : > "$PROOF_ROWS"
+          declare -A PROVEN_STATES=()
+          declare -A PROVEN_CODES=()
+          declare -A PROVEN_CODE_TREES=()
+          add_slot_proof() {
+            local state_sha="$1"
+            local label="$2"
+            [ "$state_sha" != absent ] || return 0
+            if [[ -n "${PROVEN_STATES[$state_sha]+x}" ]]; then
+              return 0
+            fi
+            local remote_proof="$RUNNER_TEMP/$label-state-github-proof.json"
+            local remote_outputs="$RUNNER_TEMP/$label-state-github-proof.outputs"
+            : > "$remote_outputs"
+            local metadata_status
+            set +e
+            python scripts/vllm/github_git_proof.py prove \
+              --repository "$GITHUB_REPOSITORY" \
+              --commit-sha "$state_sha" \
+              --profile dashboard-state \
+              --output "$remote_proof" \
+              --github-output "$remote_outputs"
+            metadata_status=$?
+            set -e
+            case "$metadata_status" in
+              0) ;;
+              2)
+                echo "::warning::$label dashboard state metadata is invalid; the other exact slot must recover it."
+                return 0
+                ;;
+              *)
+                echo "::error::$label dashboard state metadata fetch was ambiguous; refusing repair."
+                return 90
+                ;;
+            esac
+            local proven_tree manifest_oid manifest_bytes attestation_oid attestation_bytes
+            proven_tree=$(awk -F= '$1 == "tree_sha" {print $2}' "$remote_outputs")
+            manifest_oid=$(awk -F= '$1 == "state_manifest_oid" {print $2}' "$remote_outputs")
+            manifest_bytes=$(awk -F= '$1 == "state_manifest_bytes" {print $2}' "$remote_outputs")
+            attestation_oid=$(awk -F= '$1 == "state_attestation_oid" {print $2}' "$remote_outputs")
+            attestation_bytes=$(awk -F= '$1 == "state_attestation_bytes" {print $2}' "$remote_outputs")
+            if ! git fetch --no-tags --depth=1 --filter=blob:none \
+              origin "$state_sha"; then
+              echo "::error::Could not fetch size-proven $label state commit/tree."
+              return 90
+            fi
+            local fetched_sha fetched_tree
+            if ! fetched_sha=$(git rev-parse --verify "$state_sha^{commit}") || \
+               ! fetched_tree=$(GIT_NO_LAZY_FETCH=1 git rev-parse \
+                 --verify "$state_sha^{tree}") || \
+               [ "$fetched_sha" != "$state_sha" ] || \
+               [ "$fetched_tree" != "$proven_tree" ]; then
+              echo "::error::$label state fetch disagrees with its GitHub proof."
+              return 90
+            fi
+            hydrate_proven_blob "$manifest_oid" "$manifest_bytes" \
+              8388608 "$label state manifest" || return $?
+            hydrate_proven_blob "$attestation_oid" "$attestation_bytes" \
+              4096 "$label state projection attestation" || return $?
+            local manifest_file="$RUNNER_TEMP/$label-dashboard-state.json"
+            if ! GIT_NO_LAZY_FETCH=1 git show \
+              "$state_sha:data/vllm/ci/dashboard_state.json" \
+              > "$manifest_file"; then
+              echo "::error::Could not read prefetched $label state manifest."
+              return 90
+            fi
+            local code_sha
+            if ! code_sha=$(python - "$manifest_file" <<'PY'
+          import json
+          import re
+          import sys
+
+          value = json.load(open(sys.argv[1], encoding="utf-8")).get("code_sha")
+          if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{40}", value) is None:
+              raise SystemExit("dashboard state declares an invalid code SHA")
+          print(value)
+          PY
+            ); then
+              echo "::warning::$label dashboard state manifest is invalid."
+              return 0
+            fi
+            if [[ -z "${PROVEN_CODES[$code_sha]+x}" ]]; then
+              if [ "$code_sha" = "$TRUSTED_MAIN_SHA" ]; then
+                # Exact equality needs no GitHub Compare API request.
+                PROVEN_CODES["$code_sha"]=ancestor
+              else
+                set +e
+                python scripts/vllm/github_git_proof.py compare-ancestor \
+                  --repository "$GITHUB_REPOSITORY" \
+                  --base "$code_sha" \
+                  --head "$TRUSTED_MAIN_SHA"
+                compare_status=$?
+                set -e
+                case "$compare_status" in
+                  0) PROVEN_CODES["$code_sha"]=ancestor ;;
+                  3)
+                    echo "::warning::$label state code is definitively not an ancestor of protected main; skipping it."
+                    PROVEN_CODES["$code_sha"]=nonancestor
+                    ;;
+                  *)
+                    echo "::error::$label state ancestry lookup was ambiguous; refusing repair."
+                    return 90
+                    ;;
+                esac
+              fi
+            fi
+            if [ "${PROVEN_CODES[$code_sha]}" != ancestor ]; then
+              return 0
+            fi
+            if [[ -z "${PROVEN_CODE_TREES[$code_sha]+x}" ]]; then
+              local code_proof="$RUNNER_TEMP/code-$code_sha-github-proof.json"
+              local code_outputs="$RUNNER_TEMP/code-$code_sha-github-proof.outputs"
+              : > "$code_outputs"
+              local code_proof_status
+              set +e
+              python scripts/vllm/github_git_proof.py prove \
+                --repository "$GITHUB_REPOSITORY" \
+                --commit-sha "$code_sha" \
+                --profile dashboard-code \
+                --output "$code_proof" \
+                --github-output "$code_outputs"
+              code_proof_status=$?
+              set -e
+              case "$code_proof_status" in
+                0) ;;
+                2)
+                  echo "::warning::$label state code violates the bounded code-tree profile."
+                  PROVEN_CODE_TREES["$code_sha"]=invalid
+                  return 0
+                  ;;
+                *)
+                  echo "::error::$label state code-tree proof was ambiguous."
+                  return 90
+                  ;;
+              esac
+              local proven_code_tree fetched_code_sha fetched_code_tree
+              proven_code_tree=$(awk -F= '$1 == "tree_sha" {print $2}' "$code_outputs")
+              if [ "$code_sha" != "$TRUSTED_MAIN_SHA" ]; then
+                if ! git fetch --no-tags --depth=1 --filter=blob:none \
+                  origin "$code_sha"; then
+                  echo "::error::Could not fetch proven $label state code tree."
+                  return 90
+                fi
+              fi
+              if ! fetched_code_sha=$(git rev-parse --verify "$code_sha^{commit}") || \
+                 ! fetched_code_tree=$(GIT_NO_LAZY_FETCH=1 git rev-parse \
+                   --verify "$code_sha^{tree}") || \
+                 [ "$fetched_code_sha" != "$code_sha" ] || \
+                 [ "$fetched_code_tree" != "$proven_code_tree" ]; then
+                echo "::error::$label state code fetch disagrees with its GitHub proof."
+                return 90
+              fi
+              PROVEN_CODE_TREES["$code_sha"]="$proven_code_tree"
+            fi
+            if [ "${PROVEN_CODE_TREES[$code_sha]}" = invalid ]; then
+              return 0
+            fi
+            if ! GIT_NO_LAZY_FETCH=1 python \
+              scripts/vllm/dashboard_state.py validate-ref-metadata \
+              --ref "$state_sha" --expected-code-sha "$code_sha" >/dev/null; then
+              echo "::warning::$label dashboard state failed metadata/OID validation; the other exact slot must recover it."
+              return 0
+            fi
+            python - "$state_sha" "$code_sha" >> "$PROOF_ROWS" <<'PY'
+          import json
+          import sys
+
+          print(json.dumps({
+              "state_sha": sys.argv[1],
+              "code_sha": sys.argv[2],
+              "result": "ancestor",
+          }, separators=(",", ":"), sort_keys=True))
+          PY
+            PROVEN_STATES["$state_sha"]=1
+          }
+          add_slot_proof "$OBSERVED_STATE_SHA" current
+          add_slot_proof "$OBSERVED_PREVIOUS_SHA" previous
+
+          ANCESTRY_ATTESTATION="$RUNNER_TEMP/dashboard-state-ancestry.json"
+          python - "$TRUSTED_MAIN_SHA" "$PROOF_ROWS" \
+            "$ANCESTRY_ATTESTATION" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          trusted_main, rows_path, output_path = sys.argv[1:]
+          proofs = [
+              json.loads(line)
+              for line in Path(rows_path).read_text(encoding="utf-8").splitlines()
+              if line
+          ]
+          payload = {
+              "schema_version": 1,
+              "provider": "github_compare_api",
+              "trusted_main_sha": trusted_main,
+              "proofs": sorted(proofs, key=lambda row: row["state_sha"]),
+          }
+          Path(output_path).write_text(
+              json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+          REPAIR_OUTPUT="$RUNNER_TEMP/dashboard-state-repair.outputs"
+          : > "$REPAIR_OUTPUT"
+          python scripts/vllm/dashboard_state.py repair-slots \
+            --current-sha "$OBSERVED_STATE_SHA" \
+            --previous-sha "$OBSERVED_PREVIOUS_SHA" \
+            --trusted-main-sha "$TRUSTED_MAIN_SHA" \
+            --ancestry-attestation "$ANCESTRY_ATTESTATION" \
+            --remote origin \
+            --github-output "$REPAIR_OUTPUT"
+          STATE_SHA=$(awk -F= '$1 == "current_state_sha" {print $2}' \
+            "$REPAIR_OUTPUT")
+          PREVIOUS_SHA=$(awk -F= '$1 == "previous_state_sha" {print $2}' \
+            "$REPAIR_OUTPUT")
+          REPAIR_ACTION=$(awk -F= '$1 == "repair_action" {print $2}' \
+            "$REPAIR_OUTPUT")
+          for sha in "$STATE_SHA" "$PREVIOUS_SHA"; do
+            [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "::error::Dashboard state repair returned an invalid slot SHA."
+              exit 1
+            }
+          done
+
+          MAX_STATE_BLOB_BYTES=$(python -c \
+            'import json; print(json.load(open("config/dashboard_state.json"))["limits"]["max_blob_bytes"] + 1)')
+
+          full_validate_state() {
+            local state_sha="$1"
+            local label="$2"
+            local manifest_file="$RUNNER_TEMP/$label-full-dashboard-state.json"
+            if ! git fetch --no-tags --depth=1 --refetch \
+              --filter="blob:limit=$MAX_STATE_BLOB_BYTES" \
+              origin "$state_sha"; then
+              echo "::error::Could not hydrate the exact $label dashboard state."
+              return 90
+            fi
+            if ! GIT_NO_LAZY_FETCH=1 git show \
+              "$state_sha:data/vllm/ci/dashboard_state.json" \
+              > "$manifest_file"; then
+              echo "::error::Hydrated $label state manifest became unavailable."
+              return 90
+            fi
+            if ! FULL_STATE_CODE_SHA=$(python - "$manifest_file" <<'PY'
+          import json
+          import re
+          import sys
+
+          value = json.load(open(sys.argv[1], encoding="utf-8")).get("code_sha")
+          if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{40}", value) is None:
+              raise SystemExit(1)
+          print(value)
+          PY
+            ); then
+              echo "::warning::$label dashboard state has an invalid full manifest."
+              return 2
+            fi
+            if [ "${PROVEN_CODES[$FULL_STATE_CODE_SHA]:-}" != ancestor ]; then
+              echo "::error::$label full state lost its proven code ancestry."
+              return 90
+            fi
+            if ! GIT_NO_LAZY_FETCH=1 python \
+              scripts/vllm/dashboard_state.py validate-ref \
+              --ref "$state_sha" \
+              --expected-code-sha "$FULL_STATE_CODE_SHA"; then
+              return 2
+            fi
+          }
+
+          set +e
+          FULL_STATE_CODE_SHA=
+          full_validate_state "$STATE_SHA" current
+          CURRENT_FULL_STATUS=$?
+          CURRENT_STATE_CODE_SHA="$FULL_STATE_CODE_SHA"
+          set -e
+          case "$CURRENT_FULL_STATUS" in
+            0)
+              STATE_CODE_SHA="$CURRENT_STATE_CODE_SHA"
+              ;;
+            2)
+              if [ "$PREVIOUS_SHA" = "$STATE_SHA" ]; then
+                echo "::error::The only dashboard state fails full content validation."
+                exit 1
+              fi
+              echo "::warning::Current state failed full validation; testing the rollback slot."
+              set +e
+              FULL_STATE_CODE_SHA=
+              full_validate_state "$PREVIOUS_SHA" previous
+              PREVIOUS_FULL_STATUS=$?
+              PREVIOUS_STATE_CODE_SHA="$FULL_STATE_CODE_SHA"
+              set -e
+              if [ "$PREVIOUS_FULL_STATUS" -eq 90 ]; then
+                echo "::error::Rollback state hydration was ambiguous; refusing promotion."
+                exit 1
+              fi
+              if [ "$PREVIOUS_FULL_STATUS" -ne 0 ]; then
+                echo "::error::Neither dashboard state slot passes full content validation."
+                exit 1
+              fi
+
+              FULL_FALLBACK_ATTESTATION="$RUNNER_TEMP/dashboard-state-full-fallback-ancestry.json"
+              python - "$ANCESTRY_ATTESTATION" "$PREVIOUS_SHA" \
+                "$FULL_FALLBACK_ATTESTATION" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          source_path, survivor_sha, output_path = sys.argv[1:]
+          payload = json.loads(Path(source_path).read_text(encoding="utf-8"))
+          proofs = [
+              proof for proof in payload.get("proofs", [])
+              if proof.get("state_sha") == survivor_sha
+          ]
+          if len(proofs) != 1:
+              raise SystemExit("rollback state lacks exactly one ancestry proof")
+          payload["proofs"] = proofs
+          Path(output_path).write_text(
+              json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+              FULL_REPAIR_OUTPUT="$RUNNER_TEMP/dashboard-state-full-repair.outputs"
+              : > "$FULL_REPAIR_OUTPUT"
+              python scripts/vllm/dashboard_state.py repair-slots \
+                --current-sha "$STATE_SHA" \
+                --previous-sha "$PREVIOUS_SHA" \
+                --trusted-main-sha "$TRUSTED_MAIN_SHA" \
+                --ancestry-attestation "$FULL_FALLBACK_ATTESTATION" \
+                --remote origin \
+                --github-output "$FULL_REPAIR_OUTPUT"
+              PROMOTED_STATE_SHA=$(awk -F= \
+                '$1 == "current_state_sha" {print $2}' "$FULL_REPAIR_OUTPUT")
+              PROMOTED_PREVIOUS_SHA=$(awk -F= \
+                '$1 == "previous_state_sha" {print $2}' "$FULL_REPAIR_OUTPUT")
+              FULL_REPAIR_ACTION=$(awk -F= \
+                '$1 == "repair_action" {print $2}' "$FULL_REPAIR_OUTPUT")
+              if [ "$PROMOTED_STATE_SHA" != "$PREVIOUS_SHA" ] || \
+                 [ "$PROMOTED_PREVIOUS_SHA" != "$PREVIOUS_SHA" ]; then
+                echo "::error::Full-valid rollback promotion returned unexpected refs."
+                exit 1
+              fi
+              STATE_SHA="$PROMOTED_STATE_SHA"
+              PREVIOUS_SHA="$PROMOTED_PREVIOUS_SHA"
+              STATE_CODE_SHA="$PREVIOUS_STATE_CODE_SHA"
+              REPAIR_ACTION="$REPAIR_ACTION+$FULL_REPAIR_ACTION-full-fallback"
+              ;;
+            *)
+              echo "::error::Current state hydration was ambiguous; refusing fallback."
+              exit 1
+              ;;
+          esac
+
+          STATE_MANIFEST="$RUNNER_TEMP/dashboard-state.json"
+          GIT_NO_LAZY_FETCH=1 git show \
+            "$STATE_SHA:data/vllm/ci/dashboard_state.json" > "$STATE_MANIFEST"
+          STATE_CODE_SHA=$(python -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["code_sha"])' \
+            "$STATE_MANIFEST")
+          STATE_GENERATION=$(python -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["generation_id"])' \
+            "$STATE_MANIFEST")
+          STATE_GENERATED_AT=$(python -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["generated_at"])' \
+            "$STATE_MANIFEST")
+          STATE_TREE=$(git rev-parse --verify "$STATE_SHA^{tree}")
+          for sha in "$STATE_CODE_SHA" "$STATE_TREE"; do
+            [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "::error::Dashboard state contains an invalid code/tree SHA."
+              exit 1
+            }
+          done
+
+          # The state commit carries exact source OIDs already proven equal to
+          # the bounded protected-main code tree. Checking out the fully
+          # hydrated state avoids fetching stale generated-root blobs from the
+          # code commit and installs no object implicitly.
+          GIT_NO_LAZY_FETCH=1 git checkout --detach "$STATE_SHA"
+          # Keep using the validator copied from trusted main. Checking out the
+          # exact producer must not downgrade state-validation semantics.
+          GIT_NO_LAZY_FETCH=1 python \
+            "$TRUSTED_VALIDATOR_DIR/dashboard_state.py" \
+            --root "$GITHUB_WORKSPACE" \
+            --config "$TRUSTED_VALIDATOR_DIR/dashboard_state.json" \
+            materialize --ref "$STATE_SHA" \
+            --expected-code-sha "$STATE_CODE_SHA"
+          {
+            echo "DASHBOARD_STATE_BRANCH=$STATE_BRANCH"
+            echo "DASHBOARD_STATE_SHA=$STATE_SHA"
+            echo "DASHBOARD_STATE_TREE=$STATE_TREE"
+            echo "DASHBOARD_STATE_CODE_SHA=$STATE_CODE_SHA"
+            echo "DASHBOARD_STATE_GENERATION=$STATE_GENERATION"
+            echo "DASHBOARD_STATE_GENERATED_AT=$STATE_GENERATED_AT"
+            echo "DASHBOARD_PREVIOUS_STATE_SHA=$PREVIOUS_SHA"
+            echo "DASHBOARD_STATE_ANCESTRY_ATTESTATION=$ANCESTRY_ATTESTATION"
+            echo "DASHBOARD_MAX_STATE_BLOB_BYTES=$MAX_STATE_BLOB_BYTES"
+            echo "TRUSTED_DASHBOARD_VALIDATOR_DIR=$TRUSTED_VALIDATOR_DIR"
+            echo "DASHBOARD_TRUSTED_MAIN_SHA=$TRUSTED_MAIN_SHA"
+          } >> "$GITHUB_ENV"
+          echo "Restored dashboard state $STATE_SHA with exact code $STATE_CODE_SHA."
+
+      - name: Install state-pinned candidate dependencies
+        run: |
+          set -euo pipefail
+          CANDIDATE_VENV="$RUNNER_TEMP/dashboard-candidate-current-venv"
+          python -m venv "$CANDIDATE_VENV"
+          # constraints.txt is part of the fully validated state/code identity.
+          # A dependency transport failure is ambiguous and stops the deploy;
+          # it is never authority to promote the rollback slot.
+          "$CANDIDATE_VENV/bin/pip" install \
+            -c "$GITHUB_WORKSPACE/constraints.txt" \
+            requests pyyaml cryptography
+          echo "CANDIDATE_PYTHON=$CANDIDATE_VENV/bin/python" >> "$GITHUB_ENV"
+
+      - name: Rebuild deterministic private Operations assembly input
+        id: current-operations
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          CURRENT_FAILURE_STAGE=operations-timestamp
+          record_failure() {
+            local status=$?
+            trap - ERR
+            echo "failed_stage=$CURRENT_FAILURE_STAGE" >> "$GITHUB_OUTPUT"
+            echo "failed_status=$status" >> "$GITHUB_OUTPUT"
+            exit "$status"
+          }
+          trap record_failure ERR
+          OPS_GENERATED_AT=$(python - <<'PY'
+          import json
+          import re
+          from datetime import datetime, timezone
+
+          raw = json.load(
+              open("data/vllm/ci/operations_v2_manifest.json", encoding="utf-8")
+          ).get("generated_at")
+          if not isinstance(raw, str) or not re.fullmatch(
+              r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", raw
+          ):
+              raise SystemExit("Operations manifest generated_at is not canonical UTC")
+          parsed = datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ").replace(
+              tzinfo=timezone.utc
+          )
+          if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != raw:
+              raise SystemExit("Operations manifest generated_at is invalid")
+          print(raw)
+          PY
+          )
+          CURRENT_FAILURE_STAGE=operations-rebuild
+          "$CANDIDATE_PYTHON" scripts/vllm/build_operations_snapshot.py \
+            --input-dir data/vllm/ci \
+            --output data/vllm/ci/operations_v2.json.gz \
+            --generated-at "$OPS_GENERATED_AT"
+          # The monolith is an ignored private build input. Every public shard
+          # it regenerates must remain byte-exact to the validated state.
+          CURRENT_FAILURE_STAGE=operations-diff
+          git diff --exit-code "$DASHBOARD_STATE_SHA" -- \
+            data/vllm/ci/operations_v2_manifest.json \
+            data/vllm/ci/operations_v2/
+
+      - name: Run dashboard data audit
+        id: current-audit
+        if: steps.current-operations.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          trap 'status=$?; trap - ERR; echo "failed_stage=audit" >> "$GITHUB_OUTPUT"; echo "failed_status=$status" >> "$GITHUB_OUTPUT"; exit "$status"' ERR
+          # Equivalent pinned interpreter form: python scripts/vllm/audit_dashboard_data.py
+          "$CANDIDATE_PYTHON" scripts/vllm/audit_dashboard_data.py
+
+      - name: Assemble exact state site
+        id: current-assemble
+        if: steps.current-audit.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          trap 'status=$?; trap - ERR; echo "failed_stage=assemble" >> "$GITHUB_OUTPUT"; echo "failed_status=$status" >> "$GITHUB_OUTPUT"; exit "$status"' ERR
+          "$CANDIDATE_PYTHON" scripts/build_site.py --cache-bust-index \
+            --cache-bust-value "$DASHBOARD_STATE_GENERATION"
+
+      - name: Recreate state-bound public projection manifest
+        id: current-manifest
+        if: steps.current-assemble.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          trap 'status=$?; trap - ERR; echo "failed_stage=manifest" >> "$GITHUB_OUTPUT"; echo "failed_status=$status" >> "$GITHUB_OUTPUT"; exit "$status"' ERR
+          # Do not rewrite the private attestation restored from state. The
+          # local verifier below requires this deterministic build to match it.
+          "$CANDIDATE_PYTHON" scripts/vllm/public_projection.py create \
+            --site-root _site \
+            --manifest _site/publication_manifest.json
+
+      - name: Write state publication marker
+        id: current-marker
+        if: steps.current-manifest.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          trap 'status=$?; trap - ERR; echo "failed_stage=marker" >> "$GITHUB_OUTPUT"; echo "failed_status=$status" >> "$GITHUB_OUTPUT"; exit "$status"' ERR
+          # Trusted invocation of dashboard_state.py write-public-marker.
+          "$CANDIDATE_PYTHON" \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/dashboard_state.py" \
+            --root "$GITHUB_WORKSPACE" \
+            --config "$TRUSTED_DASHBOARD_VALIDATOR_DIR/dashboard_state.json" \
+            write-public-marker \
+            --state-sha "$DASHBOARD_STATE_SHA" \
+            --state-tree "$DASHBOARD_STATE_TREE" \
+            --code-sha "$DASHBOARD_STATE_CODE_SHA" \
+            --generated-at "$DASHBOARD_STATE_GENERATED_AT" \
+            --public-attestation data/vllm/ci/public_projection_attestation.json \
+            --publication-status _site/data/vllm/ci/publication_status.json \
+            --output _site/publication_generation.json
+
+      - name: Verify exact local public projection
+        id: current-local-projection
+        if: steps.current-marker.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          trap 'status=$?; trap - ERR; echo "failed_stage=projection" >> "$GITHUB_OUTPUT"; echo "failed_status=$status" >> "$GITHUB_OUTPUT"; exit "$status"' ERR
+          PROJECTION_COMPAT_ARGS=()
+          if [ "$DASHBOARD_STATE_CODE_SHA" != "$DASHBOARD_TRUSTED_MAIN_SHA" ]; then
+            PROJECTION_COMPAT_ARGS+=(--allow-safe-legacy-limits)
+          fi
+          "$CANDIDATE_PYTHON" \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/public_projection.py" verify-local \
+            --site-root _site \
+            --manifest _site/publication_manifest.json \
+            --attestation data/vllm/ci/public_projection_attestation.json \
+            --marker _site/publication_generation.json \
+            "${PROJECTION_COMPAT_ARGS[@]}"
+
+      - name: Reproduce current candidate failure in isolation
+        id: current-reproduction
+        if: always() && steps.current-local-projection.outcome != 'success'
+        continue-on-error: true
+        env:
+          OPERATIONS_OUTCOME: ${{ steps.current-operations.outcome }}
+          OPERATIONS_FAILED_STAGE: ${{ steps.current-operations.outputs.failed_stage }}
+          OPERATIONS_FAILED_STATUS: ${{ steps.current-operations.outputs.failed_status }}
+          AUDIT_OUTCOME: ${{ steps.current-audit.outcome }}
+          AUDIT_FAILED_STAGE: ${{ steps.current-audit.outputs.failed_stage }}
+          AUDIT_FAILED_STATUS: ${{ steps.current-audit.outputs.failed_status }}
+          ASSEMBLE_OUTCOME: ${{ steps.current-assemble.outcome }}
+          ASSEMBLE_FAILED_STAGE: ${{ steps.current-assemble.outputs.failed_stage }}
+          ASSEMBLE_FAILED_STATUS: ${{ steps.current-assemble.outputs.failed_status }}
+          MANIFEST_OUTCOME: ${{ steps.current-manifest.outcome }}
+          MANIFEST_FAILED_STAGE: ${{ steps.current-manifest.outputs.failed_stage }}
+          MANIFEST_FAILED_STATUS: ${{ steps.current-manifest.outputs.failed_status }}
+          MARKER_OUTCOME: ${{ steps.current-marker.outcome }}
+          MARKER_FAILED_STAGE: ${{ steps.current-marker.outputs.failed_stage }}
+          MARKER_FAILED_STATUS: ${{ steps.current-marker.outputs.failed_status }}
+          PROJECTION_OUTCOME: ${{ steps.current-local-projection.outcome }}
+          PROJECTION_FAILED_STAGE: ${{ steps.current-local-projection.outputs.failed_stage }}
+          PROJECTION_FAILED_STATUS: ${{ steps.current-local-projection.outputs.failed_status }}
+        run: |
+          set -euo pipefail
+          ORIGINAL_FAILED_STAGE=
+          ORIGINAL_FAILED_STATUS=
+          for candidate in \
+            "operations:$OPERATIONS_OUTCOME:$OPERATIONS_FAILED_STAGE:$OPERATIONS_FAILED_STATUS" \
+            "audit:$AUDIT_OUTCOME:$AUDIT_FAILED_STAGE:$AUDIT_FAILED_STATUS" \
+            "assemble:$ASSEMBLE_OUTCOME:$ASSEMBLE_FAILED_STAGE:$ASSEMBLE_FAILED_STATUS" \
+            "manifest:$MANIFEST_OUTCOME:$MANIFEST_FAILED_STAGE:$MANIFEST_FAILED_STATUS" \
+            "marker:$MARKER_OUTCOME:$MARKER_FAILED_STAGE:$MARKER_FAILED_STATUS" \
+            "projection:$PROJECTION_OUTCOME:$PROJECTION_FAILED_STAGE:$PROJECTION_FAILED_STATUS"; do
+            IFS=: read -r step_name outcome reported_stage reported_status <<< "$candidate"
+            if [ "$outcome" = failure ]; then
+              case "$step_name:$reported_stage" in
+                operations:operations-timestamp|operations:operations-rebuild|operations:operations-diff|audit:audit|assemble:assemble|manifest:manifest|marker:marker|projection:projection) ;;
+                *)
+                  echo "ambiguous=true" >> "$GITHUB_OUTPUT"
+                  echo "::error::Failed step did not report an exact deterministic stage."
+                  exit 90
+                  ;;
+              esac
+              if ! [[ "$reported_status" =~ ^[1-9][0-9]*$ ]] || \
+                 [ "$reported_status" -ge 128 ] || \
+                 [ "$reported_status" -eq 74 ] || [ "$reported_status" -eq 75 ]; then
+                echo "ambiguous=true" >> "$GITHUB_OUTPUT"
+                echo "::error::Initial failure has an infrastructure-class status."
+                exit 90
+              fi
+              ORIGINAL_FAILED_STAGE=$reported_stage
+              ORIGINAL_FAILED_STATUS=$reported_status
+              break
+            fi
+            if [ "$outcome" != success ] && [ "$outcome" != skipped ]; then
+              echo "ambiguous=true" >> "$GITHUB_OUTPUT"
+              echo "::error::Current candidate has ambiguous $step_name outcome $outcome."
+              exit 90
+            fi
+          done
+          if [ -z "$ORIGINAL_FAILED_STAGE" ]; then
+            echo "ambiguous=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Could not identify one deterministic current-candidate failure stage."
+            exit 90
+          fi
+          echo "original_failed_stage=$ORIGINAL_FAILED_STAGE" >> "$GITHUB_OUTPUT"
+          echo "original_failed_status=$ORIGINAL_FAILED_STATUS" >> "$GITHUB_OUTPUT"
+
+          storage_healthy() {
+            local available_kib available_inodes available_memory_kib
+            available_kib=$(df -Pk "$RUNNER_TEMP" | awk 'NR == 2 {print $4}')
+            available_inodes=$(df -Pi "$RUNNER_TEMP" | awk 'NR == 2 {print $4}')
+            available_memory_kib=$(awk \
+              '$1 == "MemAvailable:" {print $2}' /proc/meminfo)
+            [[ "$available_kib" =~ ^[0-9]+$ ]] && \
+              [[ "$available_inodes" =~ ^[0-9]+$ ]] && \
+              [[ "$available_memory_kib" =~ ^[0-9]+$ ]] && \
+              [ "$available_kib" -ge 2097152 ] && \
+              [ "$available_inodes" -ge 20000 ] && \
+              [ "$available_memory_kib" -ge 2097152 ]
+          }
+          if ! storage_healthy; then
+            echo "ambiguous=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Insufficient disk, inode, or memory headroom for an authoritative reproduction."
+            exit 90
+          fi
+          if [ ! -x "$CANDIDATE_PYTHON" ]; then
+            echo "ambiguous=true" >> "$GITHUB_OUTPUT"
+            echo "::error::State-pinned candidate environment is unavailable."
+            exit 90
+          fi
+
+          RETRY_ROOT="$RUNNER_TEMP/dashboard-current-reproduction"
+          rm -rf "$RETRY_ROOT"
+          RETRY_ADDED=false
+          cleanup_retry() {
+            if [ "$RETRY_ADDED" = true ]; then
+              git worktree remove --force "$RETRY_ROOT" >/dev/null 2>&1 || true
+            fi
+            rm -rf "$RETRY_ROOT"
+            git worktree prune >/dev/null 2>&1 || true
+          }
+          trap cleanup_retry EXIT
+          if ! GIT_NO_LAZY_FETCH=1 git worktree add --detach \
+            "$RETRY_ROOT" "$DASHBOARD_STATE_SHA"; then
+            echo "ambiguous=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Could not create an isolated current-state worktree."
+            exit 90
+          fi
+          RETRY_ADDED=true
+          if ! GIT_NO_LAZY_FETCH=1 "$CANDIDATE_PYTHON" \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/dashboard_state.py" \
+            --root "$RETRY_ROOT" \
+            --config "$TRUSTED_DASHBOARD_VALIDATOR_DIR/dashboard_state.json" \
+            materialize --ref "$DASHBOARD_STATE_SHA" \
+            --expected-code-sha "$DASHBOARD_STATE_CODE_SHA"; then
+            echo "ambiguous=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Current state could not be reproduced in a clean worktree."
+            exit 90
+          fi
+
+          cd "$RETRY_ROOT"
+          PROJECTION_COMPAT_ARGS=()
+          if [ "$DASHBOARD_STATE_CODE_SHA" != "$DASHBOARD_TRUSTED_MAIN_SHA" ]; then
+            PROJECTION_COMPAT_ARGS+=(--allow-safe-legacy-limits)
+          fi
+          retry_operations_timestamp() {
+            RETRY_GENERATED_AT=$("$CANDIDATE_PYTHON" - <<'PY'
+          import json
+          import re
+          from datetime import datetime, timezone
+
+          raw = json.load(
+              open("data/vllm/ci/operations_v2_manifest.json", encoding="utf-8")
+          ).get("generated_at")
+          if not isinstance(raw, str) or not re.fullmatch(
+              r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", raw
+          ):
+              raise SystemExit("Operations manifest generated_at is not canonical UTC")
+          parsed = datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ").replace(
+              tzinfo=timezone.utc
+          )
+          if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != raw:
+              raise SystemExit("Operations manifest generated_at is invalid")
+          print(raw)
+          PY
+            )
+          }
+          retry_marker() {
+            "$CANDIDATE_PYTHON" \
+              "$TRUSTED_DASHBOARD_VALIDATOR_DIR/dashboard_state.py" \
+              --root "$RETRY_ROOT" \
+              --config "$TRUSTED_DASHBOARD_VALIDATOR_DIR/dashboard_state.json" \
+              write-public-marker \
+              --state-sha "$DASHBOARD_STATE_SHA" \
+              --state-tree "$DASHBOARD_STATE_TREE" \
+              --code-sha "$DASHBOARD_STATE_CODE_SHA" \
+              --generated-at "$DASHBOARD_STATE_GENERATED_AT" \
+              --public-attestation data/vllm/ci/public_projection_attestation.json \
+              --publication-status _site/data/vllm/ci/publication_status.json \
+              --output _site/publication_generation.json
+          }
+          run_retry_stage() {
+            local stage="$1"
+            shift
+            local status
+            if "$@"; then
+              return 0
+            else
+              status=$?
+            fi
+            if ! storage_healthy || [ "$status" -ge 128 ] || \
+               [ "$status" -eq 74 ] || [ "$status" -eq 75 ]; then
+              REPRODUCED_STAGE=$stage
+              REPRODUCED_STATUS=$status
+              return 90
+            fi
+            REPRODUCED_STAGE=$stage
+            REPRODUCED_STATUS=$status
+            return 2
+          }
+
+          REPRODUCED_STAGE=
+          REPRODUCED_STATUS=0
+          RETRY_GENERATED_AT=
+          retry_status=0
+          if run_retry_stage operations-timestamp retry_operations_timestamp; then
+            :
+          else
+            retry_status=$?
+          fi
+          if [ "$retry_status" -eq 0 ]; then
+            if run_retry_stage operations-rebuild \
+              "$CANDIDATE_PYTHON" scripts/vllm/build_operations_snapshot.py \
+              --input-dir data/vllm/ci \
+              --output data/vllm/ci/operations_v2.json.gz \
+              --generated-at "$RETRY_GENERATED_AT"; then
+              :
+            else
+              retry_status=$?
+            fi
+          fi
+          if [ "$retry_status" -eq 0 ]; then
+            if run_retry_stage operations-diff git diff --exit-code \
+              "$DASHBOARD_STATE_SHA" -- \
+              data/vllm/ci/operations_v2_manifest.json \
+              data/vllm/ci/operations_v2/; then
+              :
+            else
+              retry_status=$?
+            fi
+          fi
+          if [ "$retry_status" -eq 0 ]; then
+            if run_retry_stage audit \
+              "$CANDIDATE_PYTHON" scripts/vllm/audit_dashboard_data.py; then
+              :
+            else
+              retry_status=$?
+            fi
+          fi
+          if [ "$retry_status" -eq 0 ]; then
+            if run_retry_stage assemble \
+              "$CANDIDATE_PYTHON" scripts/build_site.py --cache-bust-index \
+              --cache-bust-value "$DASHBOARD_STATE_GENERATION"; then
+              :
+            else
+              retry_status=$?
+            fi
+          fi
+          if [ "$retry_status" -eq 0 ]; then
+            if run_retry_stage manifest \
+              "$CANDIDATE_PYTHON" scripts/vllm/public_projection.py create \
+              --site-root _site --manifest _site/publication_manifest.json; then
+              :
+            else
+              retry_status=$?
+            fi
+          fi
+          if [ "$retry_status" -eq 0 ]; then
+            if run_retry_stage marker retry_marker; then :; else retry_status=$?; fi
+          fi
+          if [ "$retry_status" -eq 0 ]; then
+            if run_retry_stage projection \
+              "$CANDIDATE_PYTHON" \
+              "$TRUSTED_DASHBOARD_VALIDATOR_DIR/public_projection.py" verify-local \
+              --site-root _site \
+              --manifest _site/publication_manifest.json \
+              --attestation data/vllm/ci/public_projection_attestation.json \
+              --marker _site/publication_generation.json \
+              "${PROJECTION_COMPAT_ARGS[@]}"; then
+              :
+            else
+              retry_status=$?
+            fi
+          fi
+
+          cd "$GITHUB_WORKSPACE"
+          if [ "$retry_status" -eq 0 ]; then
+            rm -rf "$GITHUB_WORKSPACE/_site"
+            mv "$RETRY_ROOT/_site" "$GITHUB_WORKSPACE/_site"
+            echo "current_recovered=true" >> "$GITHUB_OUTPUT"
+            echo "same_failure=false" >> "$GITHUB_OUTPUT"
+            echo "ambiguous=false" >> "$GITHUB_OUTPUT"
+            echo "Clean reproduction succeeded; publishing the current state."
+            exit 0
+          fi
+          echo "reproduced_failed_stage=$REPRODUCED_STAGE" >> "$GITHUB_OUTPUT"
+          echo "reproduced_status=$REPRODUCED_STATUS" >> "$GITHUB_OUTPUT"
+          if [ "$retry_status" -eq 90 ]; then
+            echo "ambiguous=true" >> "$GITHUB_OUTPUT"
+            echo "::error::The clean reproduction hit an infrastructure-class failure."
+            exit 90
+          fi
+          if [ "$REPRODUCED_STAGE" != "$ORIGINAL_FAILED_STAGE" ]; then
+            echo "ambiguous=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Current candidate failed at $ORIGINAL_FAILED_STAGE first but $REPRODUCED_STAGE in isolation."
+            exit 90
+          fi
+          echo "current_recovered=false" >> "$GITHUB_OUTPUT"
+          echo "same_failure=true" >> "$GITHUB_OUTPUT"
+          echo "ambiguous=false" >> "$GITHUB_OUTPUT"
+          echo "Confirmed deterministic $ORIGINAL_FAILED_STAGE failure twice in clean candidates."
+
+      - name: Try fully deployable rollback candidate
+        id: rollback-candidate
+        if: >-
+          always() &&
+          steps.current-local-projection.outcome != 'success' &&
+          steps.current-reproduction.outputs.same_failure == 'true' &&
+          steps.current-reproduction.outputs.ambiguous == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$DASHBOARD_PREVIOUS_STATE_SHA" = "$DASHBOARD_STATE_SHA" ]; then
+            echo "::error::The only fully valid state is deterministically undeployable."
+            exit 1
+          fi
+          echo "::warning::Current state is deterministically undeployable; testing the exact rollback slot."
+
+          if ! git fetch --no-tags --depth=1 --refetch \
+            --filter="blob:limit=$DASHBOARD_MAX_STATE_BLOB_BYTES" \
+            origin "$DASHBOARD_PREVIOUS_STATE_SHA"; then
+            echo "::error::Rollback hydration was ambiguous; refusing promotion."
+            exit 90
+          fi
+          ROLLBACK_MANIFEST="$RUNNER_TEMP/rollback-dashboard-state.json"
+          if ! GIT_NO_LAZY_FETCH=1 git show \
+            "$DASHBOARD_PREVIOUS_STATE_SHA:data/vllm/ci/dashboard_state.json" \
+            > "$ROLLBACK_MANIFEST"; then
+            echo "::error::Rollback manifest was unavailable after bounded hydration."
+            exit 90
+          fi
+          ROLLBACK_CODE_SHA=$(python - "$ROLLBACK_MANIFEST" <<'PY'
+          import json
+          import re
+          import sys
+
+          value = json.load(open(sys.argv[1], encoding="utf-8")).get("code_sha")
+          if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{40}", value) is None:
+              raise SystemExit("rollback manifest has an invalid code SHA")
+          print(value)
+          PY
+          )
+          if ! GIT_NO_LAZY_FETCH=1 python \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/dashboard_state.py" \
+            --root "$GITHUB_WORKSPACE" \
+            --config "$TRUSTED_DASHBOARD_VALIDATOR_DIR/dashboard_state.json" \
+            validate-ref --ref "$DASHBOARD_PREVIOUS_STATE_SHA" \
+            --expected-code-sha "$ROLLBACK_CODE_SHA"; then
+            echo "::error::Rollback slot also fails full state validation."
+            exit 1
+          fi
+
+          # The failed candidate may have left tracked build outputs. This is a
+          # disposable runner; force the rollback tree before materialization
+          # so no byte from the failed candidate can contaminate the attempt.
+          git clean -ffdx
+          GIT_NO_LAZY_FETCH=1 git checkout --force --detach \
+            "$DASHBOARD_PREVIOUS_STATE_SHA"
+          GIT_NO_LAZY_FETCH=1 python \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/dashboard_state.py" \
+            --root "$GITHUB_WORKSPACE" \
+            --config "$TRUSTED_DASHBOARD_VALIDATOR_DIR/dashboard_state.json" \
+            materialize --ref "$DASHBOARD_PREVIOUS_STATE_SHA" \
+            --expected-code-sha "$ROLLBACK_CODE_SHA"
+
+          ROLLBACK_GENERATION=$(python -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["generation_id"])' \
+            "$ROLLBACK_MANIFEST")
+          ROLLBACK_GENERATED_AT=$(python -c \
+            'import json,sys; print(json.load(open(sys.argv[1]))["generated_at"])' \
+            "$ROLLBACK_MANIFEST")
+          ROLLBACK_TREE=$(GIT_NO_LAZY_FETCH=1 git rev-parse --verify \
+            "$DASHBOARD_PREVIOUS_STATE_SHA^{tree}")
+
+          ROLLBACK_VENV="$RUNNER_TEMP/dashboard-candidate-rollback-venv"
+          python -m venv "$ROLLBACK_VENV"
+          # This install is state-pinned. A transport failure cannot mutate
+          # either state ref because promotion happens only after verification.
+          "$ROLLBACK_VENV/bin/pip" install \
+            -c "$GITHUB_WORKSPACE/constraints.txt" \
+            requests pyyaml cryptography
+
+          OPS_GENERATED_AT=$("$ROLLBACK_VENV/bin/python" - <<'PY'
+          import json
+          import re
+          from datetime import datetime, timezone
+
+          raw = json.load(
+              open("data/vllm/ci/operations_v2_manifest.json", encoding="utf-8")
+          ).get("generated_at")
+          if not isinstance(raw, str) or not re.fullmatch(
+              r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", raw
+          ):
+              raise SystemExit("Operations manifest generated_at is not canonical UTC")
+          parsed = datetime.strptime(raw, "%Y-%m-%dT%H:%M:%SZ").replace(
+              tzinfo=timezone.utc
+          )
+          if parsed.strftime("%Y-%m-%dT%H:%M:%SZ") != raw:
+              raise SystemExit("Operations manifest generated_at is invalid")
+          print(raw)
+          PY
+          )
+          "$ROLLBACK_VENV/bin/python" scripts/vllm/build_operations_snapshot.py \
+            --input-dir data/vllm/ci \
+            --output data/vllm/ci/operations_v2.json.gz \
+            --generated-at "$OPS_GENERATED_AT"
+          git diff --exit-code "$DASHBOARD_PREVIOUS_STATE_SHA" -- \
+            data/vllm/ci/operations_v2_manifest.json \
+            data/vllm/ci/operations_v2/
+          "$ROLLBACK_VENV/bin/python" scripts/vllm/audit_dashboard_data.py
+          rm -rf "$GITHUB_WORKSPACE/_site"
+          "$ROLLBACK_VENV/bin/python" scripts/build_site.py --cache-bust-index \
+            --cache-bust-value "$ROLLBACK_GENERATION"
+          "$ROLLBACK_VENV/bin/python" scripts/vllm/public_projection.py create \
+            --site-root _site --manifest _site/publication_manifest.json
+          "$ROLLBACK_VENV/bin/python" \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/dashboard_state.py" \
+            --root "$GITHUB_WORKSPACE" \
+            --config "$TRUSTED_DASHBOARD_VALIDATOR_DIR/dashboard_state.json" \
+            write-public-marker \
+            --state-sha "$DASHBOARD_PREVIOUS_STATE_SHA" \
+            --state-tree "$ROLLBACK_TREE" \
+            --code-sha "$ROLLBACK_CODE_SHA" \
+            --generated-at "$ROLLBACK_GENERATED_AT" \
+            --public-attestation data/vllm/ci/public_projection_attestation.json \
+            --publication-status _site/data/vllm/ci/publication_status.json \
+            --output _site/publication_generation.json
+          PROJECTION_COMPAT_ARGS=()
+          if [ "$ROLLBACK_CODE_SHA" != "$DASHBOARD_TRUSTED_MAIN_SHA" ]; then
+            PROJECTION_COMPAT_ARGS+=(--allow-safe-legacy-limits)
+          fi
+          "$ROLLBACK_VENV/bin/python" \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/public_projection.py" verify-local \
+            --site-root _site \
+            --manifest _site/publication_manifest.json \
+            --attestation data/vllm/ci/public_projection_attestation.json \
+            --marker _site/publication_generation.json \
+            "${PROJECTION_COMPAT_ARGS[@]}"
+
+          # Only a candidate that passed materialization, deterministic rebuild,
+          # audit, site assembly, marker creation, and exact projection may be
+          # promoted. repair-slots performs both pushes under the observed leases.
+          ROLLBACK_ATTESTATION="$RUNNER_TEMP/dashboard-state-deploy-fallback-ancestry.json"
+          python - "$DASHBOARD_STATE_ANCESTRY_ATTESTATION" \
+            "$DASHBOARD_PREVIOUS_STATE_SHA" "$ROLLBACK_ATTESTATION" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          source_path, survivor_sha, output_path = sys.argv[1:]
+          payload = json.loads(Path(source_path).read_text(encoding="utf-8"))
+          proofs = [
+              row for row in payload.get("proofs", [])
+              if row.get("state_sha") == survivor_sha
+          ]
+          if len(proofs) != 1:
+              raise SystemExit("rollback candidate lacks exactly one ancestry proof")
+          payload["proofs"] = proofs
+          Path(output_path).write_text(
+              json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+          PROMOTION_OUTPUT="$RUNNER_TEMP/dashboard-state-deploy-fallback.outputs"
+          : > "$PROMOTION_OUTPUT"
+          python "$TRUSTED_DASHBOARD_VALIDATOR_DIR/dashboard_state.py" \
+            --root "$GITHUB_WORKSPACE" \
+            --config "$TRUSTED_DASHBOARD_VALIDATOR_DIR/dashboard_state.json" \
+            repair-slots \
+            --current-sha "$DASHBOARD_STATE_SHA" \
+            --previous-sha "$DASHBOARD_PREVIOUS_STATE_SHA" \
+            --trusted-main-sha "$DASHBOARD_TRUSTED_MAIN_SHA" \
+            --ancestry-attestation "$ROLLBACK_ATTESTATION" \
+            --remote origin --github-output "$PROMOTION_OUTPUT"
+          PROMOTED_CURRENT=$(awk -F= \
+            '$1 == "current_state_sha" {print $2}' "$PROMOTION_OUTPUT")
+          PROMOTED_PREVIOUS=$(awk -F= \
+            '$1 == "previous_state_sha" {print $2}' "$PROMOTION_OUTPUT")
+          if [ "$PROMOTED_CURRENT" != "$DASHBOARD_PREVIOUS_STATE_SHA" ] || \
+             [ "$PROMOTED_PREVIOUS" != "$DASHBOARD_PREVIOUS_STATE_SHA" ]; then
+            echo "::error::Rollback promotion did not atomically converge both slots."
+            exit 1
+          fi
+          {
+            echo "DASHBOARD_STATE_SHA=$DASHBOARD_PREVIOUS_STATE_SHA"
+            echo "DASHBOARD_PREVIOUS_STATE_SHA=$DASHBOARD_PREVIOUS_STATE_SHA"
+            echo "DASHBOARD_STATE_TREE=$ROLLBACK_TREE"
+            echo "DASHBOARD_STATE_CODE_SHA=$ROLLBACK_CODE_SHA"
+            echo "DASHBOARD_STATE_GENERATION=$ROLLBACK_GENERATION"
+            echo "DASHBOARD_STATE_GENERATED_AT=$ROLLBACK_GENERATED_AT"
+            echo "CANDIDATE_PYTHON=$ROLLBACK_VENV/bin/python"
+          } >> "$GITHUB_ENV"
+          echo "Promoted fully deployable rollback state $DASHBOARD_PREVIOUS_STATE_SHA."
+
+      - name: Preserve only bounded PR previews
+        id: preview-preservation
+        if: >-
+          always() &&
+          (steps.current-local-projection.outcome == 'success' ||
+           steps.current-reproduction.outputs.current_recovered == 'true' ||
+           steps.rollback-candidate.outcome == 'success')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf "$GITHUB_WORKSPACE/_site/pr-preview"
+          PREVIEW_STAGE="$RUNNER_TEMP/proven-pages-previews"
+          rm -rf "$PREVIEW_STAGE"
+          mkdir -p "$PREVIEW_STAGE"
+          set +e
+          git ls-remote --exit-code --refs origin refs/heads/gh-pages \
+            > "$RUNNER_TEMP/gh-pages-before-preservation.ls-remote"
+          pages_ref_status=$?
+          set -e
+          case "$pages_ref_status" in
+            0)
+              set +e
+              "$CANDIDATE_PYTHON" \
+                "$TRUSTED_DASHBOARD_VALIDATOR_DIR/github_git_proof.py" \
+                hydrate-ref \
+                --repository "$GITHUB_REPOSITORY" \
+                --branch gh-pages --profile pages --root . --remote origin \
+                --output "$RUNNER_TEMP/predeploy-pages-proof.json" \
+                --materialize-root "$PREVIEW_STAGE" \
+                --materialize-prefix pr-preview/
+              preview_status=$?
+              set -e
+              case "$preview_status" in
+                0)
+                  if [ -d "$PREVIEW_STAGE/pr-preview" ]; then
+                    mv "$PREVIEW_STAGE/pr-preview" "$GITHUB_WORKSPACE/_site/pr-preview"
+                  fi
+                  ;;
+                2)
+                  echo "::warning::Existing Pages is definitively outside the safe profile; publishing the recovered canonical root without unsafe previews."
+                  ;;
+                *)
+                  echo "::error::Existing Pages proof was ambiguous; refusing publication."
+                  exit 90
+                  ;;
+              esac
+              ;;
+            2)
+              if [ -s "$RUNNER_TEMP/gh-pages-before-preservation.ls-remote" ]; then
+                echo "::error::Absent gh-pages probe returned ambiguous output."
+                exit 90
+              fi
+              echo "No existing Pages branch; there are no previews to preserve."
+              ;;
+            *)
+              echo "::error::Could not resolve gh-pages for preview preservation."
+              exit 90
+              ;;
+          esac
+          PREVIEW_BOUND_OUTPUT="$RUNNER_TEMP/bounded-pages-directory.outputs"
+          : > "$PREVIEW_BOUND_OUTPUT"
+          "$CANDIDATE_PYTHON" \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/github_git_proof.py" \
+            bound-pages-directory --root "$GITHUB_WORKSPACE/_site" \
+            --github-output "$PREVIEW_BOUND_OUTPUT"
+          EXPECTED_PREVIEW_DIGEST=$(awk -F= \
+            '$1 == "pages_preview_digest" {print $2}' "$PREVIEW_BOUND_OUTPUT")
+          if ! [[ "$EXPECTED_PREVIEW_DIGEST" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::Bounded preview composition returned an invalid digest."
+            exit 1
+          fi
+          echo "DASHBOARD_PREVIEW_DIGEST=$EXPECTED_PREVIEW_DIGEST" >> "$GITHUB_ENV"
+          # Preview files are deliberately excluded, so this proves composing
+          # them did not change one canonical state-bound byte.
+          PROJECTION_COMPAT_ARGS=()
+          if [ "$DASHBOARD_STATE_CODE_SHA" != "$DASHBOARD_TRUSTED_MAIN_SHA" ]; then
+            PROJECTION_COMPAT_ARGS+=(--allow-safe-legacy-limits)
+          fi
+          "$CANDIDATE_PYTHON" \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/public_projection.py" verify-local \
+            --site-root _site \
+            --manifest _site/publication_manifest.json \
+            --attestation data/vllm/ci/public_projection_attestation.json \
+            --marker _site/publication_generation.json \
+            "${PROJECTION_COMPAT_ARGS[@]}"
+
+      - name: Deploy exact state to GitHub Pages
+        id: pages-deploy
+        if: >-
+          always() &&
+          steps.preview-preservation.outcome == 'success' &&
+          (steps.current-local-projection.outcome == 'success' ||
+           steps.current-reproduction.outputs.current_recovered == 'true' ||
+           steps.rollback-candidate.outcome == 'success')
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          publish_branch: gh-pages
+          keep_files: false
+          force_orphan: true
+
+      - name: Post-deploy state and bundle validation
+        id: post-deploy-validation
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --filter=blob:none origin \
+            "+refs/heads/$DASHBOARD_STATE_BRANCH:refs/remotes/origin/$DASHBOARD_STATE_BRANCH" \
+            --depth=1
+          LIVE_STATE_SHA=$(git rev-parse --verify \
+            "refs/remotes/origin/$DASHBOARD_STATE_BRANCH^{commit}")
+          if [ "$LIVE_STATE_SHA" != "$DASHBOARD_STATE_SHA" ]; then
+            echo "::error::Dashboard state advanced during deploy-only publication; refusing to certify stale Pages."
+            exit 1
+          fi
+          echo "state_unchanged=true" >> "$GITHUB_OUTPUT"
+          POSTDEPLOY_PROOF_OUTPUT="$RUNNER_TEMP/post-deploy-pages-proof.outputs"
+          : > "$POSTDEPLOY_PROOF_OUTPUT"
+          # Bounded remote metadata flow: github_git_proof.py hydrate-ref.
+          if "$CANDIDATE_PYTHON" \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/github_git_proof.py" hydrate-ref \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch gh-pages \
+            --profile pages-orphan \
+            --root . \
+            --remote origin \
+            --local-ref refs/remotes/origin/gh-pages \
+            --output "$RUNNER_TEMP/post-deploy-pages-proof.json" \
+            --github-output "$POSTDEPLOY_PROOF_OUTPUT"; then
+            :
+          else
+            hydrate_status=$?
+            if [ "$hydrate_status" -eq 2 ]; then
+              echo "corruption_confirmed=true" >> "$GITHUB_OUTPUT"
+              echo "::error::Published Pages violates the bounded tree profile."
+            else
+              echo "::error::Pages proof was ambiguous; refusing a destructive redeploy."
+            fi
+            exit "$hydrate_status"
+          fi
+          DEPLOYED_PREVIEW_DIGEST=$(awk -F= \
+            '$1 == "pages_preview_digest" {print $2}' "$POSTDEPLOY_PROOF_OUTPUT")
+          if [ "$DEPLOYED_PREVIEW_DIGEST" != "$DASHBOARD_PREVIEW_DIGEST" ]; then
+            echo "corruption_confirmed=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Published Pages did not preserve the exact bounded preview subtree."
+            exit 1
+          fi
+          PROJECTION_COMPAT_ARGS=()
+          if [ "$DASHBOARD_STATE_CODE_SHA" != "$DASHBOARD_TRUSTED_MAIN_SHA" ]; then
+            PROJECTION_COMPAT_ARGS+=(--allow-safe-legacy-limits)
+          fi
+          if ! GIT_NO_LAZY_FETCH=1 "$CANDIDATE_PYTHON" \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/public_projection.py" verify-git \
+              --repo-root . \
+              --git-ref origin/gh-pages \
+              --attestation data/vllm/ci/public_projection_attestation.json \
+              --expected-marker _site/publication_generation.json \
+              "${PROJECTION_COMPAT_ARGS[@]}"; then
+            echo "corruption_confirmed=true" >> "$GITHUB_OUTPUT"
+            echo "::error::Published Pages failed exact projection verification."
+            exit 1
+          fi
+          echo "Pages exactly matches every state-bound public blob for $DASHBOARD_STATE_SHA."
+
+      - name: Redeploy exact state if validation failed
+        id: corruption-redeploy
+        if: >-
+          always() &&
+          steps.post-deploy-validation.outcome == 'failure' &&
+          steps.post-deploy-validation.outputs.state_unchanged == 'true' &&
+          steps.post-deploy-validation.outputs.corruption_confirmed == 'true' &&
+          hashFiles('_site/index.html') != ''
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          publish_branch: gh-pages
+          keep_files: false
+          force_orphan: true
+
+      - name: Confirm exact-state recovery
+        id: corruption-recovery-validation
+        continue-on-error: true
+        if: >-
+          always() &&
+          steps.post-deploy-validation.outcome == 'failure' &&
+          steps.post-deploy-validation.outputs.corruption_confirmed == 'true' &&
+          steps.corruption-redeploy.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --filter=blob:none origin \
+            "+refs/heads/$DASHBOARD_STATE_BRANCH:refs/remotes/origin/$DASHBOARD_STATE_BRANCH" \
+            --depth=1
+          LIVE_STATE_SHA=$(git rev-parse --verify \
+            "refs/remotes/origin/$DASHBOARD_STATE_BRANCH^{commit}")
+          [ "$LIVE_STATE_SHA" = "$DASHBOARD_STATE_SHA" ]
+          RECOVERY_PROOF_OUTPUT="$RUNNER_TEMP/recovery-pages-proof.outputs"
+          : > "$RECOVERY_PROOF_OUTPUT"
+          # Bounded remote metadata flow: github_git_proof.py hydrate-ref.
+          "$CANDIDATE_PYTHON" \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/github_git_proof.py" hydrate-ref \
+            --repository "$GITHUB_REPOSITORY" \
+            --branch gh-pages \
+            --profile pages-orphan \
+            --root . \
+            --remote origin \
+            --local-ref refs/remotes/origin/gh-pages \
+            --output "$RUNNER_TEMP/recovery-pages-proof.json" \
+            --github-output "$RECOVERY_PROOF_OUTPUT"
+          RECOVERED_PREVIEW_DIGEST=$(awk -F= \
+            '$1 == "pages_preview_digest" {print $2}' "$RECOVERY_PROOF_OUTPUT")
+          [ "$RECOVERED_PREVIEW_DIGEST" = "$DASHBOARD_PREVIEW_DIGEST" ]
+          PROJECTION_COMPAT_ARGS=()
+          if [ "$DASHBOARD_STATE_CODE_SHA" != "$DASHBOARD_TRUSTED_MAIN_SHA" ]; then
+            PROJECTION_COMPAT_ARGS+=(--allow-safe-legacy-limits)
+          fi
+          GIT_NO_LAZY_FETCH=1 "$CANDIDATE_PYTHON" \
+            "$TRUSTED_DASHBOARD_VALIDATOR_DIR/public_projection.py" verify-git \
+            --repo-root . \
+            --git-ref origin/gh-pages \
+            --attestation data/vllm/ci/public_projection_attestation.json \
+            --expected-marker _site/publication_generation.json \
+            "${PROJECTION_COMPAT_ARGS[@]}"
+          echo "Confirmed the recovered exact state-bound public projection."
+
+      - name: Enforce final exact-state deployment validation
+        id: final-deploy-validation
+        if: always()
+        env:
+          PAGES_DEPLOY_OUTCOME: ${{ steps.pages-deploy.outcome }}
+          INITIAL_VALIDATION_OUTCOME: ${{ steps.post-deploy-validation.outcome }}
+          INITIAL_STATE_UNCHANGED: ${{ steps.post-deploy-validation.outputs.state_unchanged }}
+          INITIAL_CORRUPTION_CONFIRMED: ${{ steps.post-deploy-validation.outputs.corruption_confirmed }}
+          REDEPLOY_OUTCOME: ${{ steps.corruption-redeploy.outcome }}
+          RECOVERY_VALIDATION_OUTCOME: ${{ steps.corruption-recovery-validation.outcome }}
+        run: |
+          set -euo pipefail
+          if [ "$PAGES_DEPLOY_OUTCOME" != success ]; then
+            echo "::error::The initial Pages deployment did not succeed."
+            exit 1
+          fi
+          if [ "$INITIAL_VALIDATION_OUTCOME" = success ]; then
+            echo "The initial deployment passed exact state/projection validation."
+            exit 0
+          fi
+          if [ "$INITIAL_VALIDATION_OUTCOME" = failure ] && \
+             [ "$INITIAL_STATE_UNCHANGED" = true ] && \
+             [ "$INITIAL_CORRUPTION_CONFIRMED" = true ] && \
+             [ "$REDEPLOY_OUTCOME" = success ] && \
+             [ "$RECOVERY_VALIDATION_OUTCOME" = success ]; then
+            echo "The bounded redeploy repaired and revalidated the exact state projection."
+            exit 0
+          fi
+          echo "::error::Pages did not reach a validated exact-state projection."
+          exit 1

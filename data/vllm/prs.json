@@ -1,0 +1,208 @@
+{
+  "collected_at": "2026-10-24T11:05:35Z",
+  "prs": [
+    {
+      "number": 57369,
+      "title": "[CI] Relax sharded-sampling divergence bound on ROCm",
+      "author": "khluu",
+      "state": "open",
+      "merged": false,
+      "created_at": "2026-09-17T11:36:14Z",
+      "updated_at": "2026-09-24T16:09:42Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/57369",
+      "labels": [
+        "rocm",
+        "needs-rebase",
+        "ci-failure"
+      ],
+      "draft": false,
+      "body_head": "## Purpose\n\n`tests/v1/e2e/general/test_sharded_sampling.py::test_sharded_sampling_outputs_match` asserts that batch-sharded sampling matches the replicated fallback up to near-tie boot-state noise, allowing at most `MAX_DIVERGENT_PROMPTS = 3` of 16 prompts to diverge. That bound was tuned on CUDA (measured \u2264 1 divergent prompt per engine boot).\n\nOn ROCm/MI300 the engine boots land in noisier kernel/collective states, and the test flakes at **4\u20137 divergent prompts** \u2014 above the CUDA bound but still far below the near-total divergence a real request-misrouting bug produces. In a scan of the last 200 CI builds, this single test accounted for **11 flaky failures**, all on `:amd: (MI300) Distributed DP Basic`, with divergence of 4/16, 5/16, 6/16, and 7/16.\n\nThis PR raises the divergence bound to `8` on ROCm only; CUDA keeps the tight bound of `3`. A genuine sharding bug (rows routed to the wrong request, misaligned gathers) still fails, since it diverges on nearly every prompt.\n\n## Why this is not a duplicate\n\nChecked open PRs/issues for `sharded_sampling`, `test_sharded_sampling`, and `prompts diverged`; no existing PR addresses this flake.\n\n## Test plan / commands run\n\n- Flake evidence: analyzed the public Buildkite `ci` pipeline's last 200 builds via the `/data/jobs` endpoint; extracted 240 \"failed-then-passed-on-retry\" jobs and read each failing attempt's log. 11 were this test, all AMD MI300, divergence 4\u20137/16 (data and method in the linked tracking issue).\n- `pre-commit run` passes (ruff, mypy, etc.) on the changed file.\n- This is a numerical-tolerance change to a distributed GPU test; I could not run the full 2-GPU test locally (no multi-GPU box). The ROCm path is exercised by the `:amd: (MI300) Distributed DP Basic` CI job.\n\n## AI assistance\n\nThis change was developed with AI assistance (Kimi Code), including the CI log analysis that identified the flake.\n\n\ud83e\udd16 Generated with AI assistance",
+      "is_ci_pr": true,
+      "is_rocm_pr": true,
+      "ci_issue_numbers": [
+        57372
+      ],
+      "custom_tags": [
+        "CI",
+        "ROCm"
+      ],
+      "other_tags": [
+        "needs-rebase",
+        "ci-failure"
+      ]
+    },
+    {
+      "number": 57362,
+      "title": "[CI] Reclaim GPU memory between model initialization tests",
+      "author": "khluu",
+      "state": "closed",
+      "merged": true,
+      "created_at": "2026-09-17T11:31:37Z",
+      "updated_at": "2026-09-19T00:04:14Z",
+      "html_url": "https://github.com/vllm-project/vllm/pull/57362",
+      "labels": [],
+      "draft": false,
+      "body_head": "## Summary\n\nDeflake the model-initialization tests in `tests/models/test_initialization.py` by reclaiming GPU memory between tests.\n\n### Flaky tests addressed\n\nFrom a Buildkite flaky-test analysis (suite `ci-1`):\n\n| Test | Reliability | Failed/Total |\n|---|---|---|\n| `test_can_initialize_small_subset[InternVLChatModel]` | 0.998 | 8/3288 |\n\nBuildkite: https://buildkite.com/organizations/vllm/analytics/suites/ci-1/tests/b1f1fe69-2515-83bb-bbd3-b15a219bbdce\n\nThe same failure mode plausibly affects the sibling tests in this module (`test_can_initialize_large_subset`, e.g. `Step3TextForCausalLM` 5/1072, `Step3VLForConditionalGeneration` 5/1050, `Gemma4MTPModel` 3/1050), which run at the same `gpu_memory_utilization=0.80`.\n\n### Root cause\n\nEach parametrized case in this module builds a full vLLM `LLM` in a fresh subprocess via `create_new_process_for_each_test()` with `gpu_memory_utilization=0.80` \u2014 the source itself carries the comment \"these tests seem to produce leftover memory\". On NVIDIA the subprocess is **forked**, and its VRAM is only reclaimed asynchronously by the driver when the subprocess exits. The next test can start (and allocate ~80% of the GPU, e.g. an 18 GiB H200 MIG slice) before that reclamation completes, so leftover memory from a preceding test OOMs a later one \u2014 consistent with the observed ~0.24% failure rate hitting the heavier multimodal archs like InternVLChatModel. Prior art: b6770d7b (#48527) hit OOM in this exact test on ROCm.\n\n### What changed\n\nAdded a module-level autouse fixture `cleanup_gpu_memory_between_tests` that runs after each test:\n\n1. `gc.collect()` + `torch.accelerator.empty_cache()`\n2. Wait (via NVML, using the existing `wait_for_gpu_memory_to_clear` / `wait_for_memory_to_settle` helpers from `tests/utils.py`) for the forked subprocess's VRAM to actually clear before the next test runs. A wait timeout is logged, not raised, so it can never fail a test.\n\nThis mirrors the established `clean_gpu_memory_between_tests` fixture in `te",
+      "is_ci_pr": true,
+      "is_rocm_pr": false,
+      "ci_issue_numbers": [
+        57372
+      ],
+      "custom_tags": [
+        "CI"
+      ],
+      "other_tags": []
+    }
+  ],
+  "count_semantics": "complete",
+  "source_coverage": {
+    "complete": true,
+    "authoritative_complete": true,
+    "population_semantics": "complete",
+    "truncated": false,
+    "queries": [
+      {
+        "name": "project_open_issues",
+        "scope": "is:issue is:open repo:vllm-project/vllm",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 1,
+        "page_size": 100,
+        "items_observed": 2,
+        "completion_reason": "server_filtered_complete"
+      },
+      {
+        "name": "project_issue_comments:57372",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 2,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:57372",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 2,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:59818",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 1,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:59818",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 0,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "open_prs_label:rocm",
+        "scope": "open PRs among the newest 300 issues and PRs in vllm-project/vllm with label 'rocm'",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 3,
+        "max_pages": 3,
+        "page_size": 100,
+        "items_observed": 223,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_linked_pr_validation",
+        "scope": "at most 100 direct PR validations for retained Project #39 issues",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 2,
+        "unresolved_items": 0,
+        "completion_reason": "all_refs_validated"
+      }
+    ],
+    "query_count": 7,
+    "query_retention": {
+      "source": 7,
+      "published": 7,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    }
+  },
+  "total_count": 2,
+  "publication_retention": {
+    "policy": "aggregate_counts_first_newest_whole_rows_v1",
+    "max_bytes": 327680,
+    "aggregate_counts_complete": true,
+    "source_aggregates": {
+      "total": 2,
+      "open": 1,
+      "ci": 2,
+      "rocm": 1
+    },
+    "rows": {
+      "source": 2,
+      "published": 2,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "detail_fields": {
+      "source": 4,
+      "published": 4,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "relationship_refs": {
+      "source": 2,
+      "published": 2,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "source_queries": {
+      "source": 7,
+      "published": 7,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "complete_relative_to_source": true
+  }
+}

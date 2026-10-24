@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "core": {
+    "sources": ["analytics", "ci_health", "amd_test_matrix", "test_group_parity", "workload_mapping", "perf_eval"],
+    "main_derived_sources": ["main_ci"],
+    "target_minutes": 135,
+    "warn_minutes": 150,
+    "stale_minutes": 180
+  },
+  "queue": {
+    "sources": ["queue_timeseries"],
+    "warn_minutes": 30,
+    "stale_minutes": 60
+  },
+  "default_collector_limit_minutes": 360,
+  "sources": {
+    "analytics": {"label": "CI analytics", "area": "analytics", "kind": "collector"},
+    "main_ci": {"label": "Main CI builds", "area": "analytics", "kind": "collector"},
+    "ci_health": {"label": "CI health", "area": "health", "kind": "collector"},
+    "config_parity": {"label": "Configuration parity", "area": "health", "kind": "collector"},
+    "test_group_parity": {"label": "Upstream test-group parity", "area": "health", "kind": "collector"},
+    "amd_test_matrix": {"label": "AMD hardware matrix", "area": "health", "kind": "collector"},
+    "capacity_monitor": {"label": "Queue capacity", "area": "omni", "kind": "collector"},
+    "workload_mapping": {"label": "Queue workload mapping", "area": "omni", "kind": "collector"},
+    "queue_timeseries": {"label": "Live queue", "area": "omni", "kind": "collector", "collector_limit_minutes": 60},
+    "queue_jobs": {"label": "Queue jobs", "area": "omni", "kind": "collector"},
+    "omni_heuristic": {"label": "Omni surge heuristic", "area": "omni", "kind": "collector"},
+    "omni_issue_state": {"label": "Omni surge issues", "area": "omni", "kind": "collector"},
+    "agent_health": {"label": "CI agent health", "area": "analytics", "kind": "collector"},
+    "project_items": {"label": "Project board", "area": "home", "kind": "collector", "collector_limit_minutes": 2160},
+    "ci_ownership": {"label": "CI ownership", "area": "health", "kind": "collector"},
+    "perf_eval": {"label": "Perf eval", "area": "perf", "kind": "collector", "path": "perf_eval/perf_eval.json", "stale_minutes": 600},
+    "amd_test_signal": {"label": "Latest AMD nightly signal", "area": "health", "kind": "upstream_activity", "collector_limit_minutes": 2160}
+  }
+}
