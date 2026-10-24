@@ -1570,6 +1570,106 @@ def test_confirmation_does_not_redownload_canaries_after_bounded_failure():
     ) == 1
 
 
+class CanaryAttemptFetcher:
+    """Fail one canary on chosen probes, delegating to per-generation sites."""
+
+    def __init__(self, response, failing_attempts, generations=("a", "a", "a")):
+        self.base = GenerationAttemptFetcher(generations)
+        self.response = response
+        self.failing_attempts = set(failing_attempts)
+
+    def __call__(self, url, max_bytes):
+        attempt = int(parse_qs(urlsplit(url).query)["health_check"][0].split("-")[1])
+        served = self.base(url, max_bytes)
+        if attempt in self.failing_attempts and urlsplit(url).path.endswith(
+            "data/vllm/ci/operations_v2/nightly.json"
+        ):
+            return dict(self.response)
+        return served
+
+
+@pytest.mark.parametrize("status", [0, 503])
+def test_confirmation_repeats_the_full_proof_after_a_canary_transport_failure(status):
+    # Actions run 39723349316: probe two's nightly canary returned HTTP 0 while
+    # probes one and three were healthy.
+    fetcher = CanaryAttemptFetcher(_response(status=status), {2})
+
+    report = health.confirm_site_health(
+        "https://example.test/dashboard/",
+        clock=lambda: NOW,
+        fetch=fetcher,
+        sleep=lambda _seconds: None,
+    )
+
+    assert report["healthy"] is True
+    assert report["reasons"] == []
+    assert report["confirmation"]["healthy_count"] == 2
+    assert report["confirmation"]["streamed_projection_attempt"] == 3
+    assert report["confirmation"]["complete_projection_attempt"] == 3
+    assert report["confirmation"]["matching_projection_healthy_count"] == 2
+    assert fetcher.base.canary_call_count("nightly") == 2
+    assert fetcher.base.reliability_call_count() == 1
+
+
+@pytest.mark.parametrize(
+    "response",
+    [_response(status=404), _response(b"corrupt")],
+    ids=["missing", "digest-mismatch"],
+)
+def test_confirmation_does_not_repeat_the_full_proof_after_a_canary_contract_failure(
+    response,
+):
+    fetcher = CanaryAttemptFetcher(response, {2})
+
+    report = health.confirm_site_health(
+        "https://example.test/dashboard/",
+        clock=lambda: NOW,
+        fetch=fetcher,
+        sleep=lambda _seconds: None,
+    )
+
+    assert report["healthy"] is False
+    assert report["confirmation"]["complete_projection_verified"] is False
+    assert "complete-projection-required" in _codes(report)
+    assert fetcher.base.canary_call_count("nightly") == 1
+    assert fetcher.base.reliability_call_count() == 0
+
+
+def test_confirmation_repeated_full_proof_still_fails_a_persistent_transport_outage():
+    fetcher = CanaryAttemptFetcher(_response(status=0), {2, 3})
+
+    report = health.confirm_site_health(
+        "https://example.test/dashboard/",
+        clock=lambda: NOW,
+        fetch=fetcher,
+        sleep=lambda _seconds: None,
+    )
+
+    assert report["healthy"] is False
+    assert report["confirmation"]["healthy_count"] == 1
+    assert "complete-projection-required" in _codes(report)
+    assert fetcher.base.canary_call_count("nightly") == 2
+    assert fetcher.base.reliability_call_count() == 0
+
+
+def test_confirmation_repeated_full_proof_cannot_certify_a_minority_generation():
+    # A->A->B rollover plus a transport loss on the modal probe: probe three
+    # proves B, but only one healthy probe carries B, so the quorum fails closed.
+    fetcher = CanaryAttemptFetcher(_response(status=0), {2}, generations=("a", "a", "b"))
+
+    report = health.confirm_site_health(
+        "https://example.test/dashboard/",
+        clock=lambda: NOW,
+        fetch=fetcher,
+        sleep=lambda _seconds: None,
+    )
+
+    assert report["healthy"] is False
+    assert report["confirmation"]["complete_projection_attempt"] == 3
+    assert report["confirmation"]["matching_projection_healthy_count"] == 1
+    assert "projection-generation-quorum" in _codes(report)
+
+
 def test_confirmation_reports_a_bounded_quorum_failure():
     report = health.confirm_site_health(
         "https://example.test/dashboard/",
@@ -1584,7 +1684,7 @@ def test_confirmation_reports_a_bounded_quorum_failure():
     assert report["confirmation"]["healthy_count"] == 1
     assert health.REQUESTS_PER_PROBE == 42
     assert health.CONTROL_REQUESTS_PER_PROBE == 16
-    assert health.CANARY_REQUESTS_PER_CONFIRMATION == 26
+    assert health.CANARY_REQUESTS_PER_CONFIRMATION == 52
     assert health.STREAMED_REQUESTS_PER_CONFIRMATION == 2
     assert health.MAX_CONFIRMATION_REQUESTS == (
         health.CONFIRMATION_ATTEMPTS * health.CONTROL_REQUESTS_PER_PROBE
@@ -1600,12 +1700,12 @@ def test_confirmation_reports_a_bounded_quorum_failure():
         + health.STREAMED_REQUESTS_PER_CONFIRMATION
         * health.STREAM_ATTEMPT_MAX_SECONDS
     )
-    assert report["confirmation"]["max_requests"] == 76
+    assert report["confirmation"]["max_requests"] == 102
     assert health.STREAM_TOTAL_TIMEOUT_SECONDS == 150
     assert report["confirmation"]["canary_request_timeout_seconds"] == 20
-    assert report["confirmation"]["max_transport_seconds"] == 1320
+    assert report["confirmation"]["max_transport_seconds"] == 1840
     assert report["confirmation"]["retry_delays_seconds"] == [0.0, 2.0, 5.0]
-    assert report["confirmation"]["max_elapsed_seconds"] == 1327
+    assert report["confirmation"]["max_elapsed_seconds"] == 1847
     assert "confirmation-quorum" in _codes(report)
 
 

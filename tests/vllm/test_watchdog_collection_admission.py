@@ -269,7 +269,7 @@ def test_workflow_waits_for_a_gate_inside_the_remaining_run_budget():
     assert clock['id'] == 'run-clock' and '+ 30 * 60' in clock['run']
     gate = steps[names.index('Observe bounded collector admission')]
     assert names.index('Inspect durable state and choose recovery target') < names.index(gate['name']) < names.index('Read selected recovery workflow state')
-    assert job['timeout-minutes'] == 35 and gate['timeout-minutes'] == 31
+    assert job['timeout-minutes'] == 40 and gate['timeout-minutes'] == 31
     assert admission.MAX_WAIT_SECONDS == 30 * 60
     assert "state-uninitialized" in gate['if'] and "'collector'" in gate['if']
     assert gate['env']['WAIT_DEADLINE'] == '${{ steps.run-clock.outputs.wait_deadline }}'

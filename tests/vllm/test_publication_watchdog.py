@@ -882,7 +882,7 @@ def test_actual_recovery_limits_do_not_claim_an_unconditional_three_hour_guarant
     collector_timeout = hourly["jobs"]["collect-and-deploy"]["timeout-minutes"]
     watchdog_timeout = recovery["jobs"]["recover"]["timeout-minutes"]
     assert collector_timeout == 75
-    assert watchdog_timeout == 35
+    assert watchdog_timeout == 40
     assert policy["failed_retry_interval_minutes"] == 30
     assert policy["success_interval_minutes"] == 120
 
@@ -906,7 +906,7 @@ def test_actual_recovery_limits_do_not_claim_an_unconditional_three_hour_guarant
     detection_and_collection = trigger + observation_interval + collector_timeout
     assert freshness_limit - detection_and_collection >= 15
     complete_first_attempt_bound = detection_and_collection + watchdog_timeout
-    assert complete_first_attempt_bound == 200
+    assert complete_first_attempt_bound == 205
     assert complete_first_attempt_bound > freshness_limit
     # Retry eligibility is start-to-start. A timed-out first attempt already
     # outlasts the 30-minute durable cooldown; even then, a second full timeout
