@@ -61,6 +61,7 @@ from vllm.constants import (  # noqa: E402
     BK_ORG,
 )
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
+from vllm.pipelines import _SHARED_MI_QUEUE_RE, _job_queue  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -617,6 +618,10 @@ def _project_rest_builds(
             queue_id = str(job.get("cluster_queue_id") or "").strip()
             queue = queue_by_id.get(queue_id)
             rule_queue = queue_from_rules(job.get("agent_query_rules"))
+            if queue is None and queue_id and _SHARED_MI_QUEUE_RE.fullmatch(rule_queue or ""):
+                # Shared MI queues split widths by gpu_size; keep the per-width target row.
+                width_queue = _job_queue({"agent_query_rules": job.get("agent_query_rules")})
+                queue = width_queue if width_queue in AMD_METRIC_TARGET_QUEUES else None
             if queue is None:
                 if rule_queue in AMD_METRIC_TARGET_QUEUES:
                     raise RuntimeError(

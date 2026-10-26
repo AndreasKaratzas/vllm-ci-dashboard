@@ -783,6 +783,15 @@ class TestFetchNightlyBuilds:
         oversized_source = {**job, "agent_queue": "x" * (bk._ROSTER_MAX_JOB_QUEUE_CHARS + 1)}
         assert "agent_queue" not in bk._project_nightly_roster_job(oversized_source)
 
+    def test_private_roster_without_shared_queue_width_is_not_reused(self):
+        job = {"type": "script", "id": "job", "state": "passed", "agent_queue": "amd_mi250"}
+        payload = {"schema_version": 2, "build": {
+            "number": 42, "created_at": "2026-04-18T00:00:00Z", "jobs": [job],
+        }}
+        assert bk._decode_nightly_roster_payload(payload) is None
+        job["agent_queue"] = "amd_mi250_1"
+        assert bk._decode_nightly_roster_payload(payload) == payload["build"]
+
     def test_sharded_cache_prunes_builds_older_than_retention(self, tmp_path):
         old = {
             "number": 1,

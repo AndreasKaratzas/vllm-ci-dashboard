@@ -386,6 +386,14 @@ def test_rest_projection_requires_direct_target_queue_id_and_rejects_conflict():
         lifecycle._project_rest_builds([{"jobs": [conflicting]}], _queue_by_id(), jobs)
 
 
+def test_rest_projection_attributes_shared_mi250_queue_to_its_width_row():
+    jobs = {}
+    shared = _rest_job(cluster_queue_id="id:amd_mi250", rules=["queue=amd_mi250", "gpu_size=2"])
+    unsized = _rest_job(uuid="job-2", cluster_queue_id="id:amd_mi250", rules=["queue=amd_mi250"])
+    assert lifecycle._project_rest_builds([{"jobs": [shared, unsized]}], _queue_by_id(), jobs) == (2, 1)
+    assert jobs["job-1"]["clusterQueue"] == {"key": "amd_mi250_2"}
+
+
 def test_observation_is_compact_private_and_uses_direct_durations():
     row = _observations_for(_job())[0]
     assert set(row) == {

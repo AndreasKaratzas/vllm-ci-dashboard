@@ -2321,6 +2321,20 @@ def test_queue_current_ci_exact_source_excludes_hidden_cpu_and_preserves_model_n
     assert "cpu_routes" not in json.dumps(row)
 
 
+def test_queue_shared_mi250_jobs_keep_physical_row_and_per_width_source_route():
+    cqs._SOURCE_SCOPE_INDEXES[SOURCE_COMMIT] = {
+        **_cpu_source_index(),
+        "cpu_routes": [{"key": "torch-abi", "label": "Torch ABI", "agent_pool": "mi250_1"}],
+    }
+
+    def node(key, label):
+        return {**_current_ci_node(key=key, label=label), "clusterQueue": {"key": "amd_mi250"},
+                "agentQueryRules": ["queue=amd_mi250", "gpu_size=1"]}
+
+    assert cqs._graphql_job_record(node("torch-abi", "Torch ABI")) is None
+    assert cqs._graphql_job_record(node("gpu-test", "GPU workload"))["queue"] == "amd_mi250"
+
+
 @pytest.mark.parametrize("commit", [None, "", "abc123", "g" * 40])
 def test_queue_current_ci_rejects_missing_or_short_source_pin(commit):
     with pytest.raises(ValueError, match="exact full source commit"):

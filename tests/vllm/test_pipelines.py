@@ -1,7 +1,13 @@
 """Both runtime populations use main ci with disjoint hardware scopes."""
 
 import pytest
-from vllm.pipelines import PIPELINES, _job_queue, is_amd_ci_job, is_upstream_cuda_ci_job
+from vllm.pipelines import (
+    PIPELINES,
+    _job_queue,
+    _physical_job_queue,
+    is_amd_ci_job,
+    is_upstream_cuda_ci_job,
+)
 
 
 @pytest.mark.parametrize(
@@ -37,6 +43,19 @@ def test_both_current_populations_have_the_same_authority_and_nightly_filter():
     assert PIPELINES["amd"]["slug"] == PIPELINES["upstream"]["slug"] == "ci"
     assert PIPELINES["amd"]["name_pattern"] == PIPELINES["upstream"]["name_pattern"]
     assert _job_queue({"agent_queue": "amd_mi300_1", "q": "gpu_1"}) == "amd_mi300_1"
+
+
+@pytest.mark.parametrize("job,physical,logical", [
+    ({"agent_query_rules": ["queue=amd_mi250", "gpu_size=1"]}, "amd_mi250", "amd_mi250_1"),
+    ({"agent": {"meta_data": ["k8s:node=n", "gpu_size=4", "queue=amd_mi250"]}}, "amd_mi250", "amd_mi250_4"),
+    ({"agent": {"meta_data": {"queue": "amd_mi250", "gpu_size": "2"}}}, "amd_mi250", "amd_mi250_2"),
+    ({"agent_queue": "amd_mi250", "agent_query_rules": ["queue=amd_mi250", "gpu_size=8"]}, "amd_mi250", "amd_mi250_8"),
+    ({"agent_query_rules": ["queue=amd_mi250"]}, "amd_mi250", "amd_mi250"),
+    ({"agent_query_rules": ["queue=amd_mi300_1", "gpu_size=4"]}, "amd_mi300_1", "amd_mi300_1"),
+])
+def test_shared_mi_queue_folds_gpu_size_into_its_logical_pool(job, physical, logical):
+    assert _physical_job_queue(job) == physical
+    assert _job_queue(job) == logical
 
 
 @pytest.mark.parametrize("label,hardware", [

@@ -52,7 +52,7 @@ from vllm.constants import (  # noqa: E402
     is_excluded_queue,
     queue_history_reset_datetime,
 )
-from vllm.pipelines import _job_queue as observed_job_queue, is_cpu_only_job  # noqa: E402
+from vllm.pipelines import _physical_job_queue as observed_job_queue, is_cpu_only_job  # noqa: E402
 from vllm.ci.utils import parse_iso, percentile, queue_from_rules  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 from vllm.ci.analytics_cache import (  # noqa: E402
@@ -1924,8 +1924,10 @@ def fetch_cluster_queue_metrics(
 def _graphql_source_build(node: dict, fallback_queue: str = "") -> dict:
     queue = ((node.get("clusterQueue") or {}).get("key") or fallback_queue
              or queue_from_rules(node.get("agentQueryRules")))
+    rules = [rule for rule in node.get("agentQueryRules") or []
+             if isinstance(rule, str) and not rule.casefold().startswith("queue=")]
     job = {**node, "type": "script", "name": node.get("label") or "",
-           "id": node.get("uuid") or "", "agent_query_rules": [f"queue={queue}"]}
+           "id": node.get("uuid") or "", "agent_query_rules": [f"queue={queue}", *rules]}
     agent = node.get("agent")
     if isinstance(agent, dict):
         job["agent"] = {"meta_data": agent.get("metaData", agent.get("meta_data"))}

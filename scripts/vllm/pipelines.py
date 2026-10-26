@@ -62,22 +62,52 @@ PIPELINES = {
 }
 
 
-def _job_queue(job: dict) -> str:
-    """Prefer observed agent routing over the display label and request rules."""
+_SHARED_MI_QUEUE_RE = re.compile(r"amd_mi\d+", re.I)
+
+
+def _agent_tags(values: object) -> dict[str, str]:
+    if isinstance(values, dict):
+        return {str(key).casefold(): value.strip() for key, value in values.items()
+                if isinstance(value, str) and value.strip()}
+    tags: dict[str, str] = {}
+    for value in values if isinstance(values, list) else []:
+        if isinstance(value, str) and "=" in value:
+            key, _, tag = value.partition("=")
+            if tag.strip():
+                tags.setdefault(key.strip().casefold(), tag.strip())
+    return tags
+
+
+def _physical_job_queue(job: dict) -> str:
+    """Return the Buildkite queue the job was routed to, as Buildkite names it."""
     explicit = job.get("agent_queue") or job.get("queue") or job.get("q")
     if isinstance(explicit, str) and explicit.strip():
         return explicit.strip()
     agent = job.get("agent") or {}
     metadata = agent.get("meta_data") if isinstance(agent, dict) else None
-    if isinstance(metadata, dict):
-        queue = metadata.get("queue")
-        if isinstance(queue, str) and queue.strip():
-            return queue.strip()
     for values in (metadata, job.get("agent_query_rules")):
-        for value in values if isinstance(values, list) else []:
-            if isinstance(value, str) and value.casefold().startswith("queue="):
-                return value.split("=", 1)[1].strip()
+        queue = _agent_tags(values).get("queue")
+        if queue:
+            return queue
     return ""
+
+
+def _job_queue(job: dict) -> str:
+    """Prefer observed agent routing over the display label and request rules.
+
+    Shared MI queues (``amd_mi250``) split GPU widths by a ``gpu_size`` tag;
+    fold it back so jobs keep their per-width ``amd_mi250_N`` pool identity.
+    """
+    queue = _physical_job_queue(job)
+    if not _SHARED_MI_QUEUE_RE.fullmatch(queue):
+        return queue
+    agent = job.get("agent") or {}
+    metadata = agent.get("meta_data") if isinstance(agent, dict) else None
+    for values in (metadata, job.get("agent_query_rules")):
+        size = _agent_tags(values).get("gpu_size", "")
+        if size.isdigit():
+            return f"{queue}_{size}"
+    return queue
 
 
 def _job_hardware_scope(job: dict) -> str:

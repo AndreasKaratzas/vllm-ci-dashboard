@@ -672,6 +672,7 @@ class BuildkiteClient:
                     state
                     passed
                     softFailed
+                    agentQueryRules
                     agent { metaData }
                     clusterQueue { id key }
                     build { number commit pipeline { slug } }
@@ -765,6 +766,9 @@ class BuildkiteClient:
                     "EXPIRED": "expired",
                 }[graphql_state]
                 agent = node.get("agent")
+                rules = node.get("agentQueryRules")
+                rules = [rule for rule in rules if isinstance(rule, str)
+                         and not rule.casefold().startswith("queue=")] if isinstance(rules, list) else []
                 rest_job = {
                     "id": node.get("uuid"),
                     "name": node.get("label"),
@@ -774,7 +778,7 @@ class BuildkiteClient:
                     "soft_failed": soft_failed,
                     "started_at": node.get("startedAt"),
                     "finished_at": node.get("finishedAt"),
-                    "agent_query_rules": [f"queue={queue}"],
+                    "agent_query_rules": [f"queue={queue}", *rules],
                     "agent": {
                         "meta_data": (
                             agent.get("metaData")

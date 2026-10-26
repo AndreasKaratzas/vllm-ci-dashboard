@@ -81,7 +81,8 @@ def amd_gpu_hardware(queue: str | None) -> str:
 # gaps for queues we actively monitor. Untracked queues that show up with
 # activity are still recorded on the fly by the collector.
 _TRACKED_QUEUE_NAMES = {
-    # AMD MI250
+    # AMD MI250: one shared queue split by gpu_size; per-width queues are retired
+    "amd_mi250",
     "amd_mi250_1",
     "amd_mi250_2",
     "amd_mi250_4",
