@@ -22,10 +22,11 @@ jobs:
   check:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
-    # Three identity probes plus one complete canary/stream proof can consume
-    # 1,507 seconds at their exact retry/deadline bounds. Preserve more than five
-    # minutes for normalization, artifact upload, and issue reconciliation.
-    timeout-minutes: 35
+    # Three identity probes plus one complete canary/stream proof (with one
+    # canary repeat after a transport failure) can consume 1,847 seconds at
+    # their exact retry/deadline bounds. Preserve more than five minutes for
+    # normalization, artifact upload, and issue reconciliation.
+    timeout-minutes: 40
     outputs:
       hourly_recovery_evidence: ${{ steps.health-result.outputs.hourly_recovery_evidence }}
     steps:

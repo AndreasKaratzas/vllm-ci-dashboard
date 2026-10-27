@@ -69,6 +69,8 @@ FETCH_ATTEMPTS = 2
 STREAM_TOTAL_TIMEOUT_SECONDS = 150
 STREAM_ATTEMPT_MAX_SECONDS = STREAM_TOTAL_TIMEOUT_SECONDS + FETCH_TIMEOUT_SECONDS
 RETRYABLE_HTTP_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
+# fetch_url reports connection errors and timeouts as HTTP 0.
+TRANSIENT_HTTP_STATUSES = RETRYABLE_HTTP_STATUSES | {0}
 CONFIRMATION_ATTEMPTS = 3
 CONFIRMATION_QUORUM = 2
 CONFIRMATION_DELAYS_SECONDS = (0.0, 2.0, 5.0)
@@ -104,11 +106,14 @@ BASE_RESOURCES_PER_PROBE = (
 # assets, and Operations manifest. Exactly one modal-generation probe also
 # parses all eager canaries and streams each large route through its full
 # digest. The other two probes bind that proof to a 2-of-3 identity quorum.
+# A canary transport failure ends probe two before any stream, so probe three
+# may repeat the canaries once; streams are still requested at most once.
 RESOURCES_PER_PROBE = BASE_RESOURCES_PER_PROBE
 REQUESTS_PER_PROBE = RESOURCES_PER_PROBE * FETCH_ATTEMPTS
 CONTROL_REQUESTS_PER_PROBE = CONTROL_RESOURCES_PER_PROBE * FETCH_ATTEMPTS
+FULL_PROJECTION_CANARY_PASSES = 2
 CANARY_REQUESTS_PER_CONFIRMATION = (
-    CANARY_RESOURCES_PER_FULL_PROBE * FETCH_ATTEMPTS
+    CANARY_RESOURCES_PER_FULL_PROBE * FETCH_ATTEMPTS * FULL_PROJECTION_CANARY_PASSES
 )
 STREAMED_REQUESTS_PER_CONFIRMATION = (
     len(OPERATIONS_STREAMED_LARGE_SECTIONS) * FETCH_ATTEMPTS
@@ -2367,8 +2372,8 @@ def confirm_site_health(
         # deployment rolls A->B during the three-probe window, the middle is in
         # the 2-of-3 modal generation for both A,A,B and A,B,B. Probe three is
         # the bounded fallback only when probe two failed before requesting any
-        # application payload. A canary or stream request that was attempted
-        # already used its exact internal request/retry allowance.
+        # application payload or lost a canary to transport before any stream.
+        # Contract failures and any attempted stream are never re-requested.
         verify_full_projection = attempt == 2 or (
             attempt == 3 and not full_projection_payload_attempted
         )
@@ -2397,13 +2402,12 @@ def confirm_site_health(
         )
         raw_streamed_rows = projection.get("operations_streamed_sections")
         raw_canary_rows = projection.get("operations_canaries")
-        canary_was_attempted = bool(
-            isinstance(raw_canary_rows, list)
-            and any(
-                isinstance(row, dict) and row.get("http_status") is not None
-                for row in raw_canary_rows
-            )
-        )
+        canary_statuses = [
+            row.get("http_status")
+            for row in (raw_canary_rows if isinstance(raw_canary_rows, list) else [])
+            if isinstance(row, dict) and row.get("http_status") is not None
+        ]
+        canary_was_attempted = bool(canary_statuses)
         stream_was_attempted = bool(
             isinstance(raw_streamed_rows, list)
             and any(
@@ -2413,7 +2417,16 @@ def confirm_site_health(
         )
         if stream_was_attempted and streamed_projection_attempt is None:
             streamed_projection_attempt = attempt
-        if canary_was_attempted or stream_was_attempted:
+        # Canaries are fetched in order and the first failure ends the probe,
+        # so only the last attempted status can be the failing one.
+        canary_transport_failed = (
+            canary_was_attempted
+            and not stream_was_attempted
+            and canary_statuses[-1] in TRANSIENT_HTTP_STATUSES
+        )
+        if stream_was_attempted or (
+            canary_was_attempted and not canary_transport_failed
+        ):
             full_projection_payload_attempted = True
         raw_reasons = probe.get("reasons")
         reason_codes = []

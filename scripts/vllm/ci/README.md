@@ -408,19 +408,20 @@ failover until it ages out normally.
 Synthetic public health additionally fetches and digest/length verifies the
 Operations manifest and every bounded lazy section except `reliability`; those
 thirteen JSON canaries are also strict-parsed. Together with the shell,
-publication metadata, and six required shell assets, each of the three quorum
-probes has 11 bounded identity/control resources and at most 22 HTTP starts
+publication metadata, and three required shell assets, each of the three quorum
+probes has 8 bounded identity/control resources and at most 16 HTTP starts
 after the single transient retry. The modal-generation probe additionally
 strict-parses all thirteen eager Operations canaries and streams the complete
 `reliability.json` route through SHA-256 without retaining its body; if the
-middle probe fails before route discovery, probe three owns that proof. Eager
-canaries have a 20-second bounded attempt and the stream has one retry, a
-150-second total deadline per attempt, and at most one final 10-second
-blocking-read overrun. The exact confirmation ceiling is therefore 94 HTTP
-starts, 1,500 transport/deadline seconds, and 1,507 elapsed seconds including
-quorum delays. The two lightweight healthy probes must identify the same exact
-projection generation as the full proof; failure of that full proof fails the
-complete health invocation regardless of the ordinary 2-of-3 result.
+middle probe fails before route discovery, or loses a canary to a connection
+error, timeout, or retryable HTTP status before any stream, probe three owns
+that proof. Eager canaries have a 20-second bounded attempt and the stream has
+one retry, a 150-second total deadline per attempt, and at most one final
+10-second blocking-read overrun. The exact confirmation ceiling is therefore
+102 HTTP starts, 1,840 transport/deadline seconds, and 1,847 elapsed seconds
+including quorum delays. The two lightweight healthy probes must identify the
+same exact projection generation as the full proof; failure of that full proof
+fails the complete health invocation regardless of the ordinary 2-of-3 result.
 
 The Operations manifest is capped at 2 MiB, each canary at 12 MiB, their
 combined probe bundle at 32 MiB, and the separately streamed reliability route
@@ -802,9 +803,9 @@ considers recovery at 75 minutes of publication age. Active-run suppression prev
 duplicate when the normal two-hour run is already queued or running, and a
 15-minute dispatch cooldown bounds repeated recovery wake-ups. Actual full
 collection admission retains its separate 30-minute failed-attempt cooldown and
-25-hour attempt cap. The watchdog itself permits 35 minutes for proof and
+25-hour attempt cap. The watchdog itself permits 40 minutes for proof and
 routing, and full collection permits 75 minutes. Even before writer queues,
-the worst first-attempt path is `75 + 15 + 35 + 75 = 200` minutes. The earlier
+the worst first-attempt path is `75 + 15 + 40 + 75 = 205` minutes. The earlier
 trigger improves normal recovery but cannot guarantee the unchanged three-hour
 freshness limit under maximum runtime or failed admission. Age-only synthetic failures request guarded collection;
 projection or transport failures request an exact-state redeployment.

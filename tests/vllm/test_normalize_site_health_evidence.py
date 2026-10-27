@@ -506,6 +506,41 @@ def test_normalizer_accepts_a_full_stream_discovered_by_a_later_probe(
     assert normalized["overall_status"] == "healthy"
 
 
+def test_normalizer_accepts_a_full_proof_repeated_after_a_canary_transport_failure(
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    report = _healthy_report(now, complete_attempt=3)
+    report["confirmation"].update(
+        {
+            "healthy_count": 2,
+            "unhealthy_count": 1,
+            "matching_projection_healthy_count": 2,
+        }
+    )
+    report["confirmation"]["probes"][1].update(
+        {
+            "healthy": False,
+            "projection_mode": "invalid",
+            "matches_complete_projection": False,
+            "reason_codes": ["operations-canary-http"],
+        }
+    )
+    environment = _normalizer_environment(tmp_path, report, now)
+
+    completed = _run_normalizer(environment)
+
+    assert completed.returncode == 0, completed.stderr
+    outputs = _github_output(environment)
+    assert outputs["healthy"] == "true"
+    assert outputs["confirmed"] == "true"
+    assert outputs["report_valid"] == "true"
+    normalized = json.loads(Path(environment["REPORT_PATH"]).read_text())
+    assert normalized["confirmation"]["complete_projection_attempt"] == 3
+    assert normalized["confirmation"]["healthy_count"] == 2
+    assert normalized["healthy"] is True
+
+
 @pytest.mark.parametrize(
     "corrupt",
     [
