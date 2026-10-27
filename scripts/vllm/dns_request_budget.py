@@ -41,9 +41,14 @@ DNS_REPOSITORY = "AndreasKaratzas/vllm-ci-dashboard"
 DNS_WORKFLOW_PATH = ".github/workflows/dns-health.yml"
 DNS_WORKFLOW_NAME = "DNS Health Monitor"
 DNS_FAILED_RETRY_MINUTES = 70
+# Raw rows carry head_commit with the full squash message (up to ~37 KB), so a
+# 100-run page reached 1.7 MB of the shared 2 MiB bound that stalled the
+# watchdog in #751. Thirty rows still span about a day, far past the 70-minute
+# retry window, and stay under the bound up to ~68 KiB per row.
+DNS_RUNS_PAGE_SIZE = 30
 DNS_RUNS_URL = (
     f"https://api.github.com/repos/{DNS_REPOSITORY}/actions/workflows/dns-health.yml/runs"
-    "?branch=main&per_page=100"
+    f"?branch=main&per_page={DNS_RUNS_PAGE_SIZE}"
 )
 DNS_RUNS_TIMEOUT_SECONDS = 30
 
@@ -88,7 +93,7 @@ def dns_retry_available_at(payload: object, *, current_code_sha: str, now: datet
     if (not isinstance(payload, dict) or type(payload.get("total_count")) is not int
             or not isinstance(payload.get("workflow_runs"), list)
             or payload["total_count"] < 0
-            or len(payload["workflow_runs"]) != min(100, payload["total_count"])):
+            or len(payload["workflow_runs"]) != min(DNS_RUNS_PAGE_SIZE, payload["total_count"])):
         raise DnsRequestBudgetError("DNS retry observation has invalid run counts")
     for row in payload["workflow_runs"]:
         if (not isinstance(row, dict) or row.get("path") != DNS_WORKFLOW_PATH

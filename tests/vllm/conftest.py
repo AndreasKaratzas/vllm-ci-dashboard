@@ -22,16 +22,26 @@ import pytest  # noqa: E402
 # The most specific node wins; an empty set marks a policy or public-safety
 # check that is never excused.
 LIVE_DATA_TEST_SURFACES: dict[str, frozenset[str]] = {
+    "test_data_freshness.py::TestCIDataFreshness::test_amd_test_matrix_exists": frozenset({"ci_core"}),
     "test_data_freshness.py::TestCIDataFreshness::test_amd_test_matrix_fresh": frozenset({"ci_core"}),
+    "test_data_freshness.py::TestCIDataFreshness::test_analytics_exists": frozenset({"ci_analytics"}),
+    "test_data_freshness.py::TestCIDataFreshness::test_ci_health_exists": frozenset({"ci_core"}),
     "test_data_freshness.py::TestCIDataFreshness::test_ci_health_fresh": frozenset({"ci_core"}),
+    "test_data_freshness.py::TestCIDataFreshness::test_ci_health_has_amd_build": frozenset({"ci_core"}),
+    "test_data_freshness.py::TestCIDataFreshness::test_workload_mapping_exists": frozenset({"queue_workload"}),
     "test_data_freshness.py::TestCIDataFreshness::test_workload_mapping_fresh_and_window_current": frozenset({"queue_workload"}),
     "test_data_freshness.py::TestQueueDataFreshness::test_latest_snapshot_fresh": frozenset({"queue"}),
+    "test_data_freshness.py::TestQueueDataFreshness::test_latest_snapshot_valid": frozenset({"queue"}),
+    "test_data_freshness.py::TestQueueDataFreshness::test_queue_data_not_empty": frozenset({"queue"}),
     "test_data_freshness.py::TestQueueDataFreshness::test_queue_lifecycle_aggregate_fresh": frozenset({"queue_lifecycle"}),
+    "test_data_freshness.py::TestQueueDataFreshness::test_queue_lifecycle_exists": frozenset({"queue_lifecycle"}),
+    "test_data_freshness.py::TestQueueDataFreshness::test_queue_timeseries_exists": frozenset({"queue"}),
     "test_data_integrity.py::TestAnalyticsData": frozenset({"ci_analytics"}),
     "test_data_integrity.py::TestAnalyticsData::test_ci_analytics_not_blank_when_amd_test_results_exist": (
         frozenset({"ci_analytics", "ci_core"})
     ),
     "test_data_integrity.py::TestCIHealthData": frozenset({"ci_core"}),
+    "test_data_integrity.py::TestFrontendFiles::test_queue_stats_computable_from_builds": frozenset({"ci_analytics"}),
     "test_data_schemas.py::TestAmdTestMatrix": frozenset({"ci_core"}),
     "test_data_schemas.py::TestAnalytics": frozenset({"ci_analytics"}),
     "test_data_schemas.py::TestCiHealth": frozenset({"ci_core"}),
@@ -49,9 +59,26 @@ LIVE_DATA_TEST_SURFACES: dict[str, frozenset[str]] = {
     "test_data_schemas.py::TestQueueTimeseries": frozenset({"queue"}),
     "test_data_schemas.py::TestWorkloadMapping": frozenset({"queue_workload"}),
     "test_data_schemas.py::TestWorkloadMapping::test_query_is_bounded_and_contains_no_raw_records": frozenset(),
+    "test_number_correctness.py::TestBuildStateIntegrity": frozenset({"ci_core"}),
+    "test_number_correctness.py::TestCurrentMiExecutionScope::test_latest_mi_assertion_counts_match_exact_current_shard": (
+        frozenset({"ci_core"})
+    ),
+    "test_number_correctness.py::TestGroupCountCorrectness": frozenset({"ci_core"}),
+    "test_number_correctness.py::TestGroupCountCorrectness::test_ci_health_group_counts_match_jsonl": frozenset(),
+    "test_number_correctness.py::TestGroupCountCorrectness::test_commit_aligned_definition_families_match_runtime_groups": frozenset(),
+    "test_number_correctness.py::TestGroupCountCorrectness::test_per_hw_test_counts_match_jsonl": frozenset(),
+    "test_number_correctness.py::TestLogParserJobStateOverride": frozenset({"ci_core"}),
     "test_perf_eval_dashboard.py::TestPerfEvalDataContract": frozenset({"perf_eval"}),
     "test_perf_eval_dashboard.py::TestPerfEvalDataContract::test_models_are_amd_only": frozenset(),
     "test_perf_eval_dashboard.py::TestPerfEvalDataContract::test_no_nvidia_models_present": frozenset(),
+    "test_queue_automation.py::TestIntervalFilteringLogic": frozenset({"queue"}),
+    "test_queue_automation.py::TestQueueTimeseriesSchema": frozenset({"queue"}),
+    "test_queue_automation.py::TestQueueTimeseriesSchema::test_release_normalizer_prevents_workload_history_overstatement": frozenset(),
+    "test_queue_automation.py::TestQueueViewContract::test_queue_source_percentile_ordering": frozenset({"queue"}),
+    "test_rendering_data.py::TestJSRenderingSafety": frozenset({"ci_core"}),
+    "test_rendering_data.py::TestNoJobStateMismatch": frozenset({"ci_core"}),
+    "test_rendering_data.py::TestVLLMCIData": frozenset({"ci_core"}),
+    "test_rendering_data.py::TestVLLMCIData::test_shard_bases_exists": frozenset(),
 }
 
 

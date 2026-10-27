@@ -292,6 +292,28 @@ def test_dns_retry_api_uses_only_fixed_get_identity_and_nonredirecting_token_bou
     assert budget.fetch_dns_workflow_runs("fixture-only-token") == dns_runs()
 
 
+def test_dns_retry_api_full_page_of_long_squash_messages_stays_within_bound(monkeypatch):
+    # GitHub returns per_page raw rows, each with head_commit's full message.
+    class Opener:
+        def open(self, request, timeout):
+            per_page = int(request.full_url.rsplit("per_page=", 1)[1])
+            row = {**dns_runs(conclusion="success")["workflow_runs"][0],
+                   "head_commit": {"message": "x" * 37 * 1024}}
+            raw = json.dumps({"total_count": 800, "workflow_runs": [row] * per_page}).encode()
+            class Response:
+                status = 200
+                def __enter__(self): return self
+                def __exit__(self, *args): pass
+                def read(self, limit): return raw[:limit]
+            return Response()
+    monkeypatch.setattr(budget.urllib.request, "build_opener", lambda *a: Opener())
+
+    payload = budget.fetch_dns_workflow_runs("fixture-only-token")
+    assert budget.dns_retry_available_at(
+        payload, current_code_sha=DNS_CODE_SHA, now=datetime(2026, 9, 1, 6, tzinfo=timezone.utc)
+    ) is None
+
+
 @pytest.mark.parametrize("token", ["", "bad token", "bad\ntoken", "x" * 4097],
                          ids=["empty", "whitespace", "newline", "oversize"])
 def test_dns_retry_api_rejects_bad_credentials_without_transport_or_token_echo(monkeypatch, token):
