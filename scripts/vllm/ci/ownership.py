@@ -22,6 +22,7 @@ from vllm.ci.incident_transitions import advance_incident
 INCIDENT_STATES = {"failed", "hard", "soft", "soft_fail", "soft_failed"}
 PASS_STATES = {"passed", "pass"}
 SIGNAL_RETIREMENT_STREAK_REQUIRED = 3
+JOB_ID_RE = re.compile(r"[?&]jid=([^&#]+)")
 MULTISPACE_RE = re.compile(r"\s+")
 AMD_PREFIX_RE = re.compile(r"^AMD:\s*", re.IGNORECASE)
 SHARD_TEMPLATE_SUFFIX_RE = re.compile(r"\s*%N\s*$", re.IGNORECASE)
@@ -698,24 +699,25 @@ def build_ownership_status(
             known_areas,
             config.get("target_area_overrides") or {},
         )
+        first_evidence = next(
+            (
+                evidence
+                for evidence in (target.get("latest_amd_result") or {}).get("evidence") or []
+                if isinstance(evidence, dict) and evidence.get("url")
+            ),
+            {},
+        )
         row = {
             "id": target.get("id"),
             "label": str(target.get("label") or "unknown"),
             "result": target_result(target),
             "build_number": (target.get("latest_amd_result") or {}).get("build_number"),
             "observed_at": str((target.get("latest_amd_result") or {}).get("observed_at") or ""),
-            "url": str(
-                next(
-                    (
-                        evidence.get("url")
-                        for evidence in (target.get("latest_amd_result") or {}).get("evidence") or []
-                        if isinstance(evidence, dict) and evidence.get("url")
-                    ),
-                    "",
-                )
-            ),
+            "url": str(first_evidence.get("url") or ""),
             "area_method": method,
         }
+        if first_evidence.get("architecture"):
+            row["architecture"] = str(first_evidence["architecture"])
         if isinstance(target.get("lineage"), dict):
             row["lineage"] = target["lineage"]
         if area:
@@ -815,7 +817,7 @@ def target_signal_key(target: dict) -> str:
 def _target_failure_evidence(target: dict) -> dict:
     return {
         key: target.get(key)
-        for key in ("build_number", "observed_at", "url")
+        for key in ("build_number", "observed_at", "url", "architecture")
         if target.get(key) not in (None, "")
     }
 
@@ -828,6 +830,44 @@ def _numeric_build_id(value: Any) -> int | None:
         return int(str(value).strip())
     except (TypeError, ValueError, OverflowError):
         return None
+
+
+def _job_id(url: Any) -> str:
+    match = JOB_ID_RE.search(str(url or ""))
+    return match.group(1) if match else ""
+
+
+def _pass_supersedes_failure(target: dict, evidence: dict, watermark: int | None) -> bool:
+    """Return whether a pass in the watermark build supersedes the failure.
+
+    Holds advance the watermark without new failure evidence, so a pass in a
+    later build than the failure is newer.  The matrix reports only
+    non-superseded jobs, so a pass by another job of the failure's own build on
+    the failure's architecture means that the failing job no longer represents
+    that architecture's result.  Like a later build, that cell may also read
+    passed when the failing job's retry was canceled, and only the first failing
+    architecture is recorded.
+    """
+    failed_build = _numeric_build_id(evidence.get("build_number"))
+    if (
+        watermark is None
+        or failed_build is None
+        or _numeric_build_id(target.get("build_number")) != watermark
+    ):
+        return False
+    if failed_build < watermark:
+        return True
+    failed_job = _job_id(evidence.get("url"))
+    current_job = _job_id(target.get("url"))
+    failed_arch = evidence.get("architecture")
+    current_arch = target.get("architecture")
+    return (
+        failed_build == watermark
+        and (not failed_arch or not current_arch or failed_arch == current_arch)
+        and bool(failed_job)
+        and bool(current_job)
+        and current_job != failed_job
+    )
 
 
 def _signal_build_watermark(signal: dict | None) -> int | None:
@@ -896,6 +936,19 @@ def _absence_streak(
     return streak, counted
 
 
+def _area_passed_build(targets: list[dict], architectures: set[str]) -> int | None:
+    """Return the one build in which every current row on ``architectures`` passed."""
+    builds = {
+        _numeric_build_id(target.get("build_number"))
+        if target.get("result") == "passed"
+        else None
+        for target in targets
+        if not architectures
+        or architectures & set((target.get("lineage") or {}).get("architectures") or [])
+    }
+    return next(iter(builds)) if len(builds) == 1 else None
+
+
 def _without_absent_watermark(signal: dict) -> dict:
     """Drop the watermark that absent observations advance past the evidence."""
     return {key: value for key, value in signal.items() if key != "build_watermark"}
@@ -933,11 +986,14 @@ def apply_incident_hysteresis(
 
     Hard observations confirm immediately. Soft observations remain visible as
     pending until they recur on ``soft_threshold`` distinct completed builds.
-    Re-reading the same build cannot advance the streak, and an unobserved
-    target holds (rather than resolving) its prior incident state. A held row
-    that vanished moves to the one current row sharing its definition lineage;
-    otherwise it retires once its area ran without it in
-    ``SIGNAL_RETIREMENT_STREAK_REQUIRED`` newer builds.
+    Re-reading the same build cannot advance the streak; only a pass newer than
+    the failure (a later build, or another job on the failing architecture)
+    resolves it there.
+    An unobserved target holds (rather than resolving) its prior incident
+    state. A held row that vanished moves to the one current row sharing its
+    definition lineage; otherwise it retires once every current row of its area
+    on its architectures passed in one newer build, or once its area ran
+    without it in ``SIGNAL_RETIREMENT_STREAK_REQUIRED`` newer builds.
 
     The returned mapping is deliberately separate from the public status. It
     is persisted alongside each area's managed-issue state and supplied on the
@@ -947,6 +1003,19 @@ def apply_incident_hysteresis(
     summary_raw = Counter()
     summary_confirmed = Counter()
     areas_with_pending = 0
+    matrix_signal_keys = {
+        target_signal_key(target)
+        for target in [
+            *(
+                target
+                for area in status.get("areas") or []
+                if isinstance(area, dict)
+                for target in area.get("targets") or []
+            ),
+            *(status.get("unmapped_targets") or []),
+        ]
+        if isinstance(target, dict)
+    }
 
     for area in status.get("areas") or []:
         if not isinstance(area, dict):
@@ -1065,6 +1134,12 @@ def apply_incident_hysteresis(
                 # An unnumbered observation cannot prove that it is newer than an
                 # active incident.  Hold until a completed build ID is available.
                 non_monotonic = True
+            if (
+                non_monotonic
+                and outcome == "passed"
+                and _pass_supersedes_failure(target, previous_evidence, previous_watermark)
+            ):
+                non_monotonic = False
             effective_outcome = "absent" if non_monotonic else outcome
             transition = advance_incident(
                 previous_signal,
@@ -1199,6 +1274,21 @@ def apply_incident_hysteresis(
                         default=None,
                     ),
                 )
+                # A row gone from the whole matrix cannot fail again; once every
+                # current row on its hardware passed in one newer build, nothing
+                # it covered still fails.
+                passed_build = _area_passed_build(current_targets, architectures)
+                failure_build = _signal_build_watermark(
+                    _without_absent_watermark(previous_signal)
+                )
+                if (
+                    signal_key not in matrix_signal_keys
+                    and passed_build is not None
+                    and failure_build is not None
+                    and passed_build > failure_build
+                ):
+                    streak = SIGNAL_RETIREMENT_STREAK_REQUIRED
+                    absent_build_id = passed_build
                 if streak >= SIGNAL_RETIREMENT_STREAK_REQUIRED:
                     area_signals[signal_key] = {
                         "status": "clear",
@@ -1316,8 +1406,11 @@ def apply_incident_hysteresis(
         f"hard observations confirm immediately; soft observations require "
         f"{soft_threshold} distinct completed builds; absent observations hold state; "
         "a renamed target group carries state to the row that continues its "
-        "definition; an absent target group retires after its area ran without "
-        f"it in {SIGNAL_RETIREMENT_STREAK_REQUIRED} newer builds; "
-        "non-monotonic build observations cannot change incident state"
+        "definition; an absent target group retires once every current target "
+        "group of its area on its hardware passed in one newer build, or after "
+        f"its area ran without it in {SIGNAL_RETIREMENT_STREAK_REQUIRED} newer "
+        "builds; non-monotonic build observations cannot change incident state, "
+        "except a pass in a later build, or a pass in the failing build after the "
+        "failing job left the matrix on its architecture"
     )
     return next_signals
