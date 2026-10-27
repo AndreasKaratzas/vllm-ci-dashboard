@@ -122,7 +122,7 @@ def _raw_issue(
         body = body.replace(f"{qzw.OWNERSHIP_MARKER}\n", "", 1)
     return {
         "number": number,
-        "title": title or qzw._issue_title(queue, jobs),
+        "title": title or qzw._issue_title(queue),
         "body": body,
         "labels": (
             [{"name": name} for name in qzw.OWNED_LABELS]
@@ -186,7 +186,8 @@ class TestRun:
         assert qzw.run() == 0
         assert len(api.opened) == 1
         number, title, body = api.opened[0]
-        assert "amd_mi250_1" in title
+        assert title == "Queue amd_mi250_1: zombie jobs > 4h"
+        assert "with **1** zombie jobs." in body
         assert "275.0m" in body
         assert body.splitlines()[0] == qzw.OWNERSHIP_MARKER
         assert "GitHub assignee: AndreasKaratzas." in body
@@ -466,6 +467,11 @@ def test_owned_issue_requires_exact_marker_or_strict_legacy_identity():
 
     wrong_title = _raw_issue(marker=False, title="Unrelated queue issue")
     assert qzw._owned_queue_issue(wrong_title) is None
+
+    # Issues opened while titles carried the live job count stay adoptable.
+    for marker in (True, False):
+        counted = _raw_issue(marker=marker, title="Queue amd_mi250_1: zombie jobs > 4h (12)")
+        assert qzw._owned_queue_issue(counted)["legacy"] is not marker
 
     embedded_marker = _raw_issue(labels=[])
     embedded_marker["body"] = embedded_marker["body"].replace(

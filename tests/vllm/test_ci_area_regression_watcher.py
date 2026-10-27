@@ -16,10 +16,13 @@ def test_dashboard_link_targets_active_incident_health_view() -> None:
 
 
 class AssignabilityClient:
-    def __init__(self, assignable):
+    def __init__(self, assignable, unknown=()):
         self.assignable = {value.casefold() for value in assignable}
+        self.unknown = {value.casefold() for value in unknown}
 
     def is_assignable(self, login):
+        if login.casefold() in self.unknown:
+            return None
         return login.casefold() in self.assignable
 
 
@@ -120,7 +123,7 @@ def _area():
     }
 
 
-def test_issue_body_tags_owner_and_assignee_and_ccs_ranked_owners_once():
+def test_issue_body_names_owners_without_any_mention():
     body = watcher._issue_body(_area(), "https://example.invalid/run")
 
     assert "Hard group" in body
@@ -129,15 +132,15 @@ def test_issue_body_tags_owner_and_assignee_and_ccs_ranked_owners_once():
     assert "Fix the confirmed incident" in body
     assert "Reduce test-group time to completion" in body
     assert "Restore parity with upstream definitions" in body
-    assert "Primary" in body
     assert "| availability |" not in body
-    assert "Selected owner and GitHub assignee: @primary" in body
-    assert "CC (remaining ranked area owners): @secondary @tertiary" in body
-    for login in ("primary", "secondary", "tertiary"):
-        assert body.count(f"@{login}") == 1
+    assert "GitHub assignee: **Primary (`primary`)** (rank 1)." in body
+    assert "| 2 | Secondary (`secondary`) |" in body
+    assert "| 3 | Tertiary (`tertiary`) |" in body
+    assert "CC" not in body
+    assert "@" not in body
 
 
-def test_issue_body_mentions_fallback_assignee_and_sanitizes_untrusted_at_signs():
+def test_issue_body_names_fallback_assignee_and_sanitizes_untrusted_at_signs():
     area = _area()
     area["actual_assignee"] = {
         "display_name": "CI Lead @not-a-mention",
@@ -147,13 +150,107 @@ def test_issue_body_mentions_fallback_assignee_and_sanitizes_untrusted_at_signs(
 
     body = watcher._issue_body(area, "https://example.invalid/run")
 
-    assert "- Selected owner: @primary" in body
-    assert "- GitHub assignee: @ci-lead" in body
-    assert "CC (remaining ranked area owners): @secondary @tertiary" in body
-    assert "@not-a-mention" not in body
-    assert "@outsider" not in body
-    for login in ("primary", "ci-lead", "secondary", "tertiary"):
-        assert body.count(f"@{login}") == 1
+    assert "GitHub assignee: **CI Lead &#64;not-a-mention (`ci-lead`)** (rank CI lead)." in body
+    assert watcher.GITHUB_MENTION_RE.search(body) is None
+    assert "@" not in body
+
+
+def test_issue_title_and_body_ignore_counts_and_working_hours_selection():
+    area = _area()
+    title = watcher._issue_title(area)
+    body = watcher._issue_body(area, "https://example.invalid/run")
+    content = watcher._content_fingerprint(area)
+    assert title == "AMD CI confirmed incident [kernels.yaml]"
+
+    area["counts"]["incidents"] = 7
+    assert watcher._issue_title(area) == title
+    area = _area()
+    area["selected_owner"] = {"rank": None, "display_name": "CI Lead", "github_login": "ci-lead"}
+    area["escalated_to_ci_lead"] = True
+    assert watcher._issue_body(area, "https://example.invalid/run") == body
+    assert watcher._content_fingerprint(area) == content
+
+
+def test_open_issue_keeps_its_ranked_assignee_across_working_hours_changes():
+    area = _area()
+    kept = {"github_login": "secondary", "reason": "ranked_owner_selected_and_assignable"}
+    client = AssignabilityClient({"primary", "secondary", "ci-lead"})
+    config = {**_config(), "owners": [*_config()["owners"], {"display_name": "Secondary", "github_login": "secondary"}]}
+
+    actual, reason = watcher._actual_assignee(area, config, client, kept)
+    assert (actual["github_login"], reason) == ("secondary", "ranked_owner_selected_and_assignable")
+
+    area["selected_owner"] = {"rank": None, "display_name": "CI Lead", "github_login": "ci-lead"}
+    area["escalated_to_ci_lead"] = True
+    actual, reason = watcher._actual_assignee(area, config, client, kept)
+    assert (actual["github_login"], reason) == ("secondary", "ranked_owner_selected_and_assignable")
+
+
+def test_open_issue_reassigns_only_when_its_assignee_is_no_longer_a_valid_owner():
+    kept = {"github_login": "secondary", "reason": "ranked_owner_selected_and_assignable"}
+    actual, reason = watcher._actual_assignee(
+        _area(), _config(), AssignabilityClient({"primary", "ci-lead"}), kept
+    )
+    assert (actual["github_login"], reason) == ("primary", "ranked_owner_selected_and_assignable")
+
+    area = _area()
+    area["owners"].pop(1)
+    actual, _ = watcher._actual_assignee(
+        area, _config(), AssignabilityClient({"primary", "secondary", "ci-lead"}), kept
+    )
+    assert actual["github_login"] == "primary"
+
+
+def test_ci_lead_escalation_hands_off_once_to_an_available_ranked_owner():
+    kept = {"github_login": "ci-lead", "reason": "ranked_chain_unavailable_ci_lead"}
+    client = AssignabilityClient({"primary", "ci-lead"})
+    escalated = _area()
+    escalated["selected_owner"] = {"rank": None, "display_name": "CI Lead", "github_login": "ci-lead"}
+    escalated["escalated_to_ci_lead"] = True
+
+    actual, reason = watcher._actual_assignee(escalated, _config(), client, kept)
+    assert (actual["github_login"], reason) == ("ci-lead", "ranked_chain_unavailable_ci_lead")
+    actual, reason = watcher._actual_assignee(
+        _area(), _config(), AssignabilityClient({"ci-lead"}), kept
+    )
+    assert (actual["github_login"], reason) == ("ci-lead", "ranked_chain_unavailable_ci_lead")
+    actual, reason = watcher._actual_assignee(_area(), _config(), client, kept)
+    assert (actual["github_login"], reason) == ("primary", "ranked_owner_selected_and_assignable")
+
+
+def test_ci_lead_handoff_follows_the_stored_fallback_reason_when_lead_is_ranked():
+    area = _area()
+    area["owners"][1] = {"rank": 2, "display_name": "CI Lead", "github_login": "ci-lead"}
+    client = AssignabilityClient({"primary", "ci-lead"})
+    fallback = {"github_login": "ci-lead", "reason": "ranked_chain_unavailable_ci_lead"}
+
+    actual, reason = watcher._actual_assignee(area, _config(), client, fallback)
+    assert (actual["github_login"], reason) == ("primary", "ranked_owner_selected_and_assignable")
+
+    ranked = {"github_login": "ci-lead", "reason": "ranked_owner_selected_and_assignable"}
+    actual, reason = watcher._actual_assignee(area, _config(), client, ranked)
+    assert (actual["github_login"], reason) == ("ci-lead", "ranked_owner_selected_and_assignable")
+
+
+def test_unknown_assignability_keeps_the_stored_assignee():
+    kept = {"github_login": "secondary", "reason": "ranked_owner_selected_and_assignable"}
+    client = AssignabilityClient({"primary", "ci-lead"}, unknown={"secondary"})
+    config = {**_config(), "owners": [*_config()["owners"], {"display_name": "Secondary", "github_login": "secondary"}]}
+    actual, reason = watcher._actual_assignee(_area(), config, client, kept)
+    assert (actual["github_login"], reason) == ("secondary", "ranked_owner_selected_and_assignable")
+
+    fallback = {"github_login": "ci-lead", "reason": "ranked_chain_unavailable_ci_lead"}
+    client = AssignabilityClient({"ci-lead"}, unknown={"primary"})
+    actual, reason = watcher._actual_assignee(_area(), _config(), client, fallback)
+    assert (actual["github_login"], reason) == ("ci-lead", "ranked_chain_unavailable_ci_lead")
+
+
+def test_assignment_is_kept_only_for_an_open_tracked_issue():
+    assignment = {"github_login": "secondary", "reason": "kept"}
+    assert watcher._kept_assignment({"issue": {"number": 7}, "assignment": assignment}) == assignment
+    assert watcher._kept_assignment({"issue": None, "assignment": assignment}) is None
+    assert watcher._kept_assignment({"issue": {"number": 7}}) is None
+    assert watcher._kept_assignment(None) is None
 
 
 def test_selected_available_owner_is_used_when_assignable():
@@ -267,7 +364,7 @@ def test_incidents_that_failed_on_cuda_or_build_wide_are_warnings_not_regression
         "areas_with_incidents": 1, "incidents": 1, "confirmed_hard": 0, "confirmed_soft": 1,
         "shared_incidents": 1,
     }
-    assert watcher._issue_title(area).endswith(": 1 affected target groups")
+    assert watcher._issue_title(area) == "AMD CI confirmed incident [kernels.yaml]"
     assert "| warning (hard): CUDA step kernels-hard also failed in build #11301 |" in (
         watcher._issue_body(area, "https://example.invalid/run")
     )
@@ -529,6 +626,22 @@ def test_peak_escalation_clears_manual_close_suppression():
 
     assert reconciled["suppressed"] is False
     assert reconciled["issue"]["number"] == 456
+
+
+def test_kept_assignment_survives_state_round_trip_and_budget_compaction(tmp_path, monkeypatch):
+    from vllm.ci import watcher_state
+
+    monkeypatch.setattr(watcher, "STATE", tmp_path / "area-state.json")
+    assignment = {"github_login": "secondary", "reason": "ranked_owner_selected_and_assignable"}
+    area = watcher._state_with_signals(
+        {"issue": {"number": 766, "opened_at": "2026-10-21T08:55:06Z"}, "assignment": assignment}, {}
+    )
+    watcher._checkpoint_state({"engine": area}, "2026-10-22T00:00:00Z")
+    loaded = watcher._read_state()["areas"]["engine"]
+    assert watcher._kept_assignment(loaded) == assignment
+
+    compact, _ = watcher_state._compact_area_state({"areas": {"engine": loaded}})
+    assert compact["areas"]["engine"]["assignment"] == assignment
 
 
 def test_notification_revision_forces_exactly_one_open_issue_body_update():
@@ -1514,3 +1627,44 @@ def test_area_history_migration_keeps_owned_issue_and_current_mi_signals_only():
     assert migrated["areas"]["kernels"]["issue_number"] == 540
     assert set(migrated["areas"]["kernels"]["signals"]) == {"mi-gpu"}
     assert set(prior["areas"]["kernels"]["signals"]) == {"mi-gpu", "cpu-on-mi", "cuda"}
+
+
+def test_run_keeps_the_open_issue_assignee_and_body_when_working_hours_change(tmp_path, monkeypatch):
+    calls = []
+
+    def reconcile(state, **kwargs):
+        calls.append(kwargs)
+        return {**state, "issue": {"number": 766, "opened_at": "2026-10-21T08:55:06Z"}}
+
+    selected = [_area()["selected_owner"]]
+
+    def status(*_args, **_kwargs):
+        area = _area()
+        area["selected_owner"] = selected[0]
+        return {"available": True, "areas": [area], "summary": {"incidents": 2}}
+
+    config = {**_config(), "owners": [*_config()["owners"], {"display_name": "Secondary", "github_login": "secondary"}]}
+    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
+    monkeypatch.setenv("GITHUB_REPOSITORY", watcher.DASHBOARD_REPO)
+    monkeypatch.setattr(watcher, "STATE", tmp_path / "area-state.json")
+    monkeypatch.setattr(watcher, "STATUS", tmp_path / "ci_ownership.json")
+    monkeypatch.setattr(watcher, "_source_validation_error", lambda *_: "")
+    monkeypatch.setattr(watcher, "matrix_runtime_targets", lambda _: [{"id": 1}])
+    monkeypatch.setattr(watcher, "load_ownership_config", lambda _: config)
+    monkeypatch.setattr(watcher, "evaluate_availability", lambda *_, **__: ({}, {}))
+    monkeypatch.setattr(watcher, "build_ownership_status", status)
+    monkeypatch.setattr(watcher, "_complete_current_area_keys", lambda *_: {"kernels"})
+    monkeypatch.setattr(watcher, "apply_incident_hysteresis", lambda *_: {"kernels": {}})
+    monkeypatch.setattr(watcher, "_apply_cuda_evidence", lambda *_: None)
+    monkeypatch.setattr(watcher, "GitHubIssueClient", lambda *_: AssignabilityClient({"primary", "secondary", "ci-lead"}))
+    monkeypatch.setattr(watcher, "reconcile_managed_issue", reconcile)
+    monkeypatch.setattr(watcher, "_prune_retired_area_states", lambda *_: set())
+
+    assert watcher.run() == 0
+    selected[0] = {"rank": 2, "display_name": "Secondary", "github_login": "secondary"}
+    assert watcher.run() == 0
+
+    assert [call["assignees"] for call in calls] == [["primary"], ["primary"]]
+    assert calls[0]["body"] == calls[1]["body"]
+    assert calls[0]["content_fingerprint"] == calls[1]["content_fingerprint"]
+    assert watcher._read_state()["areas"]["kernels"]["assignment"]["github_login"] == "primary"

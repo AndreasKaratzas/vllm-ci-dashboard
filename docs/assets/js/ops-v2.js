@@ -3314,7 +3314,7 @@
     const selected = (row || {}).selected_owner || {};
     const actual = (row || {}).actual_assignee || {};
     if (actual.display_name && actual.github_login !== selected.github_login) {
-      return actual.display_name + ' (CI fallback)';
+      return actual.display_name + (String(row.assignment_reason || '').indexOf('ci_lead') >= 0 ? ' (CI fallback)' : '');
     }
     return selected.display_name || 'Unassigned';
   }
@@ -3444,7 +3444,7 @@
       n('span', '', workingHoursConfigured
         ? 'EU follows 09:00–17:00 Serbia time (Europe/Belgrade) and NA follows 09:00–17:00 Chicago time (America/Chicago), Monday through Friday. The first in-hours owner is selected in rank order. Missing or invalid working-hour schedules fail closed to the CI lead, even when the regional profile source is healthy.'
         : 'Regional working-hour profiles are unavailable or invalid. Missing or invalid working-hour schedules fail closed to the CI lead.'),
-      n('span', '', ' Hard observations confirm immediately; soft observations stay visible here and confirm only after two distinct completed builds. GitHub assignability is checked before mutation. Confirmed-incident issues tag the selected owner and verified assignee, then CC each remaining ranked area owner once.'),
+      n('span', '', ' Hard observations confirm immediately; soft observations stay visible here and confirm only after two distinct completed builds. GitHub assignability is checked before mutation. Confirmed-incident issues keep their verified assignee while open and never @-mention owners.'),
       project.url ? n('span', '', ' ') : null,
       project.url ? externalLink('Open AMD CI Operations project', project.url) : null,
       project.url ? n('span', '', '.') : null,

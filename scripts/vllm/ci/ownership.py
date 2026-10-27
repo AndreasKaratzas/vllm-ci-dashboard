@@ -138,10 +138,6 @@ def validate_ownership_config(payload: Any) -> dict:
     if not GITHUB_LOGIN_RE.fullmatch(lead_login):
         raise ValueError(f"ci_lead has invalid GitHub login {lead_login!r}")
 
-    policy = payload.get("policy")
-    if not isinstance(policy, dict) or policy.get("mentions") is not True:
-        raise ValueError("Ownership policy must enable GitHub mentions")
-
     raw_profiles = payload.get("working_hours_profiles") or {}
     if not isinstance(raw_profiles, dict):
         raise ValueError("working_hours_profiles must be an object")
@@ -771,9 +767,12 @@ def build_ownership_status(
         "available": True,
         "policy": {
             "issue_grain": "one state-owned issue per test area",
-            "assignment": "first available owner by ascending rank; otherwise CI lead",
+            "assignment": (
+                "first available owner by ascending rank; otherwise CI lead; "
+                "kept while the issue stays open"
+            ),
             "availability": "regional working hours only; missing or invalid schedules fail closed",
-            "mentions": "selected owner and verified assignee tagged once; remaining ranked owners CCed once",
+            "mentions": "none; only the verified assignee is notified, by the GitHub assignment",
             "repository": "AndreasKaratzas/vllm-ci-dashboard",
             "workstream": "dev",
         },

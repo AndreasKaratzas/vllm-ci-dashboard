@@ -93,6 +93,7 @@ def _managed_fields(source: dict) -> dict:
         "body_schema_version",
         "incident_state_version",
         "retirement_streak",
+        "assignment",
         "hardware_scope",
         "job_scope",
     )

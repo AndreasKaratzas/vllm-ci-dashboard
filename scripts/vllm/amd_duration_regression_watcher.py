@@ -548,8 +548,7 @@ def _minutes(value: Any) -> str:
     return f"{number:.1f}m" if number is not None else "-"
 
 
-def _issue_title(rows: list[dict]) -> str:
-    return f"AMD main duration: {len(rows)} test steps slower since a change"
+ISSUE_TITLE = "AMD main duration: test steps slower since a change"
 
 
 def _change_md(row: dict) -> str:
@@ -682,7 +681,7 @@ def run() -> int:
         active=bool(rows),
         fingerprint=_fingerprint(active),
         content_fingerprint=_content_fingerprint(active, observed_at),
-        title=_issue_title(rows),
+        title=ISSUE_TITLE,
         body=_issue_body(active, reliability, run_url, repo_owner(repo)),
         ownership_marker=OWNERSHIP_MARKER,
         recovery_body=_recovery_body(active, run_url),

@@ -974,16 +974,8 @@ def _peak_severity(row: dict) -> str:
     return str(transition.get("peak_severity") or "soft")
 
 
-def _issue_title_for(active: dict[str, dict], config: WatcherConfig) -> str:
-    if config.job_scope == "amd_gpu":
-        from vllm.pipelines import is_amd_ci_job
-        active = {identity: row for identity, row in active.items() if is_amd_ci_job(row)}
-    hard = sum(_peak_severity(row) == "hard" for row in active.values())
-    soft = sum(_peak_severity(row) == "soft" for row in active.values())
-    return (
-        f"{config.title_prefix}: {len(active)} confirmed test-group failures "
-        f"({hard} peak hard, {soft} soft)"
-    )
+def _issue_title_for(config: WatcherConfig) -> str:
+    return f"{config.title_prefix}: confirmed test-group failures"
 
 
 def _commit_link(value: Any) -> str:
@@ -1228,7 +1220,7 @@ def reconcile_issue(
             active=bool(active),
             fingerprint=_migrate_signal_fingerprint(state, active),
             content_fingerprint=_content_fingerprint(active),
-            title=_issue_title_for(active, config),
+            title=_issue_title_for(config),
             body=_issue_body_for(active, reliability, run_url, repo_owner(repo), config),
             ownership_marker=config.ownership_marker,
             recovery_body=(

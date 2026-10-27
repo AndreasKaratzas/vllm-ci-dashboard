@@ -324,9 +324,7 @@ def _md(value: Any) -> str:
     return str(value or "-").replace("|", "\\|").replace("\n", " ")
 
 
-def _issue_title(events: list[dict]) -> str:
-    nodes = {event["node"] for event in events}
-    return f"AMD CI agent health: {len(nodes)} nodes failing jobs themselves"
+ISSUE_TITLE = "AMD CI agent health: nodes failing jobs themselves"
 
 
 REASON_TEXT = {
@@ -453,7 +451,7 @@ def run() -> int:
         active=bool(events),
         fingerprint=_fingerprint(events),
         content_fingerprint=_content_fingerprint(events, payload, owner),
-        title=_issue_title(events),
+        title=ISSUE_TITLE,
         body=_issue_body(events, payload, run_url, owner),
         ownership_marker=OWNERSHIP_MARKER,
         recovery_body=(

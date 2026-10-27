@@ -368,7 +368,8 @@ def test_run_writes_state_and_main_ci_publishes_it(monkeypatch, tmp_path):
     reliability = _run(monkeypatch, tmp_path, _builds(STEADY + SLOW, end=now - timedelta(hours=1)), now, client)
 
     ((title, body),) = client.opened
-    assert title == "AMD main duration: 1 test steps slower since a change"
+    assert title == "AMD main duration: test steps slower since a change"
+    assert "**1 AMD MI test steps on main are sustainably slower" in body
     state = json.loads(duration.STATE.read_text())
     assert state["incident_state_version"] == duration.INCIDENT_STATE_VERSION
     section = main_ci_section.build_main_ci({"all_main_reliability": reliability}, {}, _ts(now), duration_state=state)

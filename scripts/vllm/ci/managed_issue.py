@@ -489,24 +489,30 @@ class GitHubIssueClient:
             normalized.append(login)
         return normalized
 
-    def is_assignable(self, login: str) -> bool:
+    def is_assignable(self, login: str) -> bool | None:
+        """Return True or False when GitHub answers definitively, otherwise None."""
         encoded = quote(str(login or "").strip(), safe="")
         if not encoded:
             return False
-        response = requests.get(
-            f"{GH_API}/repos/{self.repo}/assignees/{encoded}",
-            headers=self.headers,
-            timeout=30,
-        )
+        try:
+            response = requests.get(
+                f"{GH_API}/repos/{self.repo}/assignees/{encoded}",
+                headers=self.headers,
+                timeout=30,
+            )
+        except requests.RequestException as error:
+            log.warning("Check whether %s is assignable failed: %s", login, error)
+            return None
         if response.status_code == 204:
             return True
-        if response.status_code != 404:
-            log.warning(
-                "Check whether %s is assignable failed: %d",
-                login,
-                response.status_code,
-            )
-        return False
+        if response.status_code == 404:
+            return False
+        log.warning(
+            "Check whether %s is assignable failed: %d",
+            login,
+            response.status_code,
+        )
+        return None
 
     def set_assignees(self, number: int, assignees: list[str] | None = None) -> bool:
         response = requests.patch(
