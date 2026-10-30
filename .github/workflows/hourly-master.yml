@@ -2062,6 +2062,25 @@ jobs:
           run_surface_collector github_home "GitHub home data" \
             python scripts/collect.py
 
+      # A docker builds seed is pending, not degraded, only while this fresh
+      # evidence shows a bounded bootstrap saving resumable progress. Without
+      # it the audit keeps the seed degraded.
+      - name: Observe docker builds bootstrap
+        if: >-
+          inputs.dns_generation != '' ||
+          inputs.queue_generation != '' ||
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          EVIDENCE="$RUNNER_TEMP/docker-builds-bootstrap.json"
+          if python scripts/vllm/docker_builds_bootstrap.py --output "$EVIDENCE"; then
+            echo "DOCKER_BUILDS_BOOTSTRAP_EVIDENCE=$EVIDENCE" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Docker builds bootstrap is unobserved; a not-collected seed stays degraded."
+          fi
+
       # Reconcile every candidate data transaction before tests, rendering, or
       # issue side effects. Collector failures force an atomic last-known-good
       # restore; global/code/audit failures remain fatal in the selector.

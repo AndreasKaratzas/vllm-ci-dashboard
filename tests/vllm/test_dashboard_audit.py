@@ -1240,16 +1240,80 @@ def _docker_builds_codes(root: Path) -> dict[str, set[str]]:
     }
 
 
-def test_docker_builds_seed_is_degradation_not_error(tmp_path):
+def _write_docker_builds_seed(root: Path) -> None:
     from vllm.ci import docker_builds
 
-    path = tmp_path / docker_builds.PUBLIC_PATH
+    path = root / docker_builds.PUBLIC_PATH
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps(docker_builds.seed_payload(datetime.now(timezone.utc))))
+
+
+def _docker_bootstrap_evidence(
+    root: Path, monkeypatch, *, state: str, attempts: int = 5, age=timedelta(0),
+) -> None:
+    from vllm import docker_builds_bootstrap
+
+    path = root / "docker-builds-bootstrap.json"
+    path.write_text(json.dumps({
+        "schema_version": 1,
+        "observed_at": (datetime.now(timezone.utc) - age).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "state": state,
+        "attempts": attempts,
+        "max_attempts": 16,
+        "run_id": "41005079244",
+    }))
+    monkeypatch.setenv(docker_builds_bootstrap.EVIDENCE_ENV, str(path))
+
+
+def _docker_seed_findings(root: Path) -> dict[str, set[str]]:
+    audit = DashboardAudit(root)
+    audit.audit_docker_builds()
+    return {
+        "degradations": {finding.code for finding in audit.report.degradations},
+        "warnings": {finding.code for finding in audit.report.warnings},
+    }
+
+
+def test_docker_builds_seed_is_degradation_not_error(tmp_path, monkeypatch):
+    monkeypatch.delenv("DOCKER_BUILDS_BOOTSTRAP_EVIDENCE", raising=False)
+    _write_docker_builds_seed(tmp_path)
 
     assert _docker_builds_codes(tmp_path) == {
         "errors": set(),
         "degradations": {"docker-builds-not-collected"},
+    }
+
+
+def test_docker_builds_resumable_bootstrap_is_pending_not_degraded(tmp_path, monkeypatch):
+    _write_docker_builds_seed(tmp_path)
+    _docker_bootstrap_evidence(tmp_path, monkeypatch, state="pending")
+
+    assert _docker_seed_findings(tmp_path) == {
+        "degradations": set(),
+        "warnings": {"docker-builds-bootstrap-pending"},
+    }
+
+
+@pytest.mark.parametrize(
+    "evidence",
+    [
+        {"state": "pending", "attempts": 16},
+        {"state": "over-budget", "attempts": 16},
+        {"state": "failed"},
+        {"state": "unknown"},
+        {"state": "pending", "age": timedelta(hours=3)},
+    ],
+    ids=["at-budget", "over-budget", "failed-run", "unknown", "stale-evidence"],
+)
+def test_docker_builds_bootstrap_outside_its_bound_stays_degraded(
+    tmp_path, monkeypatch, evidence,
+):
+    _write_docker_builds_seed(tmp_path)
+    _docker_bootstrap_evidence(tmp_path, monkeypatch, **evidence)
+
+    assert _docker_seed_findings(tmp_path) == {
+        "degradations": {"docker-builds-not-collected"},
+        "warnings": set(),
     }
 
 

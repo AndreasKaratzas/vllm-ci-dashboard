@@ -788,6 +788,18 @@ class TestHourlyMasterWorkflow:
     def test_exists(self):
         assert (WORKFLOWS / "hourly-master.yml").exists()
 
+    def test_observes_the_docker_bootstrap_before_every_selection(self):
+        """Without fresh evidence the audit keeps the docker seed degraded."""
+        steps = next(iter(_load_workflow("hourly-master.yml")["jobs"].values()))["steps"]
+        names = [step.get("name") for step in steps]
+        observe = steps[names.index("Observe docker builds bootstrap")]
+        selector = steps[names.index("Select validated publication surfaces")]
+        assert names.index(observe["name"]) < names.index(selector["name"])
+        assert observe["if"] == selector["if"]
+        assert "docker_builds_bootstrap.py --output" in observe["run"]
+        assert "DOCKER_BUILDS_BOOTSTRAP_EVIDENCE=" in observe["run"]
+        assert "GITHUB_ENV" in observe["run"]
+
     def test_calls_collect_ci_script(self):
         text = _load_workflow_text("hourly-master.yml")
         assert "collect_ci.py" in text
@@ -2271,6 +2283,7 @@ class TestHourlyMasterWorkflow:
             "Restore authored dashboard documentation from immutable code",
             "Restore docker builds seed when the state predates it",
             "Sync validated DNS health aggregate",
+            "Observe docker builds bootstrap",
             "Validate targeted DNS candidate generation",
             "Validate targeted queue candidate generation",
         }
@@ -3435,6 +3448,7 @@ class TestPublicationWatchdogWorkflow:
                 "Deploy to GitHub Pages",
                 "Queue Lifecycle Monitor (2h)",
                 "DNS Health Monitor",
+                "Docker Build Monitor (2h)",
                 "Site Health Check",
             ],
             "types": ["completed"],
@@ -3452,6 +3466,25 @@ class TestPublicationWatchdogWorkflow:
             >= site_health.MAX_CONFIRMATION_ELAPSED_SECONDS + 5 * 60
         )
         assert job["permissions"] == {"actions": "write", "contents": "read"}
+
+    def test_starts_docker_build_monitor_when_its_ledger_is_due(self):
+        """The hosted clock skips Docker Build Monitor; the watchdog keeps its cadence."""
+        workflow, steps = self._workflow()
+        triggers = workflow.get(True, workflow.get("on", {}))
+        assert _load_workflow("docker-builds.yml")["name"] in (
+            triggers["workflow_run"]["workflows"]
+        )
+        names = [step.get("name") for step in steps]
+        plan = steps[names.index("Plan due Docker Build Monitor run")]
+        dispatch = steps[names.index("Dispatch due Docker Build Monitor")]
+        assert names.index(plan["name"]) < names.index(dispatch["name"])
+        assert "config/docker_builds_attempt_budget.json observe" in plan["run"]
+        assert "actions/workflows/docker-builds.yml/runs" in plan["run"]
+        assert "--recovery-target docker-builds" in plan["run"]
+        assert '--docker-builds-due "$DOCKER_BUILDS_DUE"' in plan["run"]
+        assert "steps.docker-builds-plan.outputs.required == 'true'" in dispatch["if"]
+        assert "actions/workflows/docker-builds.yml/dispatches" in dispatch["run"]
+        assert "-f ref=main" in dispatch["run"]
 
     def test_uses_trusted_main_and_bounded_canonical_state(self):
         _, steps = self._workflow()
@@ -4131,7 +4164,8 @@ class TestSiteHealthWorkflow:
         ):
             assert token in recovery_script
         status_fields_match = re.search(
-            r"exactKeys\(status, \[(?P<fields>.*?)\]\) \|\|",
+            r"const statusKeys = \[(?P<fields>.*?)\];\s*"
+            r"const surfaceIdKeys = \[(?P<ids>.*?)\];",
             recovery_script,
             re.DOTALL,
         )
@@ -4139,6 +4173,12 @@ class TestSiteHealthWorkflow:
         assert frozenset(
             re.findall(r"'([^']+)'", status_fields_match.group("fields"))
         ) == site_health.PUBLICATION_STATUS_FIELDS
+        assert frozenset(
+            re.findall(r"'([^']+)'", status_fields_match.group("ids"))
+        ) == site_health.PUBLICATION_STATUS_SURFACE_ID_FIELDS
+        assert "exactKeys(status, statusKeys)" in recovery_script
+        assert "exactKeys(status, [...statusKeys, ...surfaceIdKeys])" in recovery_script
+        assert "status.surface_ids.length !== 0" in recovery_script
         assert "status.degraded_since !== null" in recovery_script
         assert enforce["if"] == "always()"
         assert "RECONCILE_OUTCOME" in enforce["env"]

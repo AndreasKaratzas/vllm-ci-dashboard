@@ -579,6 +579,47 @@ def test_cli_writes_safe_generation_aware_outputs(tmp_path) -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    ("due", "runs", "required", "reason"),
+    [
+        ("false", [], "false", "docker-builds-not-due"),
+        ("true", [_run(age_minutes=10, status="in_progress")], "false", "docker-builds-active"),
+        ("true", [_run(age_minutes=50, status="queued")], "true", "docker-builds-due"),
+        ("true", [_run(age_minutes=5, conclusion="success")], "true", "docker-builds-due"),
+    ],
+    ids=["not-due", "active", "orphaned", "completed"],
+)
+def test_cli_starts_docker_build_monitor_only_when_due_and_idle(
+    tmp_path, due, runs, required, reason,
+) -> None:
+    runs_path = tmp_path / "runs.json"
+    output_path = tmp_path / "github-output"
+    runs_path.write_text(json.dumps({"workflow_runs": runs}))
+
+    assert watchdog.main([
+        "--workflow-runs", str(runs_path),
+        "--recovery-target", "docker-builds",
+        "--docker-builds-due", due,
+        "--now", NOW.isoformat(),
+        "--github-output", str(output_path),
+    ]) == 0
+    assert output_path.read_text().splitlines()[:2] == [
+        f"required={required}",
+        f"reason={reason}",
+    ]
+
+
+def test_cli_docker_target_requires_its_ledger_decision_and_no_status(tmp_path) -> None:
+    runs_path = tmp_path / "runs.json"
+    runs_path.write_text(json.dumps({"workflow_runs": []}))
+    base = ["--workflow-runs", str(runs_path), "--recovery-target", "docker-builds"]
+
+    with pytest.raises(SystemExit):
+        watchdog.main(base)
+    with pytest.raises(SystemExit):
+        watchdog.main([*base, "--docker-builds-due", "true", "--status", str(runs_path)])
+
+
 def test_forced_target_reuses_active_and_cooldown_suppression(tmp_path) -> None:
     status_path = tmp_path / "status.json"
     runs_path = tmp_path / "runs.json"

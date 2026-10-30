@@ -491,12 +491,18 @@ jobs:
                 projection.total_bytes < 1) {
               throw new Error('canonical publication generation is invalid');
             }
-            if (!exactKeys(status, [
+            const statusKeys = [
               'schema_version', 'status', 'mode', 'generated_at',
               'degraded_since', 'uses_fallback', 'publication_blocked',
               'affected_surfaces', 'affected_surface_count',
               'fallback_surface_count', 'fresh_degraded_surface_count',
-            ]) || status.schema_version !== 1 || status.status !== 'healthy' ||
+            ];
+            const surfaceIdKeys = ['surface_ids', 'pending_surface_ids', 'stale_minutes'];
+            if (!(exactKeys(status, statusKeys) ||
+                  exactKeys(status, [...statusKeys, ...surfaceIdKeys])) ||
+                ('surface_ids' in status &&
+                 (!Array.isArray(status.surface_ids) || status.surface_ids.length !== 0)) ||
+                status.schema_version !== 1 || status.status !== 'healthy' ||
                 status.mode !== 'current' || status.generated_at !== marker.generated_at ||
                 status.degraded_since !== null || status.uses_fallback !== false ||
                 status.publication_blocked !== false ||

@@ -33,6 +33,7 @@ from vllm.publication_surfaces import (  # noqa: E402
     LEGACY_CI_SURFACE,
     LEGACY_CI_SURFACE_SPEC,
     LEGACY_SURFACE_ALIASES,
+    PENDING_FINDING_CODES,
     PRE_ANALYTICS_CI_CORE_SURFACE_SPEC,
     PRE_ANALYTICS_CI_GATING_SURFACE_SPEC,
     PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION,
@@ -2245,6 +2246,20 @@ def _finding_record(finding, surfaces: Iterable[str]) -> dict:
     }
 
 
+def _record_pending_surfaces(state: dict, report) -> None:
+    """Record surfaces the audit accepted as pending and that nothing degraded."""
+    pending = {
+        surface
+        for finding in getattr(report, "warnings", [])
+        if finding.code in PENDING_FINDING_CODES
+        for surface in finding_surfaces(finding)
+    } - set(state.get("degraded_surfaces") or [])
+    if pending:
+        state["pending_surfaces"] = sorted(pending)
+    else:
+        state.pop("pending_surfaces", None)
+
+
 def _apply_surface_state(
     state: dict,
     fresh_degraded: set[str],
@@ -3047,6 +3062,7 @@ def select_publication(
                 "candidate audit has global or unrouted errors; refusing fallback"
             )
         if not fallback:
+            _record_pending_surfaces(state, candidate)
             _write_state(state_path, state)
             _emit_outputs(state)
             if fresh_degraded:
@@ -3166,6 +3182,7 @@ def select_publication(
             retry_policy,
             forced=forced,
         )
+        _record_pending_surfaces(state, final)
     except Exception as exc:
         if state.get("mode") != "blocked":
             previous = previous_state if previous_state_loaded else None

@@ -42,6 +42,9 @@ from vllm.data_freshness_targets import (  # noqa: E402
     load_freshness_targets,
     source_stale_minutes,
 )
+from vllm.publication_surfaces import (  # noqa: E402
+    PUBLICATION_SURFACE_LABELS as SURFACE_ID_LABELS,
+)
 from vllm.publication_limits import (  # noqa: E402
     PUBLICATION_MAX_BLOB_BYTES,
     PUBLICATION_MAX_FILES,
@@ -159,6 +162,13 @@ PUBLICATION_STATUS_FIELDS = frozenset({
     "affected_surface_count",
     "fallback_surface_count",
     "fresh_degraded_surface_count",
+})
+# Machine surface ids, pending surfaces and per-surface stale limits. Added to
+# version 1, so a status projected by older code omits all three.
+PUBLICATION_STATUS_SURFACE_ID_FIELDS = frozenset({
+    "surface_ids",
+    "pending_surface_ids",
+    "stale_minutes",
 })
 # Present only while the selector publishes surfaces as unavailable.
 PUBLICATION_STATUS_OPTIONAL_FIELDS = frozenset({
@@ -1184,6 +1194,33 @@ def _check_core_age(
         reasons.append(_reason("core-stale", f"Core data is stale: {'; '.join(problems)}."))
 
 
+def _sorted_surface_ids(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and all(isinstance(item, str) and item in SURFACE_ID_LABELS for item in value)
+        and value == sorted(set(value))
+    )
+
+
+def _valid_surface_id_fields(payload: dict) -> bool:
+    """Check the surface ids against the labels they name, and the stale limits."""
+    surface_ids = payload.get("surface_ids")
+    pending = payload.get("pending_surface_ids")
+    stale = payload.get("stale_minutes")
+    return (
+        _sorted_surface_ids(surface_ids)
+        and _sorted_surface_ids(pending)
+        and not set(surface_ids) & set(pending)
+        and sorted(SURFACE_ID_LABELS[item] for item in surface_ids)
+        == payload.get("affected_surfaces")
+        and isinstance(stale, dict)
+        and all(
+            key in SURFACE_ID_LABELS and type(value) is int and value > 0
+            for key, value in stale.items()
+        )
+    )
+
+
 def _critical_asset_references(site_url: str, site_body: bytes) -> dict[str, str]:
     try:
         document = site_body.decode("utf-8", errors="strict")
@@ -1751,8 +1788,21 @@ def check_site_health(
             expected_fields = PUBLICATION_STATUS_FIELDS
             missing_fields = sorted(expected_fields - payload.keys())
             unexpected_fields = sorted(
-                payload.keys() - expected_fields - PUBLICATION_STATUS_OPTIONAL_FIELDS
+                payload.keys()
+                - expected_fields
+                - PUBLICATION_STATUS_OPTIONAL_FIELDS
+                - PUBLICATION_STATUS_SURFACE_ID_FIELDS
             )
+            if (
+                PUBLICATION_STATUS_SURFACE_ID_FIELDS & payload.keys()
+                and not _valid_surface_id_fields(payload)
+            ):
+                reasons.append(
+                    _reason(
+                        "publication-contract",
+                        "Publication surface ids or stale limits are malformed.",
+                    )
+                )
             unavailable_surfaces = payload.get("unavailable_surfaces")
             unavailable_count = payload.get("unavailable_surface_count")
             optional_present = PUBLICATION_STATUS_OPTIONAL_FIELDS & payload.keys()

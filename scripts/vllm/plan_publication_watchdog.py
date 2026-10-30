@@ -31,6 +31,10 @@ DEFAULT_ACTIVE_RUN_MAX_AGE_MINUTES = 75.0
 WORKFLOW_RUNS_MAX_BYTES = 2 * 1024 * 1024
 UNAVAILABLE_GENERATION = "unavailable"
 RECOVERY_TARGETS = frozenset({"collector", "deploy-pages", "dns-health"})
+# Docker Build Monitor is watched for cadence, not publication recovery: the
+# watchdog starts it whenever its attempt ledger would admit a run.
+DOCKER_BUILDS_TARGET = "docker-builds"
+DOCKER_BUILDS_ACTIVE_RUN_MAX_AGE_MINUTES = 45.0
 # Run titles tag their mode: ``[full:<key>]``, ``[queue:<key>]`` and
 # ``[dns:<generation>]`` for Data Collection, ``[recovery:<key>]`` for keyed
 # Pages and DNS monitor runs. Untagged runs are routine.
@@ -400,6 +404,32 @@ def watchdog_decision(
     return RecoveryDecision(True, observation.recovery_reason, observation.generation, incident_key)
 
 
+def docker_builds_decision(
+    due: bool,
+    workflow_runs: tuple[WorkflowRun, ...],
+    *,
+    now: datetime,
+    active_run_max_age_minutes: float = DOCKER_BUILDS_ACTIVE_RUN_MAX_AGE_MINUTES,
+) -> RecoveryDecision:
+    """Start Docker Build Monitor when its ledger is due and no run is active.
+
+    The 45-minute bound covers the job's 30-minute timeout plus queueing, so an
+    orphaned API state cannot stall the producer.
+    """
+    if now.tzinfo is None:
+        raise ValueError("now must be timezone-aware")
+    _positive_finite(active_run_max_age_minutes, label="active run max age")
+    if not due:
+        return RecoveryDecision(False, "docker-builds-not-due", DOCKER_BUILDS_TARGET)
+    active_cutoff = now.astimezone(timezone.utc) - timedelta(minutes=active_run_max_age_minutes)
+    for run in workflow_runs:
+        if run.status == "completed":
+            continue
+        if (run.run_started_at or run.created_at) >= active_cutoff:
+            return RecoveryDecision(False, "docker-builds-active", DOCKER_BUILDS_TARGET)
+    return RecoveryDecision(True, "docker-builds-due", DOCKER_BUILDS_TARGET)
+
+
 def load_core_targets(path: Path = FRESHNESS_TARGETS) -> CoreTargets:
     """Read the core sources shared with Site Health and the web UI.
 
@@ -481,9 +511,18 @@ def _append_github_output(path: Path, decision: RecoveryDecision) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--status", type=Path, required=True)
+    parser.add_argument("--status", type=Path)
     parser.add_argument("--workflow-runs", type=Path, required=True)
-    parser.add_argument("--recovery-target", choices=sorted(RECOVERY_TARGETS), required=True)
+    parser.add_argument(
+        "--recovery-target",
+        choices=sorted(RECOVERY_TARGETS | {DOCKER_BUILDS_TARGET}),
+        required=True,
+    )
+    parser.add_argument(
+        "--docker-builds-due",
+        choices=("true", "false"),
+        help="The docker attempt ledger's observed due decision",
+    )
     parser.add_argument("--github-output", type=Path)
     parser.add_argument("--collector-admission", type=Path)
     parser.add_argument(
@@ -518,6 +557,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    if (args.recovery_target == DOCKER_BUILDS_TARGET) != (args.docker_builds_due is not None):
+        parser.error("--docker-builds-due is required exactly with the docker-builds target")
+    if (args.recovery_target == DOCKER_BUILDS_TARGET) == (args.status is not None):
+        parser.error("--status is required exactly with publication recovery targets")
     if (args.recovery_target == "dns-health") != (args.current_code_sha is not None):
         parser.error("--current-code-sha is required exactly with DNS workflow recovery")
     if args.collector_admission and (args.recovery_target != "collector" or args.force_recovery_reason == "state-uninitialized"):
@@ -528,6 +571,19 @@ def main(argv: list[str] | None = None) -> int:
     now = _parse_timestamp(args.now) if args.now else datetime.now(timezone.utc)
     if now is None:
         parser.error("--now must be a timezone-aware ISO-8601 timestamp")
+    if args.recovery_target == DOCKER_BUILDS_TARGET:
+        try:
+            runs = load_workflow_runs(args.workflow_runs, now=now)
+        except (OSError, ValueError) as exc:
+            parser.error(str(exc))
+        decision = docker_builds_decision(args.docker_builds_due == "true", runs, now=now)
+        print(
+            "Docker Build Monitor "
+            f"{'dispatch required' if decision.required else 'not dispatched'}: {decision.reason}"
+        )
+        if args.github_output:
+            _append_github_output(args.github_output, decision)
+        return 0
     try:
         observation = load_publication_observation(
             args.status,

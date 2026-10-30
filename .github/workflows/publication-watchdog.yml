@@ -16,6 +16,7 @@ on:
       - Deploy to GitHub Pages
       - Queue Lifecycle Monitor (2h)
       - DNS Health Monitor
+      - Docker Build Monitor (2h)
       - Site Health Check
     types: [completed]
     branches: [main]
@@ -780,3 +781,43 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
             --input -
+
+      # The hosted clock does not tick Docker Build Monitor, so the watchdog
+      # starts it whenever its attempt ledger would admit a run. The ledger
+      # still gates every run it starts.
+      - name: Plan due Docker Build Monitor run
+        id: docker-builds-plan
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          OUTPUTS="$RUNNER_TEMP/docker-builds-attempt-observation.outputs"
+          : > "$OUTPUTS"
+          python scripts/vllm/request_bearing_attempt_budget.py \
+            --config config/docker_builds_attempt_budget.json observe \
+            --github-output "$OUTPUTS"
+          DOCKER_BUILDS_DUE=$(awk -F= '$1 == "required" {print $2}' "$OUTPUTS")
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/docker-builds.yml/runs?branch=main&per_page=100" \
+            --jq '{workflow_runs: [.workflow_runs[] | {id, head_branch, head_sha, status, created_at, run_started_at, updated_at, conclusion, display_title}]}' \
+            > "$RUNNER_TEMP/docker-builds-runs.json"
+          python scripts/vllm/plan_publication_watchdog.py \
+            --recovery-target docker-builds \
+            --docker-builds-due "$DOCKER_BUILDS_DUE" \
+            --workflow-runs "$RUNNER_TEMP/docker-builds-runs.json" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Dispatch due Docker Build Monitor
+        if: >-
+          !cancelled() &&
+          steps.docker-builds-plan.outputs.required == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/docker-builds.yml/dispatches" \
+            -f ref=main

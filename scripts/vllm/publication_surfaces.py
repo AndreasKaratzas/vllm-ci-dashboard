@@ -623,6 +623,11 @@ MANIFEST_SOURCE_SURFACES = {
 }
 UNAVAILABLE_SOURCE_REASON = "publication_surface_unavailable"
 
+# Warning codes that publish their surface as pending: not yet collected, but
+# progressing within its bound, so it neither degrades nor blocks.
+DOCKER_BUILDS_PENDING_CODE = "docker-builds-bootstrap-pending"
+PENDING_FINDING_CODES = frozenset({DOCKER_BUILDS_PENDING_CODE})
+
 # Public names of publication surfaces, for publication_status and the
 # manifest's unavailable rows. "ci" names the schema-v1 monolithic surface.
 PUBLICATION_SURFACE_LABELS = {
