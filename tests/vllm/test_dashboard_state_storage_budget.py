@@ -22,7 +22,7 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
 
     assert budget.allocated_bytes + budget.required_headroom_bytes <= budget.max_tree_bytes
     assert budget.required_headroom_bytes >= 16 * 1024 * 1024
-    assert budget.allocated_bytes == 230 * 1024 * 1024 + 256 * 1024
+    assert budget.allocated_bytes == 234 * 1024 * 1024 + 256 * 1024
 
     groups = budget.groups
     writers = budget.writer_limits
@@ -121,7 +121,7 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
         - sum(writers[name].max_bytes for name in operational_misc_writers)
         >= 3 * 1024
     )
-    assert budget.unmanaged_max_bytes == 22 * 1024 * 1024
+    assert budget.unmanaged_max_bytes == 26 * 1024 * 1024
     assert budget.max_files == 10_000
 
 
