@@ -16,10 +16,11 @@
     "main_ci": {
       "wrapper": "main_ci",
       "surfaces": ["ci", "ci_analytics"],
-      "freshness": {"path": "generated_at", "max_age_minutes": 180},
+      "freshness": {"path": "source_generated_at", "max_age_minutes": 180},
       "retention": ["publication_retention", "operations_publication_retention"],
       "required": [
         "generated_at",
+        "source_generated_at",
         "thresholds.window_days",
         "incidents.available",
         "incidents.active",
@@ -88,7 +89,7 @@
     "test_group_parity": {
       "wrapper": "test_group_parity",
       "surfaces": ["ci", "ci_core"],
-      "freshness": {"path": "generated_at", "max_age_minutes": 360},
+      "freshness": {"path": "generated_at", "max_age_minutes": 180},
       "retention": ["operations_publication_retention"],
       "required": [
         "generated_at",

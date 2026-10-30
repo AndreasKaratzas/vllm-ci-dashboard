@@ -365,6 +365,7 @@ def _bootstrap(attempts, runs, *, branch=False):
         data_branch_exists=branch,
         attempts=attempts,
         max_attempts=16,
+        retry_interval_minutes=30,
         fetch_run=lambda run_id, _attempt: runs[run_id],
         now=NOW,
     )["state"]
@@ -395,6 +396,14 @@ def test_bootstrap_escalates_once_unpublished_attempts_reach_the_budget():
     runs = {str(run_id): {"status": "completed", "conclusion": "success"} for run_id in range(1, 17)}
     assert _bootstrap(attempts[:15], runs) == "pending"
     assert _bootstrap(attempts, runs) == "over-budget"
+
+
+def test_bootstrap_stays_over_budget_after_its_oldest_attempts_leave_the_window():
+    """The 25 h ledger drops old rows; a bootstrap retrying past 8 h must not read as pending again."""
+    runs = {str(run_id): {"status": "completed", "conclusion": "success"} for run_id in range(1, 17)}
+    assert _bootstrap([_attempt(1, 30), _attempt(2, 479)], runs) == "pending"
+    assert _bootstrap([_attempt(1, 30), _attempt(2, 480)], runs) == "over-budget"
+    assert _bootstrap([_attempt(run_id, 90 * run_id) for run_id in range(1, 16)], runs) == "over-budget"
 
 
 def test_bootstrap_ends_once_the_data_branch_exists():

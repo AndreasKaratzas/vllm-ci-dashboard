@@ -784,10 +784,12 @@ jobs:
 
       # The hosted clock does not tick Docker Build Monitor, so the watchdog
       # starts it whenever its attempt ledger would admit a run. The ledger
-      # still gates every run it starts.
+      # still gates every run it starts. This is cadence, not publication
+      # recovery, so a failure warns instead of failing the job.
       - name: Plan due Docker Build Monitor run
         id: docker-builds-plan
         if: ${{ !cancelled() }}
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -813,6 +815,7 @@ jobs:
         if: >-
           !cancelled() &&
           steps.docker-builds-plan.outputs.required == 'true'
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

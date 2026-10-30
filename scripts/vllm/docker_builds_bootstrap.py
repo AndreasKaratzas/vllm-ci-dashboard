@@ -3,8 +3,12 @@
 
 Until ``docker-builds-data`` exists, the public file is the not-collected seed.
 The seed is pending rather than degraded while the latest completed
-request-bearing run saved resumable progress and the unpublished attempts stay
-below the attempt ledger's budget. Any other bootstrap state stays degraded.
+request-bearing run saved resumable progress and the bootstrap stays within the
+attempt ledger's budget: fewer unpublished attempts than the cap, none reserved
+longer ago than the cap at the fastest retry cadence. The ledger keeps rows for
+25 hours, so a bootstrap that keeps retrying past that age stays over budget
+instead of dropping back to pending as old rows expire. Any other bootstrap
+state stays degraded.
 """
 
 from __future__ import annotations
@@ -55,6 +59,7 @@ def classify(
     data_branch_exists: bool,
     attempts: Iterable[Mapping[str, Any]],
     max_attempts: int,
+    retry_interval_minutes: int,
     fetch_run: RunFetcher,
     now: datetime,
 ) -> dict[str, Any]:
@@ -72,7 +77,10 @@ def classify(
     if data_branch_exists:
         evidence["state"] = "collected"
         return evidence
-    if len(unpublished) >= max_attempts:
+    budget_start = now - timedelta(minutes=max_attempts * retry_interval_minutes)
+    if len(unpublished) >= max_attempts or any(
+        (_parse(row.get("reserved_at")) or budget_start) <= budget_start for row in unpublished
+    ):
         evidence["state"] = "over-budget"
         return evidence
     runtime = sorted(
@@ -188,6 +196,7 @@ def observe(
         data_branch_exists=exists,
         attempts=attempts,
         max_attempts=policy.max_request_bearing_attempts,
+        retry_interval_minutes=policy.failed_retry_interval_minutes,
         fetch_run=fetch_run,
         now=now,
     )

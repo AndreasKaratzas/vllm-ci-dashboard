@@ -344,8 +344,10 @@ yet collected but progressing within their bound, and each surface's
 unchanged and Site Health accepts a status without these three fields. The
 docker builds seed is pending, not degraded, while `docker_builds_bootstrap.py`
 shows no `docker-builds-data` branch, a latest completed run that saved
-resumable progress, and fewer unpublished attempts than the ledger's 16 per 25
-hours; any other bootstrap state stays degraded. Repeated runs of the same
+resumable progress, fewer unpublished attempts than the ledger's 16 per 25
+hours, and no unpublished attempt older than 16 retries at the 30-minute
+cadence (8 hours), so a bootstrap that never finishes stays degraded as its
+oldest rows leave the window; any other bootstrap state stays degraded. Repeated runs of the same
 incident do not post duplicate comments. Collector failures carry a bounded typed reason into
 the incident fingerprint; a first transient network/HTTP failure uses the
 validated baseline without opening a ticket, while deterministic failures and

@@ -621,6 +621,18 @@ def test_cli_docker_target_requires_its_ledger_decision_and_no_status(tmp_path) 
         watchdog.main([*base, "--docker-builds-due", "true", "--status", str(runs_path)])
 
 
+def test_docker_build_monitor_cadence_cannot_fail_the_recovery_job() -> None:
+    """Site Health reads a red watchdog as a recovery failure; docker cadence is not recovery."""
+    root = Path(__file__).resolve().parents[2]
+    workflow = yaml.safe_load((root / ".github/workflows/publication-watchdog.yml").read_text())
+    steps = [
+        step for step in workflow["jobs"]["recover"]["steps"]
+        if "docker-builds.yml" in step.get("run", "")
+    ]
+    assert len(steps) == 2
+    assert all(step.get("continue-on-error") is True for step in steps)
+
+
 def test_forced_target_reuses_active_and_cooldown_suppression(tmp_path) -> None:
     status_path = tmp_path / "status.json"
     runs_path = tmp_path / "runs.json"
