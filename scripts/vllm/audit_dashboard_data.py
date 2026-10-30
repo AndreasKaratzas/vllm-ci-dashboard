@@ -55,6 +55,8 @@ from vllm.publication_surfaces import (  # noqa: E402
     PRE_QUEUE_SPLIT_SURFACE_SPEC,
     PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION,
     PRE_RUNTIME_PARITY_SURFACE_SPECS,
+    PRE_TICKETING_RETIREMENT_SURFACE_CONTRACT_VERSION,
+    PRE_TICKETING_RETIREMENT_SURFACE_SPECS,
     PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION,
     PRE_VIEW_RETIREMENT_SURFACE_SPECS,
     RETIRED_SURFACES,
@@ -631,13 +633,6 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         ("web/src/data/sources.ts",),
         ("schema_version", "generated_at", "window", "coverage", "dims", "jobs"),
         "Observed ROCm docker build jobs on Buildkite main and PR builds",
-    ),
-    DataSpec(
-        "data/vllm/ci/ownership_config_parity.json",
-        ("scripts/vllm/collect_ownership_parity.py",),
-        ("scripts/vllm/ci_area_regression_watcher.py",),
-        ("generated_at", "source", "summary", "matches", "amd_only", "nvidia_only"),
-        "Ownership attribution pinned to the exact latest AMD nightly commit",
     ),
     DataSpec(
         "data/vllm/ci/analytics.json",
@@ -1446,6 +1441,7 @@ class DashboardAudit:
                     PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION,
                     PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION,
                     PRE_PARITY_OVERRIDES_SURFACE_CONTRACT_VERSION,
+                    PRE_TICKETING_RETIREMENT_SURFACE_CONTRACT_VERSION,
                     SURFACE_CONTRACT_VERSION,
                 )
             ):
@@ -1475,6 +1471,8 @@ class DashboardAudit:
                 if _uses_declared_publication_domain() and surface_contract_version == PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION
                 else PRE_PARITY_OVERRIDES_SURFACE_SPECS
                 if _uses_declared_publication_domain() and surface_contract_version == PRE_PARITY_OVERRIDES_SURFACE_CONTRACT_VERSION
+                else PRE_TICKETING_RETIREMENT_SURFACE_SPECS
+                if _uses_declared_publication_domain() and surface_contract_version == PRE_TICKETING_RETIREMENT_SURFACE_CONTRACT_VERSION
                 else SURFACE_SPECS
                 if _uses_declared_publication_domain() and surface_contract_version == SURFACE_CONTRACT_VERSION
                 else _historical_publication_specs()
@@ -4818,11 +4816,11 @@ class DashboardAudit:
 
         expected = {
             "nightly", "amd_test_health", "amd_agent_health", "comparison",
-            "reliability", "definition_parity", "test_group_parity", "ownership",
+            "reliability", "definition_parity", "test_group_parity",
             "queue", "omni", "diagnostics",
         }
         sections = _mapping(manifest.get("sections"))
-        retired_sections = {"gating", "trajectory", "comparison_retry_evidence"} & set(sections)
+        retired_sections = {"gating", "trajectory", "comparison_retry_evidence", "ownership"} & set(sections)
         if retired_sections:
             self.error("operations-bundle-retired-sections", f"Operations manifest publishes retired sections: {sorted(retired_sections)}", relpath)
         missing = expected - set(sections)
@@ -10493,7 +10491,6 @@ class DashboardAudit:
             "name: Save resumable CI backfill checkpoint",
             "name: Collect AMD test matrix",
             "name: Refresh current main CI parity",
-            "name: Collect build-pinned CI ownership parity",
             "name: Validate current CI core before analytics",
             "name: Collect CI analytics",
             "name: Save private analytics build cache",

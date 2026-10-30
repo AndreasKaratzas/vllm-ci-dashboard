@@ -22,7 +22,7 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
 
     assert budget.allocated_bytes + budget.required_headroom_bytes <= budget.max_tree_bytes
     assert budget.required_headroom_bytes >= 16 * 1024 * 1024
-    assert budget.allocated_bytes == 235 * 1024 * 1024 + 256 * 1024
+    assert budget.allocated_bytes == 234 * 1024 * 1024 + 256 * 1024
 
     groups = budget.groups
     writers = budget.writer_limits
@@ -77,7 +77,6 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
         writers["operations_manifest"].max_bytes
         + writers["org_summary"].max_bytes
         + writers["capacity_monitor"].max_bytes
-        + writers["ci_ownership"].max_bytes
         == groups["operations_control"].max_bytes
     )
     watcher_state_writers = (
@@ -176,12 +175,10 @@ def test_runtime_writer_caps_match_the_shared_allocation() -> None:
     from vllm import (
         build_test_group_parity,
         build_operations_snapshot,
-        ci_area_regression_watcher,
         collect_agent_health,
         collect_amd_test_matrix,
         collect_analytics,
         collect_capacity_monitor,
-        collect_ownership_parity,
         collect_queue_lifecycle,
         collect_queue_snapshot,
         collect_workload_mapping,
@@ -242,7 +239,7 @@ def test_runtime_writer_caps_match_the_shared_allocation() -> None:
         == writers["amd_test_matrix"].max_bytes
     )
     assert (
-        collect_ownership_parity.OWNERSHIP_CONFIG_PARITY_MAX_BYTES * 2
+        collect_ci.CONFIG_PARITY_MAX_BYTES * 2
         == writers["config_parity_pair"].max_bytes
     )
     assert (
@@ -263,10 +260,6 @@ def test_runtime_writer_caps_match_the_shared_allocation() -> None:
     assert (
         collect_capacity_monitor.CAPACITY_MONITOR_MAX_BYTES
         == writers["capacity_monitor"].max_bytes
-    )
-    assert (
-        ci_area_regression_watcher.CI_OWNERSHIP_MAX_BYTES
-        == writers["ci_ownership"].max_bytes
     )
     assert (
         collect_ci.PROJECT_TEST_RESULTS_MAX_BYTES

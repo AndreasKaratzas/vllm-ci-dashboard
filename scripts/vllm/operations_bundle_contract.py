@@ -35,7 +35,11 @@ OPERATIONS_V3_SECTION_NAMES = tuple(
 )
 # Version 4 adds the compact all-main-builds section.
 OPERATIONS_V4_SECTION_NAMES = (*OPERATIONS_V3_SECTION_NAMES, "main_ci")
-OPERATIONS_SECTION_NAMES = OPERATIONS_V4_SECTION_NAMES
+# Version 5 retires the owner-routing section.
+OPERATIONS_V5_SECTION_NAMES = tuple(
+    name for name in OPERATIONS_V4_SECTION_NAMES if name != "ownership"
+)
+OPERATIONS_SECTION_NAMES = OPERATIONS_V5_SECTION_NAMES
 
 # Reliability is a separately bounded 64 MiB drill-down payload. The synthetic
 # monitor streams it through SHA-256 verification without retaining the body in
@@ -44,14 +48,14 @@ OPERATIONS_STREAMED_LARGE_SECTIONS = ("reliability",)
 # Compatibility spelling used by health/audit tests and downstream consumers.
 OPERATIONS_UNFETCHED_LARGE_SECTIONS = frozenset(OPERATIONS_STREAMED_LARGE_SECTIONS)
 OPERATIONS_STREAMED_FILE_MAX_BYTES = 64 * 1024 * 1024
-OPERATIONS_BUNDLE_VERSION = 4
+OPERATIONS_BUNDLE_VERSION = 5
 OPERATIONS_LEGACY_BUNDLE_VERSION = 1
 # Producer activation is intentionally separate from reader support. Bundle
 # upgrades ship in two phases: readers first, then this single writer selector
 # after every prior-version health/watchdog run has drained.
 OPERATIONS_PRODUCER_BUNDLE_VERSION = OPERATIONS_BUNDLE_VERSION
 OPERATIONS_SUPPORTED_BUNDLE_VERSIONS = frozenset(
-    (OPERATIONS_LEGACY_BUNDLE_VERSION, 2, 3, OPERATIONS_BUNDLE_VERSION)
+    (OPERATIONS_LEGACY_BUNDLE_VERSION, 2, 3, 4, OPERATIONS_BUNDLE_VERSION)
 )
 OPERATIONS_CANARY_SECTIONS = tuple(
     name
@@ -92,10 +96,14 @@ OPERATIONS_V3_CANARY_SECTION_MAX_BYTES = {
 OPERATIONS_V3_CANARY_SECTION_MAX_BYTES["comparison"] = 7 * 1024 * 1024
 # Version 4 funds main_ci from comparison, whose published shard stays below
 # 1 MiB, so the additive allocations still fit the 32 MiB envelope.
-OPERATIONS_CANARY_SECTION_MAX_BYTES = {
+OPERATIONS_V4_CANARY_SECTION_MAX_BYTES = {
     **OPERATIONS_V3_CANARY_SECTION_MAX_BYTES,
     "comparison": 6 * 1024 * 1024,
     "main_ci": 1536 * 1024,
+}
+OPERATIONS_CANARY_SECTION_MAX_BYTES = {
+    name: size for name, size in OPERATIONS_V4_CANARY_SECTION_MAX_BYTES.items()
+    if name in OPERATIONS_V5_SECTION_NAMES
 }
 
 # Version 1 predates the exact additive per-section allocations above. Its
@@ -121,6 +129,7 @@ def operations_section_names_for_bundle_version(bundle_version: object) -> tuple
             "Operations bundle declares an unsupported bundle version"
         )
     return {
+        5: OPERATIONS_V5_SECTION_NAMES,
         4: OPERATIONS_V4_SECTION_NAMES,
         3: OPERATIONS_V3_SECTION_NAMES,
     }.get(bundle_version, OPERATIONS_V2_SECTION_NAMES)
@@ -201,12 +210,16 @@ def validate_operations_canary_budget_for_bundle_version(
             manifest_bytes=manifest_bytes,
             section_bytes=section_bytes,
         )
-    if bundle_version == 3:
+    if bundle_version in (3, 4):
         return _validate_additive_budget(
             manifest_bytes=manifest_bytes,
             section_bytes=section_bytes,
             section_names=section_names,
-            section_limits=OPERATIONS_V3_CANARY_SECTION_MAX_BYTES,
+            section_limits=(
+                OPERATIONS_V3_CANARY_SECTION_MAX_BYTES
+                if bundle_version == 3
+                else OPERATIONS_V4_CANARY_SECTION_MAX_BYTES
+            ),
         )
 
     if type(manifest_bytes) is not int or not 0 < manifest_bytes <= (

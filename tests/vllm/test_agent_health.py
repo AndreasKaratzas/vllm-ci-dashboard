@@ -379,31 +379,6 @@ def test_attribution_blames_the_build_when_both_sides_fail_broadly():
     assert _attributed(retried) == {"t1": ("node", "medium", "node_repeats"), "t2": ("node", "medium", "node_repeats")}
 
 
-def test_cuda_evidence_hands_each_nightly_its_mirrored_amd_jobs_and_build_wide_rule():
-    cuda = dict(_job("c-pool", ":nvidia: (H200) Pooling Shard 3/3", "failed", "h200_35gb", "h200-1",
-                     "2026-07-14T09:00:00Z", "2026-07-14T09:05:00Z"), step_key="pooling")
-    shared = _context((0, 40), (1, 39), cuda_jobs=[cuda])
-
-    def amd(job, test, state, build, context, key="amd-pooling", nightly=True):
-        row = _attempt(job, "n", f":amd: (MI355) {test}", build, state, 1)
-        return dict(row, step_key=key, upstream=context, nightly=nightly)
-
-    # Shards are not matched: any job of the mirrored step carries the evidence.
-    assert ah._cuda_evidence([
-        amd("a1", "Pooling Shard 1/2", "failed", 1, shared),
-        amd("a2", "Pooling Shard 2/2", "passed", 1, shared),
-        amd("a3", "Other", "failed", 1, shared, key="amd-other"),
-        amd("a4", "Pooling Extended", "failed", 1, shared),
-        amd("b1", "Pooling", "failed", 2, _context((56, 5), (54, 9))),
-        amd("c1", "Pooling", "failed", 3, shared, nightly=False),
-    ]) == {
-        "1": {"jobs": 41, "failed": 1, "amd_jobs": 40, "amd_failed": 1, "build_wide": False,
-              "mirror_failed_jobs": {"a1": "pooling", "a2": "pooling"}},
-        "2": {"jobs": 61, "failed": 56, "amd_jobs": 63, "amd_failed": 54, "build_wide": True,
-              "mirror_failed_jobs": {}},
-    }
-
-
 def test_attribution_keeps_a_black_hole_node_when_cuda_fails_too():
     # Most CUDA and AMD jobs failed, and so did the CUDA mirror of every step the node ran.
     broken = ah._upstream_context({**_build(), "jobs": [
@@ -937,16 +912,6 @@ def test_default_agent_health_fresh_proof_covers_seven_day_display(monkeypatch, 
     assert scope["collected_from"] == "2026-07-07T00:00:00Z"
     assert scope["collected_to"] == "2026-07-14T12:00:00Z"
     assert not scope["complete_window"]
-
-
-def test_collection_hands_cuda_evidence_to_the_area_watcher(monkeypatch, tmp_path):
-    def fetch(slug, days, *, query_time):
-        row = _attempt("n1", "n", ":amd: (MI300) Pooling", 7, "failed", 1)
-        return [dict(row, nightly=True, step_key="amd-pooling", upstream=_context((56, 5), (54, 9)))]
-
-    _run_scoped_collection(monkeypatch, tmp_path, fetch_fn=fetch)
-    handoff = json.loads((tmp_path / ".cache" / ah.CUDA_EVIDENCE_JSON).read_text())
-    assert handoff["builds"]["7"]["build_wide"] is True
 
 
 def test_created_cohort_uses_parent_day_and_proves_only_its_complete_finite_source(

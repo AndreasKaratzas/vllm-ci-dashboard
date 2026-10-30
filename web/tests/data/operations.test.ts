@@ -36,7 +36,7 @@ describe('loadOperations', () => {
 
   it('fails clearly for a section the manifest does not list', async () => {
     publish(server, { generatedAt: G1, sources: SOURCES })
-    await expect(operations.loadOperations(['ownership'])).rejects.toThrow('Operations section "ownership" is missing from the manifest')
+    await expect(operations.loadOperations(['diagnostics'])).rejects.toThrow('Operations section "diagnostics" is missing from the manifest')
   })
 
   it('prefers the newer of the live and published queue sections', async () => {

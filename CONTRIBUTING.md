@@ -11,8 +11,8 @@ and the Vue frontend.
 - `web/`: the Vue 3 frontend. `npm run build` writes `docs/index.html` and
   `docs/v2/`, which are committed (see `web/README.md`).
 - `docs/`: static site shell, including the classic renderer.
-- `config/`: CI ownership, parity policy, request and storage budgets, and
-  tracked projects.
+- `config/`: parity policy, request and storage budgets, and tracked
+  projects.
 - `tests/`: pytest suites; `tests/browser/` holds the Playwright suite.
 - `.github/workflows/`: CI, the hourly publication lane, and the monitors.
 

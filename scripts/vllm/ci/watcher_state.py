@@ -1,9 +1,10 @@
-"""Bounded, atomic persistence for the dashboard's issue-watcher ledgers.
+"""Bounded, atomic persistence for the dashboard's watcher ledgers.
 
 The active ledgers are independently updated by different workflows. Giving
 each one a fixed envelope is what makes their aggregate 3.25-MiB allocation a
 real invariant rather than a best-effort final publication check.  Compaction
-never removes an open issue mapping or a confirmed/pending incident identity.
+never removes a confirmed/pending incident identity. Retired ledgers keep their
+envelope so historical state stays readable.
 """
 
 from __future__ import annotations
@@ -24,16 +25,16 @@ RETENTION_KEY = "publication_retention"
 
 WATCHER_STATE_WRITERS = {
     "open_ci_main_failure_issues.json": "ci_main_failure_watcher_state",
-    "open_ci_area_regression_issues.json": "ci_area_regression_watcher_state",
     "open_amd_duration_regression_issues.json": "amd_duration_regression_watcher_state",
+}
+LEGACY_WATCHER_STATE_WRITERS = {
+    "open_amd_main_failure_issues.json": "amd_main_failure_watcher_state",
+    "open_ci_area_regression_issues.json": "ci_area_regression_watcher_state",
     "open_agent_health_issues.json": "agent_health_watcher_state",
     "open_omni_surge_issues.json": "omni_surge_watcher_state",
     "open_queue_issues.json": "queue_issue_watcher_state",
     "open_queue_zombie_issues.json": "queue_zombie_watcher_state",
     "open_ci_flakiness_issues.json": "ci_flakiness_watcher_state",
-}
-LEGACY_WATCHER_STATE_WRITERS = {
-    "open_amd_main_failure_issues.json": "amd_main_failure_watcher_state",
 }
 _ALL_WATCHER_STATE_WRITERS = {**WATCHER_STATE_WRITERS, **LEGACY_WATCHER_STATE_WRITERS}
 
@@ -53,6 +54,47 @@ def watcher_state_max_bytes(path: Path | str) -> int:
 
 def watcher_state_allocated_bytes() -> int:
     return sum(writer_max_bytes(name) for name in _ALL_WATCHER_STATE_WRITERS.values())
+
+
+def normalize_ledger_state(state: Any) -> dict:
+    data = dict(state) if isinstance(state, dict) else {}
+    suppressed = bool(data.get("suppressed"))
+    last_fingerprint = str(data.get("last_fingerprint") or "")
+    last_content_fingerprint = (
+        str(data.get("last_content_fingerprint") or "")
+        if "last_content_fingerprint" in data
+        else last_fingerprint
+    )
+    suppressed_fingerprint = str(data.get("suppressed_fingerprint") or "")
+    if suppressed and not suppressed_fingerprint:
+        # Backward-compatible recovery for states written before the dedicated
+        # suppression fingerprint was introduced.
+        suppressed_fingerprint = last_fingerprint
+    issue = data.get("issue")
+    if isinstance(issue, int) and not isinstance(issue, bool):
+        issue = {"number": issue, "opened_at": ""}
+    elif isinstance(issue, dict):
+        number = issue.get("number")
+        issue = {
+            "number": int(number)
+            if isinstance(number, int) and not isinstance(number, bool)
+            else 0,
+            "opened_at": str(issue.get("opened_at") or ""),
+        }
+        if issue["number"] <= 0:
+            issue = None
+    else:
+        issue = None
+    return {
+        **data,
+        "schema_version": 1,
+        "issue": issue,
+        "suppressed": suppressed,
+        "suppressed_fingerprint": suppressed_fingerprint,
+        "last_fingerprint": last_fingerprint,
+        "last_content_fingerprint": last_content_fingerprint,
+        "last_run": str(data.get("last_run") or ""),
+    }
 
 
 def _encoded(value: dict) -> bytes:

@@ -20,41 +20,6 @@ from vllm.ci.reliability_history import build_all_main_reliability
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG = pulse.load_config()
-REPO = "andreaskaratzas/vllm-ci-dashboard"
-
-
-class FakeIssueClient:
-    def __init__(self):
-        self.next_number = 700
-        self.states = {}
-        self.opened, self.updated, self.closed = [], [], []
-
-    def issue_state(self, number, ownership_marker):
-        return self.states.get(number, "open")
-
-    def find_open_issues(self, ownership_marker):
-        return sorted(number for number, state in self.states.items() if state == "open")
-
-    def open_issue(self, title, body, label_specs):
-        self.next_number += 1
-        self.states[self.next_number] = "open"
-        self.opened.append((self.next_number, title, body))
-        return self.next_number
-
-    def update_issue(self, number, title, body):
-        self.updated.append((number, title, body))
-        return True
-
-    def ensure_owner_assigned(self, number):
-        return True
-
-    def comment_issue(self, number, body):
-        return True
-
-    def close_issue(self, number):
-        self.states[number] = "closed"
-        self.closed.append(number)
-        return True
 
 
 def _ts(value: datetime) -> str:
@@ -126,13 +91,11 @@ def _authority(builds, now):
     return json.loads(json.dumps(state))
 
 
-def _step(authority, overlay, builds, now, client, *, since=None, exhaustive=True, before_issue_mutation=None):
+def _step(authority, overlay, builds, now, *, since=None, exhaustive=True):
     return pulse.pulse_step(
         CONFIG, authority, overlay, builds,
         {"filter": "finished_from", "pages_fetched": 1, "termination_reason": "short_page", "exhaustive": exhaustive},
         since=since or pulse.fetch_window(CONFIG, overlay, now), fetched_at=now,
-        client=client, repo=REPO, run_url="https://github.com/x/actions/runs/1",
-        before_issue_mutation=before_issue_mutation,
     )
 
 
@@ -178,38 +141,34 @@ def test_reservation_is_interval_gated_and_capacity_capped(now):
     assert expired["request_mode"] == "reserved" and expired["rolling_reserved_starts"] == 5
 
 
-def test_new_hard_failure_opens_the_issue_in_the_pulse_run(now):
+def test_new_hard_failure_is_detected_without_a_github_token(monkeypatch, now):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     authority = _authority(_history(now), now - timedelta(hours=1))
-    client = FakeIssueClient()
 
-    overlay, summary = _step(authority, None, [_failing(now)], now, client)
+    overlay, summary = _step(authority, None, [_failing(now)], now)
 
-    assert summary["opened"] == 1 and summary["issue_action"] == "opened"
-    (number, title, body), = client.opened
-    assert title == "AMD MI main CI: confirmed test-group failures"
+    assert summary["opened"] == 1 and summary["active"] == 1
     (row,) = [row for row in overlay["groups"].values() if row["status"] == "active"]
     assert row["entry"]["bad_build_number"] == 303
+    assert row["entry"]["transition"]["status"] == "confirmed"
     # The good bound comes from the collection state's last observed pass.
     assert (row["entry"]["good_commit"], row["entry"]["commit_range_status"]) == (f"{302:040x}", "candidate")
-    assert overlay["issue"]["issue"]["number"] == number
-    assert overlay["issue_basis"] == overlay_lib.issue_basis(authority)
+    assert (overlay["issue"], overlay["issue_basis"]) == (None, "")
+    assert overlay["updated_at"] == _ts(now)
     assert [event["source"] for event in overlay["timeline"]] == ["pulse"]
-    assert client.closed == []
 
 
 def test_cursor_advances_and_a_repeated_slice_is_idempotent(now):
     authority = _authority(_history(now), now - timedelta(hours=1))
-    client = FakeIssueClient()
-    first, _ = _step(authority, None, [_failing(now)], now, client)
+    first, _ = _step(authority, None, [_failing(now)], now)
     assert first["cursor"] == _ts(now - timedelta(minutes=CONFIG.cursor_overlap_minutes))
     assert pulse.fetch_window(CONFIG, first, now + timedelta(minutes=10)) == now - timedelta(minutes=10)
 
     later = now + timedelta(minutes=10)
-    second, summary = _step(authority, first, [_failing(now)], later, client)
+    second, summary = _step(authority, first, [_failing(now)], later)
 
-    assert (summary["new_builds"], summary["opened"], summary["issue_action"]) == (0, 0, "none")
-    assert len(client.opened) == 1 and client.updated == []
-    assert second["groups"] == first["groups"] and second["issue"] == first["issue"]
+    assert (summary["new_builds"], summary["opened"]) == (0, 0)
+    assert second["groups"] == first["groups"]
     assert second["cursor"] == _ts(later - timedelta(minutes=10))
     # A stale cursor is clamped to the lookback; the collection covers older builds.
     stale = {**second, "cursor": _ts(now - timedelta(days=2))}
@@ -217,34 +176,31 @@ def test_cursor_advances_and_a_repeated_slice_is_idempotent(now):
 
     # A truncated page keeps its older, unseen builds in the next window.
     since = now - timedelta(minutes=40)
-    truncated, summary = _step(authority, second, [_failing(now)], later, client, since=since, exhaustive=False)
+    truncated, summary = _step(authority, second, [_failing(now)], later, since=since, exhaustive=False)
     assert summary["exhaustive"] is False and truncated["cursor"] == _ts(since)
 
 
 def test_retried_and_passed_job_does_not_open_an_incident(now):
     authority = _authority(_history(now), now - timedelta(hours=1))
-    client = FakeIssueClient()
 
-    overlay, summary = _step(authority, None, [_failing(now, retried_pass=True)], now, client)
+    overlay, summary = _step(authority, None, [_failing(now, retried_pass=True)], now)
 
-    assert summary["opened"] == 0 and client.opened == []
+    assert summary["opened"] == 0
     assert {row["status"] for row in overlay["groups"].values()} == {"clear"}
 
 
-def test_pulse_never_closes_and_soft_failures_wait_for_confirmation(now):
+def test_soft_failures_wait_for_confirmation(now):
     authority = _authority(_history(now), now - timedelta(hours=1))
-    client = FakeIssueClient()
-    opened, _ = _step(authority, None, [_failing(now, minutes=20)], now, client)
+    opened, _ = _step(authority, None, [_failing(now, minutes=20)], now)
     passing = _build(304, now - timedelta(minutes=35), [
         _job("k304", "Kernels", "passed", now - timedelta(minutes=35)),
         _job("e304", "Entrypoints", "soft_fail", now - timedelta(minutes=35)),
     ])
     passing["finished_at"] = _ts(now - timedelta(minutes=5))
 
-    resolved, summary = _step(authority, opened, [passing], now + timedelta(minutes=10), client)
+    resolved, summary = _step(authority, opened, [passing], now + timedelta(minutes=10))
 
     assert summary["resolved"] == 1 and summary["active"] == 0 and summary["pending_soft"] == 1
-    assert client.closed == [] and len(client.opened) == 1
     statuses = {row["entry"]["name"] if row["entry"] else row["status"]: row["status"] for row in resolved["groups"].values()}
     assert "pending_soft" in statuses.values() and "active" not in statuses.values()
 
@@ -256,13 +212,10 @@ def _write_analytics(path, reliability):
 STATE_SHA = "a" * 40
 
 
-def _collection_env(monkeypatch, tmp_path, client, overlay, *, head=STATE_SHA):
+def _collection_env(monkeypatch, tmp_path, overlay):
     """Collection watcher inputs; ``overlay=False`` models a failed export."""
-    monkeypatch.setenv("GITHUB_TOKEN", "offline-test")
-    monkeypatch.setenv("GITHUB_REPOSITORY", REPO)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.setattr(amd, "ANALYTICS", tmp_path / "analytics.json")
-    monkeypatch.setattr(amd, "GitHubIssueClient", lambda *_args: client)
-    monkeypatch.setattr(overlay_lib, "state_head", lambda *_args: head)
     export_path = tmp_path / "main-pulse-state.json"
     export_path.unlink(missing_ok=True)
     if overlay is not False:
@@ -276,11 +229,9 @@ def _collection_env(monkeypatch, tmp_path, client, overlay, *, head=STATE_SHA):
 def test_later_full_collection_agrees_with_the_pulse(monkeypatch, tmp_path, now):
     history = _history(now)
     authority = _authority(history, now - timedelta(hours=1))
-    client = FakeIssueClient()
-    overlay, _ = _step(authority, None, [_failing(now)], now, client)
+    overlay, _ = _step(authority, None, [_failing(now)], now)
     (pulse_group,) = [gid for gid, row in overlay["groups"].items() if row["status"] == "active"]
-    (number, _title, _body), = client.opened
-    config = _collection_env(monkeypatch, tmp_path, client, overlay)
+    config = _collection_env(monkeypatch, tmp_path, overlay)
 
     # A collection whose cohort predates the pulse build keeps the incident open.
     config.state.write_text(json.dumps(authority))
@@ -288,15 +239,13 @@ def test_later_full_collection_agrees_with_the_pulse(monkeypatch, tmp_path, now)
     assert amd.run_watcher(config) == 0
     stale_collection = json.loads(config.state.read_text())
     assert set(stale_collection["active"]) == {pulse_group}
-    assert stale_collection["issue"]["number"] == number and client.closed == []
+    assert stale_collection["last_run"] == _ts(now) and stale_collection["issue"] is None
 
     # The next cohort contains the same build and confirms the same incident.
     config.state.write_text(json.dumps(authority))
     _write_analytics(tmp_path / "analytics.json", _reliability(history + [_failing(now)], now))
     assert amd.run_watcher(config) == 0
     collection = json.loads(config.state.read_text())
-    assert len(client.opened) == 1 and client.closed == []
-    assert collection["issue"]["number"] == number
     (incident,) = collection["active"].values()
     pulse_entry = overlay["groups"][pulse_group]["entry"]
     for key in ("transition", "good_commit", "bad_commit", "bad_build_number", "commit_range_status"):
@@ -304,20 +253,15 @@ def test_later_full_collection_agrees_with_the_pulse(monkeypatch, tmp_path, now)
     assert [(row["event"], row["build_number"]) for row in collection["timeline"]] == [("opened", 303)]
 
     # Once collection state catches up, the pulse carries nothing of its own.
-    caught_up, summary = _step(collection, overlay, [_failing(now)], now + timedelta(minutes=10), client)
+    caught_up, _summary = _step(collection, overlay, [_failing(now)], now + timedelta(minutes=10))
     assert caught_up["groups"] == {} and caught_up["issue"] is None
-    assert summary["issue_action"] == "none" and len(client.opened) == 1
 
 
-def test_collection_state_wins_unless_the_issue_basis_still_matches(now):
+def test_collection_state_wins_over_older_pulse_observations(now):
     authority = _authority(_history(now), now - timedelta(hours=1))
-    overlay, _ = _step(authority, None, [_failing(now)], now, FakeIssueClient())
+    overlay, _ = _step(authority, None, [_failing(now)], now)
     merged = overlay_lib.merge_overlay(authority, overlay)
-    assert merged["issue"] == overlay["issue"]["issue"] and len(merged["active"]) == 1
-
-    reconciled = {**copy.deepcopy(authority), "issue": {"number": 9, "opened_at": _ts(now)}, "last_run": _ts(now)}
-    merged = overlay_lib.merge_overlay(reconciled, overlay)
-    assert merged["issue"] == {"number": 9, "opened_at": _ts(now)}
+    assert len(merged["active"]) == 1
 
     newer = copy.deepcopy(authority)
     for group_id, row in overlay["groups"].items():
@@ -325,77 +269,17 @@ def test_collection_state_wins_unless_the_issue_basis_still_matches(now):
     assert overlay_lib.merge_overlay(newer, overlay)["active"] == {}
 
 
-@pytest.mark.parametrize("export", ["failed", "moved"])
-def test_collection_keeps_the_pulse_issue_open_without_a_current_overlay(monkeypatch, tmp_path, now, export):
+def test_collection_advances_without_a_readable_overlay(monkeypatch, tmp_path, now):
     history = _history(now)
-    authority = _authority(history, now - timedelta(hours=1))
-    client = FakeIssueClient()
-    overlay, _ = _step(authority, None, [_failing(now)], now, client)
-    (number, _title, _body), = client.opened
-    if export == "failed":
-        config = _collection_env(monkeypatch, tmp_path, client, False)
-    else:
-        # The collection exported the overlay before the pulse published it.
-        config = _collection_env(monkeypatch, tmp_path, client, None, head="b" * 40)
+    authority = {**_authority(history, now - timedelta(hours=1)), "issue": {"number": 650, "opened_at": _ts(now)}}
+    config = _collection_env(monkeypatch, tmp_path, False)
     config.state.write_text(json.dumps(authority))
     _write_analytics(tmp_path / "analytics.json", _reliability(history, now))
 
     assert amd.run_watcher(config) == 0
     collection = json.loads(config.state.read_text())
-    assert client.closed == [] and collection["active"] == {}
-    assert overlay_lib.issue_basis(collection) == overlay["issue_basis"]
-
-    _again, summary = _step(collection, overlay, [_failing(now)], now + timedelta(minutes=10), client)
-    assert summary["issue_action"] == "none" and [row[0] for row in client.opened] == [number]
-
-
-def test_collection_closes_when_the_absent_overlay_is_current(monkeypatch, tmp_path, now):
-    history = _history(now)
-    authority = {**_authority(history, now - timedelta(hours=1)), "issue": {"number": 650, "opened_at": _ts(now)}}
-    client = FakeIssueClient()
-    config = _collection_env(monkeypatch, tmp_path, client, None, head=None)
-    config.state.write_text(json.dumps(authority))
-    _write_analytics(tmp_path / "analytics.json", _reliability(history, now))
-
-    assert amd.run_watcher(config) == 0
-    assert client.closed == [650]
-
-
-def test_pulse_defers_while_the_published_state_lags_github(now):
-    authority = _authority(_history(now), now - timedelta(hours=1))
-    # The collection already opened an issue the published state does not name.
-    client = FakeIssueClient()
-    client.states[640] = "open"
-    overlay, summary = _step(authority, None, [_failing(now)], now, client)
-    assert summary["issue_action"] == "deferred" and overlay["issue"] is None
-    assert client.opened == client.updated == client.closed == []
-
-    # Once the published state names it, the pulse adds its group to that issue.
-    published = {**authority, "issue": {"number": 640, "opened_at": _ts(now)}, "last_content_fingerprint": "x" * 64}
-    later, summary = _step(published, overlay, [_failing(now)], now + timedelta(minutes=10), client)
-    assert summary["issue_action"] == "updated" and [row[0] for row in client.updated] == [640]
-    assert client.opened == [] and later["issue"]["issue"]["number"] == 640
-
-    # The collection already closed the issue the published state still names.
-    closed = FakeIssueClient()
-    closed.states[640] = "closed"
-    _overlay, summary = _step(published, None, [_failing(now)], now, closed)
-    assert summary["issue_action"] == "deferred" and closed.opened == closed.updated == []
-
-
-def test_pulse_publishes_its_observations_before_the_issue_mutation(now):
-    authority = _authority(_history(now), now - timedelta(hours=1))
-    client = FakeIssueClient()
-    published = []
-
-    def publish(value):
-        assert client.opened == []
-        published.append(value)
-
-    overlay, _ = _step(authority, None, [_failing(now)], now, client, before_issue_mutation=publish)
-    (first,) = published
-    assert first["groups"] == overlay["groups"] and first["issue"] is None
-    assert overlay["issue"]["issue"]["number"] == client.opened[0][0]
+    assert collection["last_run"] == _ts(now) and collection["hardware_scope"] == "amd_mi_gpu"
+    assert collection["issue"] is None and collection["suppressed"] is False
 
 
 def test_overlay_export_records_the_state_commit(remote_repo, tmp_path, now):
@@ -405,7 +289,7 @@ def test_overlay_export_records_the_state_commit(remote_repo, tmp_path, now):
     absent = overlay_lib.load_export_file(output)
     assert (absent["state_sha"], absent["overlay"]) == (None, None)
 
-    overlay, _ = _step(_authority(_history(now), now - timedelta(hours=1)), None, [_failing(now)], now, FakeIssueClient())
+    overlay, _ = _step(_authority(_history(now), now - timedelta(hours=1)), None, [_failing(now)], now)
     sha = pulse.publish_branch_file(
         remote_repo, "origin", CONFIG.state_branch, CONFIG.state_path, overlay_lib.encode_overlay(overlay),
         expected_sha=None, message="state", at=_ts(now),
@@ -413,7 +297,6 @@ def test_overlay_export_records_the_state_commit(remote_repo, tmp_path, now):
     assert pulse.main(args) == 0
     exported = overlay_lib.load_export_file(output)
     assert (exported["state_sha"], exported["overlay"]) == (sha, overlay)
-    assert overlay_lib.state_head(remote_repo, "origin", CONFIG.state_branch) == sha
 
     with pytest.raises(ValueError):
         overlay_lib.normalize_export({**exported, "state_sha": None})
@@ -421,7 +304,7 @@ def test_overlay_export_records_the_state_commit(remote_repo, tmp_path, now):
 
 def test_overlay_rejects_malformed_payloads(now):
     authority = _authority(_history(now), now - timedelta(hours=1))
-    overlay, _ = _step(authority, None, [_failing(now)], now, FakeIssueClient())
+    overlay, _ = _step(authority, None, [_failing(now)], now)
     assert overlay_lib.decode_overlay(overlay_lib.encode_overlay(overlay)) == overlay
     for mutate in (
         lambda value: value.update(extra=1),
@@ -433,7 +316,7 @@ def test_overlay_rejects_malformed_payloads(now):
         with pytest.raises(ValueError):
             overlay_lib.normalize_overlay(broken)
     with pytest.raises(pulse.MainPulseError, match="initialized"):
-        _step({**authority, "initialized": False}, None, [], now, FakeIssueClient())
+        _step({**authority, "initialized": False}, None, [], now)
 
 
 def _git(root: Path, *args: str) -> str:
@@ -474,20 +357,22 @@ def test_branch_state_round_trips_with_a_lease_and_reserve_gates(remote_repo, no
     assert pulse.read_branch_file(remote_repo, "origin", CONFIG.state_branch, CONFIG.state_path, 1024) == (written, b"{}\n")
 
 
-def test_dry_run_cli_uses_recorded_builds_and_a_local_state(tmp_path, now):
+def test_cli_uses_recorded_builds_and_a_local_state(monkeypatch, tmp_path, now):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     authority_path = tmp_path / "authority.json"
     authority_path.write_text(json.dumps(_authority(_history(now), now - timedelta(hours=1))))
     recorded = tmp_path / "builds.json"
     recorded.write_text(json.dumps([_failing(now), _failing(now, 290, minutes=400)]))
     state = tmp_path / "overlay.json"
-    args = ["run", "--dry-run", "--authority-state", str(authority_path), "--state-file", str(state),
+    args = ["run", "--authority-state", str(authority_path), "--state-file", str(state),
             "--recorded-builds", str(recorded), "--now", _ts(now)]
 
     assert pulse.main(args) == 0
     overlay = overlay_lib.load_overlay_file(state)
-    assert overlay["last_run"]["main_builds"] == 1 and overlay["last_run"]["issue_action"] == "opened"
+    assert overlay["last_run"]["main_builds"] == 1 and overlay["last_run"]["opened"] == 1
+    assert overlay["issue"] is None and overlay["issue_basis"] == ""
     assert pulse.main(args) == 0
-    assert overlay_lib.load_overlay_file(state)["last_run"]["issue_action"] == "none"
+    assert overlay_lib.load_overlay_file(state)["last_run"]["opened"] == 0
 
 
 def _job_steps(workflow: str, job: str) -> tuple[dict, list[dict]]:
@@ -498,7 +383,7 @@ def _job_steps(workflow: str, job: str) -> tuple[dict, list[dict]]:
 def test_queue_monitor_runs_the_gated_pulse():
     job, steps = _job_steps("queue-monitor.yml", "main-pulse")
     assert "needs" not in job and job["timeout-minutes"] <= 10 and job["continue-on-error"] is True
-    assert job["permissions"] == {"contents": "write", "issues": "write"}
+    assert job["permissions"] == {"contents": "write"}
     names = [step.get("name") for step in steps]
     reserve = steps[names.index("Reserve durable main pulse request budget")]
     assert "main_pulse.py reserve" in reserve["run"] and '--github-output "$OUTPUTS"' in reserve["run"]
@@ -506,6 +391,7 @@ def test_queue_monitor_runs_the_gated_pulse():
     assert "interval_gated:0|capacity_gated:0|reserved:5)" in reserve["run"]
     token_steps = [step for step in steps if "BUILDKITE_TOKEN" in (step.get("env") or {})]
     assert [step["name"] for step in token_steps] == ["Detect new AMD MI main failures"]
+    assert all("GITHUB_TOKEN" not in (step.get("env") or {}) for step in steps)
     for name in ("Read published main failure watcher state", "Detect new AMD MI main failures"):
         assert steps[names.index(name)]["if"] == "steps.pulse-budget.outputs.request_mode == 'reserved'"
     assert names.index("Read published main failure watcher state") < names.index("Detect new AMD MI main failures")
@@ -518,9 +404,9 @@ def test_collection_watcher_reads_the_pulse_overlay_first():
     _job_def, steps = _job_steps("hourly-master.yml", "collect-and-deploy")
     names = [step.get("name") for step in steps]
     read = steps[names.index("Read main pulse observations")]
-    watch = steps[names.index("Watch AMD MI main CI test-group failures (open/close issue)")]
+    watch = steps[names.index("Track AMD MI main CI test-group failures")]
     assert names.index("Read main pulse observations") + 1 == names.index(
-        "Watch AMD MI main CI test-group failures (open/close issue)"
+        "Track AMD MI main CI test-group failures"
     )
     assert read["continue-on-error"] is True and read["if"] == watch["if"]
     assert "main_pulse.py export-overlay --output \"$RUNNER_TEMP/main-pulse-state.json\"" in read["run"]

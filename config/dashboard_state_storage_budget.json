@@ -33,7 +33,6 @@
       "patterns": [
         "data/vllm/ci/amd_test_matrix.json",
         "data/vllm/ci/config_parity.json",
-        "data/vllm/ci/ownership_config_parity.json",
         "data/vllm/ci/test_group_parity.json"
       ]
     },
@@ -89,12 +88,11 @@
       ]
     },
     "operations_control": {
-      "max_bytes": 5242880,
+      "max_bytes": 4194304,
       "patterns": [
         "data/vllm/ci/operations_v2_manifest.json",
         "data/vllm/ci/org_summary.json",
-        "data/vllm/ci/capacity_monitor.json",
-        "data/vllm/ci/ci_ownership.json"
+        "data/vllm/ci/capacity_monitor.json"
       ]
     },
     "watcher_state": {
@@ -230,10 +228,6 @@
       "max_bytes": 1048576
     },
     "capacity_monitor": {
-      "group": "operations_control",
-      "max_bytes": 1048576
-    },
-    "ci_ownership": {
       "group": "operations_control",
       "max_bytes": 1048576
     },

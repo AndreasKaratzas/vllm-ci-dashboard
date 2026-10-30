@@ -1,4 +1,4 @@
-"""AMD main duration-slowdown watcher: signals, rules, issue and main_ci projection."""
+"""AMD main duration-slowdown watcher: signals, rules, state and main_ci projection."""
 
 from __future__ import annotations
 
@@ -15,36 +15,6 @@ from vllm.ci.watcher_state import bounded_watcher_state
 NOW = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
 STEADY = [10.0, 10.2, 9.8, 10.1, 9.9] * 4
 SLOW = [14.0, 14.2, 13.9, 14.1, 14.0, 13.8] * 5
-
-
-class FakeIssueClient:
-    def __init__(self):
-        self.opened = []
-        self.updated = []
-        self.comments = []
-        self.closed = []
-
-    def issue_state(self, number, ownership_marker):
-        return "open"
-
-    def open_issue(self, title, body, label_specs):
-        self.opened.append((title, body))
-        return 900 + len(self.opened)
-
-    def update_issue(self, number, title, body):
-        self.updated.append((number, title, body))
-        return True
-
-    def ensure_owner_assigned(self, number):
-        return True
-
-    def comment_issue(self, number, body):
-        self.comments.append(body)
-        return True
-
-    def close_issue(self, number):
-        self.closed.append(number)
-        return True
 
 
 def _ts(value: datetime) -> str:
@@ -324,58 +294,33 @@ def test_duration_history_needs_step_keys():
     assert not duration._keyed_duration_history(_reliability(keyless))
 
 
-def test_issue_lists_active_rows_and_the_body_changes_at_most_daily():
-    active = _evaluate(STEADY + SLOW)
-    settled = _evaluate([20.0, 20.2, 19.8, 20.1, 19.9] * 4 + [28.0] * 200, name=":amd: (MI300) Old", step_key="old")
-    rows = {**active, **settled}
-
-    body = duration._issue_body(rows, {"generated_at": _ts(NOW)}, "https://github.com/run", "AndreasKaratzas")
-
-    assert duration.DASHBOARD_URL in body
-    assert "Sleep Mode" in body and ":amd: (MI300) Old" not in body
-    assert "1 settled slowdowns are listed on the dashboard." in body
-    assert _only(active)["compare_url"] in body
-    moved = {key: {**row, "recent_mins": 15.0, "recent_runs": 31} for key, row in rows.items()}
-    later = _ts(NOW + timedelta(hours=5))
-    assert duration._fingerprint(moved) == duration._fingerprint(rows) != duration._fingerprint(settled)
-    assert duration._content_fingerprint(moved, later) == duration._content_fingerprint(rows, _ts(NOW))
-    assert duration._content_fingerprint(rows, _ts(NOW + timedelta(days=1))) != duration._content_fingerprint(rows, _ts(NOW))
-    onset = {key: {**row, "onset": {**row["onset"], "build_number": 1}} for key, row in rows.items()}
-    assert duration._content_fingerprint(onset, _ts(NOW)) != duration._content_fingerprint(rows, _ts(NOW))
-
-
-def test_only_settled_slowdowns_close_the_issue_saying_they_are_still_slower():
-    settled = _evaluate(STEADY + [14.0] * 200)
-    assert "still slower" in duration._recovery_body(settled, "run")
-    assert "No AMD MI main test step is slower" in duration._recovery_body({}, "run")
-
-
-def _run(monkeypatch, tmp_path, builds, now, client):
+def _run(monkeypatch, tmp_path, builds, now):
     reliability = _reliability(builds, generated_at=now)
     (tmp_path / "analytics.json").write_text(json.dumps({"ci": {"all_main_reliability": reliability}}))
-    monkeypatch.setenv("GITHUB_TOKEN", "offline-test")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "andreaskaratzas/vllm-ci-dashboard")
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.setattr(duration, "ANALYTICS", tmp_path / "analytics.json")
     monkeypatch.setattr(duration, "STATE", tmp_path / "open_amd_duration_regression_issues.json")
-    monkeypatch.setattr(duration, "GitHubIssueClient", lambda *_args: client)
     assert duration.run() == 0
     return reliability
 
 
-def test_run_writes_state_and_main_ci_publishes_it(monkeypatch, tmp_path):
+def test_tokenless_run_writes_state_and_main_ci_publishes_it(monkeypatch, tmp_path):
     now = datetime.now(timezone.utc).replace(microsecond=0)
-    client = FakeIssueClient()
-    reliability = _run(monkeypatch, tmp_path, _builds(STEADY + SLOW, end=now - timedelta(hours=1)), now, client)
+    (tmp_path / "open_amd_duration_regression_issues.json").write_text(json.dumps({
+        "schema_version": 1, "incident_state_version": duration.INCIDENT_STATE_VERSION,
+        "active": {}, "issue": {"number": 553}, "suppressed": True, "last_run": "2026-01-01T00:00:00Z",
+    }))
+    reliability = _run(monkeypatch, tmp_path, _builds(STEADY + SLOW, end=now - timedelta(hours=1)), now)
 
-    ((title, body),) = client.opened
-    assert title == "AMD main duration: test steps slower since a change"
-    assert "**1 AMD MI test steps on main are sustainably slower" in body
     state = json.loads(duration.STATE.read_text())
     assert state["incident_state_version"] == duration.INCIDENT_STATE_VERSION
+    assert state["last_run"] == reliability["generated_at"]
+    assert state["hardware_scope"] == "amd_mi_gpu"
+    assert state["issue"] is None and state["suppressed"] is False
     section = main_ci_section.build_main_ci({"all_main_reliability": reliability}, {}, _ts(now), duration_state=state)
     slowdowns = section["slowdowns"]
     assert slowdowns["available"] is True
-    assert slowdowns["issue"]["url"].endswith("/issues/901")
+    assert slowdowns["issue"] is None and slowdowns["suppressed"] is False
     assert slowdowns["rules"] == duration.RULES
     assert [row["signal_id"] for row in slowdowns["rows"]] == list(state["active"])
     assert section["summary"]["active_slowdowns"] == 1
@@ -392,12 +337,10 @@ def test_run_writes_state_and_main_ci_publishes_it(monkeypatch, tmp_path):
     assert "samples" not in row and row["onset"] == next(iter(state["active"].values()))["onset"]
 
 
-def test_run_refuses_issue_mutations_without_step_keyed_history(monkeypatch, tmp_path):
+def test_run_leaves_state_untouched_without_step_keyed_history(monkeypatch, tmp_path):
     now = datetime.now(timezone.utc).replace(microsecond=0)
-    client = FakeIssueClient()
-    _run(monkeypatch, tmp_path, _builds(STEADY + SLOW, end=now - timedelta(hours=1), step_key=""), now, client)
+    _run(monkeypatch, tmp_path, _builds(STEADY + SLOW, end=now - timedelta(hours=1), step_key=""), now)
 
-    assert client.opened == client.updated == client.closed == []
     assert not duration.STATE.exists()
 
 

@@ -5,140 +5,15 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from vllm import agent_health_issue_watcher as agent
 from vllm import amd_duration_regression_watcher as duration
 from vllm import amd_main_failure_watcher as amd
 from vllm import ci_main_failure_watcher as upstream
-from vllm.ci.managed_issue import reconcile_managed_issue, validate_target_repo
 from vllm.ci.reliability_history import (
     LEGACY_OBSERVATION_DERIVED_FIELDS,
     build_all_main_reliability,
     hydrate_reliability_observations,
     validate_all_main_reliability,
 )
-from vllm.constants import AGENT_HEALTH_NODE_SUSPECT
-
-
-class FakeIssueClient:
-    def __init__(self):
-        self.next_number = 100
-        self.states = {}
-        self.opened = []
-        self.updated = []
-        self.assigned = []
-        self.comments = []
-        self.closed = []
-
-    def issue_state(self, number, ownership_marker):
-        return self.states.get(number, "open")
-
-    def open_issue(self, title, body, label_specs):
-        self.next_number += 1
-        number = self.next_number
-        self.states[number] = "open"
-        self.opened.append((number, title, body, label_specs))
-        return number
-
-    def update_issue(self, number, title, body):
-        self.updated.append((number, title, body))
-        return True
-
-    def ensure_owner_assigned(self, number):
-        self.assigned.append(number)
-        return True
-
-    def comment_issue(self, number, body):
-        self.comments.append((number, body))
-        return True
-
-    def close_issue(self, number):
-        self.states[number] = "closed"
-        self.closed.append(number)
-        return True
-
-
-def _reconcile(state, client, *, active, fingerprint="fp"):
-    return reconcile_managed_issue(
-        state,
-        active=active,
-        fingerprint=fingerprint,
-        title="alert title",
-        body="alert body",
-        ownership_marker="<!-- test-managed-alert:v1 -->",
-        recovery_body="recovered",
-        observed_at="2026-07-17T12:00:00Z",
-        label_specs=[("automated", "123456", "test")],
-        client=client,
-    )
-
-
-def test_managed_issue_owns_one_issue_and_respects_manual_close():
-    client = FakeIssueClient()
-
-    opened = _reconcile({}, client, active=True)
-    number = opened["issue"]["number"]
-    assert number == 101
-    assert len(client.opened) == 1
-    assert "<!-- test-managed-alert:v1 -->" in client.opened[0][2]
-
-    unchanged = _reconcile(opened, client, active=True)
-    assert client.updated == []
-    assert unchanged["issue"]["number"] == number
-
-    client.states[number] = "closed"
-    suppressed = _reconcile(unchanged, client, active=True, fingerprint="fp")
-    assert suppressed["issue"] is None
-    assert suppressed["suppressed"] is True
-    assert suppressed["suppressed_fingerprint"] == "fp"
-    assert len(client.opened) == 1
-
-    still_suppressed = _reconcile(suppressed, client, active=True, fingerprint="fp")
-    assert still_suppressed["issue"] is None
-    assert len(client.opened) == 1
-
-    reopened = _reconcile(still_suppressed, client, active=True, fingerprint="later")
-    assert reopened["issue"]["number"] == 102
-    assert reopened["suppressed"] is False
-    assert reopened["suppressed_fingerprint"] == ""
-
-
-def test_managed_issue_closes_only_the_tracked_issue_on_recovery():
-    client = FakeIssueClient()
-    opened = _reconcile({}, client, active=True)
-    number = opened["issue"]["number"]
-
-    healthy = _reconcile(opened, client, active=False, fingerprint="")
-
-    assert client.comments == [(number, "recovered")]
-    assert client.closed == [number]
-    assert healthy["issue"] is None
-
-
-def test_managed_issue_refuses_to_touch_a_foreign_tracked_number():
-    client = FakeIssueClient()
-    client.states[48510] = "foreign"
-    state = {
-        "issue": {"number": 48510, "opened_at": "2026-07-17T10:00:00Z"},
-        "last_fingerprint": "old",
-    }
-
-    preserved = _reconcile(state, client, active=False, fingerprint="")
-
-    assert preserved["issue"]["number"] == 48510
-    assert client.updated == []
-    assert client.comments == []
-    assert client.closed == []
-
-
-def test_managed_issue_restricts_target_repository():
-    validate_target_repo("AndreasKaratzas/vllm-ci-dashboard")
-
-    try:
-        validate_target_repo("somebody/another-repo")
-    except RuntimeError as error:
-        assert "restricted" in str(error)
-    else:
-        raise AssertionError("unexpected repository was accepted")
 
 
 def _amd_build(number, finished_at):
@@ -194,12 +69,8 @@ def test_current_amd_failure_watcher_uses_ci_gpu_groups_only(monkeypatch):
     old = amd._default_state()
     old["active"] = {"retired": {"name": "Legacy failure", "hardware": "mi300", "queue": "amd_mi300_1", "job_url": "https://buildkite.com/vllm/amd-ci/builds/100#old"}}
     captured = []
-    monkeypatch.setenv("GITHUB_TOKEN", "offline-test")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "andreaskaratzas/vllm-ci-dashboard")
     monkeypatch.setattr(amd, "_read_reliability", lambda pipeline: reliability if pipeline == "ci" else None)
     monkeypatch.setattr(amd, "_read_state", lambda path: old)
-    monkeypatch.setattr(amd, "GitHubIssueClient", lambda *args: object())
-    monkeypatch.setattr(amd, "reconcile_managed_issue", lambda state, **kwargs: state)
     monkeypatch.setattr(amd, "_write_state", lambda state, path, **kwargs: captured.append((state, path, kwargs)))
     assert amd.run_watcher(upstream.CONFIG) == 0
     active = captured[0][0]["active"]
@@ -320,22 +191,6 @@ def test_amd_watcher_schema_v2_matches_legacy_hydrated_evidence_and_links():
     assert incident["job_url"] == job_url
     assert incident["build_commit"] == f"{610:040x}"
     assert incident["build_message"] == message
-
-    normalized_body = upstream._issue_body(
-        normalized_state["active"],
-        normalized,
-        "https://github.com/run",
-        "AndreasKaratzas",
-    )
-    legacy_body = upstream._issue_body(
-        legacy_state["active"],
-        legacy,
-        "https://github.com/run",
-        "AndreasKaratzas",
-    )
-    assert normalized_body == legacy_body
-    assert f"[Normalized watcher group]({job_url})" in normalized_body
-    assert f"[#610]({build_url})" in normalized_body
 
 
 def test_amd_watcher_initializes_from_latest_build_then_resolves_on_pass():
@@ -602,97 +457,6 @@ def test_amd_watcher_migrates_legacy_active_rows_as_confirmed():
     assert migrated["signal_fingerprint_version"] == 1
 
 
-def test_amd_issue_body_contains_exact_job_evidence_and_rule():
-    row = {
-        "name": "Model tests",
-        "hardware": "mi300",
-        "queue": "amd_mi300_1",
-        "result": "failed",
-        "build_number": 42,
-        "build_url": "https://buildkite.com/vllm/amd-ci/builds/42",
-        "job_url": "https://buildkite.com/vllm/amd-ci/builds/42/steps/canvas?jid=job-42&tab=output",
-        "observed_at": "2026-07-17T11:00:00Z",
-    }
-
-    body = upstream._issue_body(
-        {"group-42": row},
-        {"generated_at": "2026-07-17T12:00:00Z"},
-        "https://github.com/run",
-        "AndreasKaratzas",
-    )
-
-    assert "job-42" in body
-    assert "latest eligible attempt" in body
-    assert "two distinct eligible builds" in body
-    assert "only an explicit pass" in body
-    assert "GitHub assignee: AndreasKaratzas." in body
-    assert "@AndreasKaratzas" not in body
-
-
-def test_main_watcher_signal_fingerprint_ignores_recurring_build_evidence():
-    transition = {
-        "status": "confirmed",
-        "severity": "hard",
-        "peak_severity": "hard",
-        "soft_streak": 0,
-        "last_eligible_build_id": "42",
-        "incident_start_build_id": "40",
-        "confirmed_build_id": "40",
-    }
-    first = {
-        "group": {
-            "result": "failed",
-            "build_number": 42,
-            "job_id": "job-42",
-            "transition": transition,
-        }
-    }
-    recurring = {
-        "group": {
-            "result": "soft_fail",
-            "build_number": 43,
-            "job_id": "job-43",
-            "transition": transition | {"severity": "soft", "last_eligible_build_id": "43"},
-        }
-    }
-
-    assert amd._fingerprint(first) == amd._fingerprint(recurring)
-    assert amd._content_fingerprint(first) != amd._content_fingerprint(recurring)
-    assert amd._fingerprint(first) != amd._fingerprint(
-        {
-            "group": recurring["group"]
-            | {"transition": recurring["group"]["transition"] | {"incident_start_build_id": "43"}}
-        }
-    )
-    assert amd._fingerprint(first) != amd._fingerprint(
-        {
-            "group": recurring["group"]
-            | {"transition": recurring["group"]["transition"] | {"peak_severity": "soft"}}
-        }
-    )
-
-
-def test_main_watcher_fingerprint_migration_preserves_manual_suppression():
-    active = {
-        "group": {
-            "result": "soft_fail",
-            "build_number": 42,
-        }
-    }
-    state = {
-        "signal_fingerprint_version": 1,
-        "last_fingerprint": "legacy-evidence-fingerprint",
-        "suppressed": True,
-        "suppressed_fingerprint": "legacy-evidence-fingerprint",
-    }
-
-    fingerprint = amd._migrate_signal_fingerprint(state, active)
-
-    assert state["signal_fingerprint_version"] == 2
-    assert state["last_fingerprint"] == fingerprint
-    assert state["suppressed_fingerprint"] == fingerprint
-
-
 def _ci_build(number, finished_at, commit, *, created_at=None):
     return {
         "number": number,
@@ -731,13 +495,13 @@ def _ci_group(group_id, observations):
     }
 
 
-def test_canonical_issue_540_scope_migration_purges_foreign_incidents_and_fences():
+def test_mi_scope_migration_purges_foreign_incidents_and_fences():
     mi = {**_ci_group("mi", []), "result": "failed", "job_url": "https://buildkite.com/vllm/ci/builds/93523#mi"}
     cuda = {**mi, "name": "B200 failure", "raw_name": ":nvidia: (B200) CUDA", "hardware": "b200", "queue": "gpu_1"}
     cpu = {**mi, "name": "CPU failure", "raw_name": ":computer: (CPU) CPU", "queue": "amd_mi300_1"}
     unproved_cpu = {**mi, "name": "Old CPU-only source on MI queue"}
     reliability = {"groups": [_ci_group("mi", [])], "builds": [], "hardware_scope": "amd_mi_gpu"}
-    state = {**upstream._default_state(), "initialized": True, "issue": {"number": 540},
+    state = {**upstream._default_state(), "initialized": True,
              "active": {"mi": mi, "cuda": cuda, "cpu": cpu, "source-cpu": unproved_cpu},
              "pending_soft": {"cuda-soft": cuda},
              "group_watermarks": {key: {"number": 93523} for key in ("mi", "cuda", "cpu", "source-cpu", "cuda-soft")}}
@@ -745,13 +509,11 @@ def test_canonical_issue_540_scope_migration_purges_foreign_incidents_and_fences
     assert set(migrated["active"]) == {"mi"}
     assert migrated["pending_soft"] == {}
     assert set(migrated["group_watermarks"]) == {"mi"}
-    assert migrated["issue"]["number"] == 540
     assert migrated["hardware_scope"] == "amd_mi_gpu"
-    body = upstream._issue_body(migrated["active"], reliability, "https://example.invalid/run", "owner")
-    assert "B200" not in body and "CPU failure" not in body and "Old CPU-only" not in body
 
 
-def test_canonical_issue_540_zero_mi_migration_refreshes_before_close_and_retries(monkeypatch):
+def test_tokenless_run_advances_state_and_clears_the_retired_issue(monkeypatch):
+    """The watcher needs no GitHub token; freshness consumers read last_run."""
     now = datetime.now(timezone.utc)
     build = _raw_amd_watcher_build(90001, now - timedelta(hours=1))
     build["web_url"] = "https://buildkite.com/vllm/ci/builds/90001"
@@ -763,56 +525,25 @@ def test_canonical_issue_540_zero_mi_migration_refreshes_before_close_and_retrie
     old = {
         **upstream._default_state(),
         "initialized": True,
-        "issue": {"number": 540},
-        "last_fingerprint": "old-mixed",
-        "last_content_fingerprint": "old-mixed",
-        "active": {"cuda": {
-            "name": "B200 failure", "raw_name": ":nvidia: (B200) CUDA",
-            "hardware": "b200", "queue": "gpu_1", "result": "failed",
-            "job_url": "https://buildkite.com/vllm/ci/builds/93523#cuda",
-        }},
+        "hardware_scope": "amd_mi_gpu",
+        "issue": {"number": 540, "opened_at": ""},
+        "suppressed": True,
+        "last_run": "2026-01-01T00:00:00Z",
     }
-
-    class ScopeClient(FakeIssueClient):
-        def __init__(self):
-            super().__init__()
-            self.update_results = [False, True]
-            self.body = "B200 / CUDA / CPU failures"
-
-        def update_issue(self, number, title, body):
-            assert self.closed == [] and self.comments == []
-            super().update_issue(number, title, body)
-            updated = self.update_results.pop(0)
-            if updated:
-                self.body = body
-            return updated
-
-    client = ScopeClient()
     saved = []
-    monkeypatch.setenv("GITHUB_TOKEN", "offline-test")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "andreaskaratzas/vllm-ci-dashboard")
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.setattr(amd, "_read_reliability", lambda _pipeline: reliability)
-    monkeypatch.setattr(amd, "_read_state", lambda _path: saved[-1] if saved else old)
-    monkeypatch.setattr(amd, "GitHubIssueClient", lambda *_args: client)
+    monkeypatch.setattr(amd, "_read_state", lambda _path: old)
     monkeypatch.setattr(amd, "_write_state", lambda state, _path, **_kwargs: saved.append(state))
 
-    assert upstream.CONFIG.refresh_before_close is True
     assert upstream.run() == 0
-    assert saved[0]["active"] == {}
-    assert saved[0]["issue"]["number"] == 540
+    assert len(saved) == 1
+    assert saved[0]["last_run"] == reliability["generated_at"]
     assert saved[0]["hardware_scope"] == "amd_mi_gpu"
-    assert client.body == "B200 / CUDA / CPU failures"
-    assert client.closed == [] and client.comments == []
-
-    assert upstream.run() == 0
-    assert saved[1]["issue"] is None
-    assert client.closed == [540]
-    assert len(client.comments) == 1
-    assert len(client.updated) == 2
-    assert {row[1] for row in client.updated} == {"AMD MI main CI: confirmed test-group failures"}
-    assert upstream.OWNERSHIP_MARKER in client.body
-    assert "0 strict AMD MI GPU CI test groups" in client.body
-    assert all(value not in client.body for value in ("B200", "CUDA", "CPU failures"))
+    assert saved[0]["schema_version"] == 2
+    assert saved[0]["signal_fingerprint_version"] == 2
+    assert saved[0]["issue"] is None
+    assert saved[0]["suppressed"] is False
 
 
 def test_upstream_watcher_retains_last_good_and_first_bad_commit():
@@ -933,39 +664,6 @@ def test_upstream_watcher_confirms_soft_on_second_build_and_keeps_first_bad():
     assert incident["latest_bad_commit"] == second_soft
     assert incident["transition"]["incident_start_build_id"] == "61"
     assert incident["transition"]["confirmed_build_id"] == "62"
-
-
-def test_upstream_issue_body_contains_bisect_candidate():
-    good = "a" * 40
-    bad = "b" * 40
-    row = {
-        "group_id": "upstream-group",
-        "name": "Upstream group",
-        "hardware": "mi300",
-        "queue": "amd_mi300_1",
-        "result": "failed",
-        "build_number": 31,
-        "build_url": "https://buildkite.com/vllm/ci/builds/31",
-        "job_url": "https://buildkite.com/vllm/ci/builds/31/steps/canvas?jid=bad-31&tab=output",
-        "observed_at": "2026-07-17T10:50:00Z",
-        "good_commit": good,
-        "bad_commit": bad,
-        "commit_range_status": "candidate",
-        "compare_url": f"https://github.com/vllm-project/vllm/compare/{good}...{bad}",
-        "bisect_command": f"git bisect start {bad} {good}",
-    }
-
-    body = upstream._issue_body(
-        {"upstream-group": row},
-        {"generated_at": "2026-07-17T12:00:00Z"},
-        "https://github.com/run",
-        "AndreasKaratzas",
-    )
-
-    assert "AMD MI GPU origin/main test-group alert" in body
-    assert f"/compare/{good}...{bad}" in body
-    assert f"git bisect start {bad} {good}" in body
-    assert "ancestry must be verified" in body
 
 
 def test_upstream_watcher_orders_commit_range_by_build_creation():
@@ -1096,295 +794,9 @@ def test_upstream_watcher_ignores_older_build_that_finishes_late():
     assert recovered["active"] == {}
 
 
-def _agent_row(
-    node,
-    group,
-    started,
-    *,
-    build=100,
-    job="job",
-    state="soft",
-    attribution="node",
-    reason="node_repeats",
-    canceled=0,
-    pipeline="ci",
-):
-    return {
-        "nd": node,
-        "h": "mi300",
-        "p": pipeline,
-        "q": "amd_mi300_1",
-        "g": group,
-        "s": state,
-        "ng": False,
-        "i": int(attribution in AGENT_HEALTH_NODE_SUSPECT),
-        "a": attribution,
-        "ac": "medium",
-        "ar": reason,
-        "rt": 0,
-        "bc": canceled,
-        "b": build,
-        "j": job,
-        "t": started,
-        "e": started,
-        "d": started[:10],
-    }
-
-
-def test_agent_health_alert_requires_two_failures_attributed_to_the_node():
-    payload = {
-        "generated_at": "2026-07-17T12:00:00Z",
-        "failing_runs": [
-            # Every attempt counts, as on the dashboard: an agent lost on the first attempt
-            # stays the node's when the retry on the same node is unexplained, unexplained
-            # failures join the event, and nightly builds count like any other.
-            _agent_row("gpu1", "group-a", "2026-07-15T13:00:00Z", build=1, job="a1", reason="agent_lost"),
-            _agent_row("gpu1", "group-a", "2026-07-15T13:25:00Z", build=1, job="a2", attribution="unknown", reason="isolated"),
-            _agent_row("gpu1", "group-b", "2026-07-17T10:10:00Z", build=2, job="b") | {"ng": True},
-            _agent_row("gpu1", "group-c", "2026-07-17T10:20:00Z", build=3, job="c", attribution="unknown", reason="isolated"),
-            _agent_row("gpu1", "canceled", "2026-07-17T10:30:00Z", build=4, canceled=1),
-            _agent_row("(unidentified)", "unknown", "2026-07-17T10:40:00Z", build=5),
-            # Build-wide, test and shared-infrastructure failures never make a node event.
-            _agent_row("gpu2", "one", "2026-07-17T10:00:00Z", build=6, attribution="build", reason="build_wide"),
-            _agent_row("gpu2", "two", "2026-07-17T10:10:00Z", build=7, attribution="test", reason="group_fails_elsewhere"),
-            _agent_row("gpu2", "three", "2026-07-17T10:20:00Z", build=8, attribution="infra", reason="start_failure_burst"),
-            # One node-attributed failure among unexplained ones is not enough.
-            _agent_row("gpu3", "one", "2026-07-17T10:00:00Z", build=8, attribution="node", reason="agent_lost"),
-            _agent_row("gpu3", "two", "2026-07-17T10:10:00Z", build=9, attribution="unknown", reason="isolated"),
-        ],
-    }
-
-    events = agent.find_alert_events(payload)
-
-    assert len(events) == 1
-    event = events[0]
-    assert event["node"] == "gpu1"
-    assert (event["failure_count"], event["node_attributed"], event["group_count"]) == (4, 2, 3)
-    assert {run["job_id"] for run in event["runs"]} == {"a1", "a2", "b", "c"}
-
-
-def test_agent_health_alert_requires_node_failures_from_two_builds():
-    # ci #96247: gpu9ec1 failed five groups in one daily build and every retry passed elsewhere.
-    one_build = [
-        _agent_row("gpu9ec1", f"group-{index}", f"2026-07-17T10:{index:02d}:00Z", build=96247, job=f"j{index}")
-        for index in range(5)
-    ]
-    payload = {"generated_at": "2026-07-17T12:00:00Z", "failing_runs": one_build}
-    assert agent.find_alert_events(payload) == []
-
-    payload["failing_runs"] = [*one_build, _agent_row("gpu9ec1", "late", "2026-07-17T11:00:00Z", build=96300, job="late")]
-    assert [event["node_attributed"] for event in agent.find_alert_events(payload)] == [6]
-
-
-def test_agent_health_alert_uses_the_three_day_window_and_node_suspect_signal_only():
-    payload = {
-        "generated_at": "2026-07-17T12:00:00Z",
-        "failing_runs": [
-            # The dashboard's recent days are build-creation days: a build created on
-            # 07-14 is outside them even if its job ran within 72 hours.
-            _agent_row("gpu1", "old", "2026-07-14T23:59:00Z", build=1) | {"t": "2026-07-15T00:10:00Z"},
-            _agent_row("gpu1", "not-node", "2026-07-17T10:00:00Z", build=2, attribution="test", reason="failed_on_retry_elsewhere"),
-            _agent_row("gpu1", "one", "2026-07-17T10:05:00Z", build=3),
-        ],
-    }
-
-    assert agent.find_alert_events(payload) == []
-
-
-def test_agent_health_issue_body_links_each_exact_buildkite_attempt():
-    payload = {
-        "generated_at": "2026-07-17T12:00:00Z",
-        "failing_runs": [
-            _agent_row("gpu-chi-1", "a", "2026-07-17T10:00:00Z", build=1, job="job-a"),
-            _agent_row("gpu-chi-1", "b", "2026-07-17T10:05:00Z", build=2, job="job-b", reason="agent_lost"),
-            _agent_row("gpu-chi-2", "c", "2026-07-17T10:10:00Z", build=3, job="job-c", attribution="build", reason="build_wide"),
-        ],
-    }
-    events = agent.find_alert_events(payload)
-
-    body = agent._issue_body(
-        events,
-        payload,
-        "https://github.com/run",
-        "AndreasKaratzas",
-    )
-
-    assert "steps/canvas?jid=job-a&tab=output" in body
-    assert "ops_analytics_view=agent-health" in body
-    assert "ops_agent_node=gpu-chi-1" in body
-    assert "at least two failing attempts attributed to the node, from at least two builds" in body
-    assert "Of 3 failing attempts in the window, 2 are attributed to a node, 1 to build-wide breakage" in body
-    assert "30% or more of both the build's CUDA jobs and its AMD jobs failed, outside torch-nightly builds" in body
-    assert "the CUDA job running the same test failed on the same commit, outside torch-nightly builds" in body
-    assert "node (different groups fail only on this node)" in body
-    assert "node (agent lost mid-job)" in body
-    assert "every terminal ci/main attempt" in body
-    assert "amd-ci" not in body
-
-
-@pytest.mark.parametrize("field,value", [
-    ("p", "amd-ci"), ("p", "other"), ("q", "gpu_1_queue"),
-    ("q", "amd_cpu"), ("q", "amd_unknown"), ("q", "amd_mi355B_8"),
-])
-def test_agent_health_alert_excludes_foreign_and_non_gpu_execution(field, value):
-    rows = [_agent_row("gpu1", f"group-{index}", "2026-07-17T10:00:00Z", build=index)
-            for index in range(1, 3)]
-    assert agent.find_alert_events({"generated_at": "2026-07-17T12:00:00Z", "failing_runs": rows})
-    rows[1][field] = value
-    assert agent.find_alert_events({"generated_at": "2026-07-17T12:00:00Z", "failing_runs": rows}) == []
-
-
-@pytest.mark.parametrize("scope,pipelines", [
-    (None, ["ci"]), ("amd_mi_gpu", ["amd-ci"]), ("amd_mi_gpu", ["ci", "amd-ci"]),
-])
-def test_agent_health_watcher_refuses_unproved_or_legacy_scope_before_issue_access(monkeypatch, scope, pipelines):
-    monkeypatch.setattr(agent, "_read_payload", lambda: {
-        "generated_at": "2026-07-17T12:00:00Z", "hardware_scope": scope, "pipelines": pipelines,
-    })
-    monkeypatch.setattr(agent, "GitHubIssueClient", lambda *_: pytest.fail("invalid scope cannot access issues"))
-    monkeypatch.setattr(agent, "_read_state", lambda: pytest.fail("invalid scope cannot change incident state"))
-    assert agent.run() == 0
-
-
-def _main_agent_payload():
-    return {
-        "generated_at": "2026-07-17T12:00:00Z", "hardware_scope": "amd_mi_gpu",
-        "job_scope": "amd_gpu", "pipelines": ["ci"], "branches": ["main"],
-        "max_window_days": 60,
-        "infra_failure_count": 0, "published_failure_evidence_count": 0,
-        "retention": {"configured_days": 60, "byte_limited": False,
-                      "original_day_count": 0, "retained_day_count": 0,
-                      "failure_evidence": {"source": 0, "published": 0, "omitted": 0,
-                                           "complete_relative_to_source": True},
-                      "dropped_oldest_day_count": 0, "pipeline_scope": {
-            "version": 3, "branch": "main", "basis": "terminal_jobs_by_build_created_at",
-            "day_basis": "build_created_at_utc",
-            "eligible_completion": "current_ci_build_creation_cohort_with_provable_completion",
-            "discovery_legs": {"created": True}, "exhaustive": True,
-            "attempt_policy": "every_executed_attempt",
-            "terminal_time_policy": "finished_at_or_terminal_build_bound_for_canceled",
-            "requested_days": 7, "collected_from": "2026-07-10T00:00:00Z",
-            "collected_to": "2026-07-17T12:00:00Z",
-            "complete_window": False,
-        }}, "failing_runs": [],
-    }
-
-
-@pytest.mark.parametrize("field,value", [
-    ("version", 2), ("version", True), ("branch", "feature"),
-    ("exhaustive", False), ("requested_days", True),
-    ("collected_from", "2026-07-17T11:00:00Z"),
-    ("collected_from", "2026-07-09T00:00:00Z"),
-    ("collected_from", "2026-07-10T00:00:00"),
-    ("collected_to", "2026-07-17T11:00:00Z"),
-    ("discovery_legs", {"created": 1}),
-    ("discovery_legs", {"created": True, "older_active": True}),
-    ("eligible_completion", None),
-    ("complete_window", True), ("active_build_states", []),
-])
-def test_agent_main_watcher_rejects_unproved_cohort_before_issue_access(monkeypatch, field, value):
-    payload = _main_agent_payload()
-    payload["retention"]["pipeline_scope"][field] = value
-    monkeypatch.setattr(agent, "_read_payload", lambda: payload)
-    monkeypatch.setattr(agent, "GitHubIssueClient", lambda *_: pytest.fail("invalid cohort cannot access issues"))
-    monkeypatch.setattr(agent, "_read_state", lambda: pytest.fail("invalid cohort cannot change incident state"))
-    assert agent.run() == 0
-
-
-@pytest.mark.parametrize("field,value", [
-    ("byte_limited", True), ("dropped_oldest_day_count", 1),
-    ("original_day_count", 1), ("retained_day_count", True),
-    ("configured_days", 7),
-])
-def test_agent_main_watcher_preserves_incidents_when_evidence_is_compacted(monkeypatch, field, value):
-    payload = _main_agent_payload()
-    payload["retention"][field] = value
-    monkeypatch.setattr(agent, "_read_payload", lambda: payload)
-    monkeypatch.setattr(agent, "_read_state", lambda: pytest.fail("incomplete evidence must preserve incident state"))
-    assert agent.run() == 0
-
-
-def test_agent_main_watcher_preserves_incident_when_omission_flag_contradicts_byte_marker(monkeypatch):
-    payload = _main_agent_payload()
-    payload["infra_failure_count"] = 3
-    payload["retention"]["failure_evidence"] = {
-        "source": 3, "published": 0, "omitted": 3, "complete_relative_to_source": False,
-    }
-    monkeypatch.setattr(agent, "_read_payload", lambda: payload)
-    monkeypatch.setattr(agent, "_read_state", lambda: pytest.fail("omitted failures cannot clear an incident"))
-    assert agent.run() == 0
-
-
-@pytest.mark.parametrize("branches", [None, [], ["feature"], ["main", "feature"]])
-def test_agent_main_watcher_rejects_missing_or_mixed_top_scope(monkeypatch, branches):
-    payload = _main_agent_payload()
-    payload["branches"] = branches
-    monkeypatch.setattr(agent, "_read_payload", lambda: payload)
-    monkeypatch.setattr(agent, "_read_state", lambda: pytest.fail("mixed scope cannot access incident state"))
-    assert agent.run() == 0
-
-
-def test_agent_main_watcher_accepts_exact_scope_and_preserves_observation_clock(monkeypatch):
-    payload = _main_agent_payload()
-    assert agent._current_main_scope(payload)
-    reconciliations = []
-    persisted = []
-    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "AndreasKaratzas/vllm-ci-dashboard")
-    monkeypatch.setattr(agent, "_read_payload", lambda: payload)
-    monkeypatch.setattr(agent, "_is_fresh", lambda *_: True)
-    monkeypatch.setattr(agent, "_read_state", agent._default_state)
-    monkeypatch.setattr(agent, "GitHubIssueClient", lambda *_: object())
-    monkeypatch.setattr(agent, "reconcile_managed_issue", lambda state, **kwargs: reconciliations.append(kwargs) or state)
-    monkeypatch.setattr(agent, "_write_state", persisted.append)
-    assert agent.run() == 0
-    assert len(reconciliations) == len(persisted) == 1
-    assert reconciliations[0]["observed_at"] == payload["generated_at"]
-    assert reconciliations[0]["active"] is False
-    assert "every terminal ci/main attempt" in reconciliations[0]["body"]
-
-
-def test_agent_health_issue_body_refreshes_on_new_counts_but_not_on_each_collection(monkeypatch):
-    payload = {"failing_runs": [
-        _agent_row("gpu1", "a", "2026-07-17T10:00:00Z", build=1, job="a"),
-        _agent_row("gpu1", "b", "2026-07-17T10:05:00Z", build=2, job="b"),
-    ]}
-    client = FakeIssueClient()
-    state = [agent._default_state()]
-    monkeypatch.setenv("GITHUB_TOKEN", "test-token")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "AndreasKaratzas/vllm-ci-dashboard")
-    monkeypatch.setattr(agent, "_read_payload", lambda: payload)
-    monkeypatch.setattr(agent, "_current_main_scope", lambda _: True)
-    monkeypatch.setattr(agent, "_is_fresh", lambda *_: True)
-    monkeypatch.setattr(agent, "_read_state", lambda: state[-1])
-    monkeypatch.setattr(agent, "_write_state", state.append)
-    monkeypatch.setattr(agent, "GitHubIssueClient", lambda *_: client)
-
-    def run(run_id, generated_at):
-        monkeypatch.setenv("GITHUB_RUN_ID", run_id)
-        payload["generated_at"] = generated_at
-        assert agent.run() == 0
-
-    run("1", "2026-07-17T12:00:00Z")
-    run("2", "2026-07-17T13:00:00Z")
-    assert len(client.opened) == 1
-    assert client.updated == []
-
-    payload["failing_runs"].append(
-        _agent_row("gpu2", "c", "2026-07-17T13:10:00Z", build=3, job="c", attribution="build", reason="build_wide")
-    )
-    run("3", "2026-07-17T14:00:00Z")
-    assert len(client.updated) == 1
-    assert client.opened[0][1] == client.updated[0][1] == "AMD CI agent health: nodes failing jobs themselves"
-    assert "Of 3 failing attempts in the window" in client.updated[0][2]
-    assert "2026-07-17T14:00:00Z" in client.updated[0][2]
-
-
 def test_alert_payload_freshness_fails_closed():
     now = datetime(2026, 7, 17, 12, 0, tzinfo=timezone.utc)
 
-    assert agent._is_fresh({"generated_at": "2026-07-17T10:00:00Z"}, now)
-    assert not agent._is_fresh({"generated_at": "2026-07-17T08:00:00Z"}, now)
     assert amd._is_fresh({"generated_at": "2026-07-17T10:00:00Z"}, now)
     assert not amd._is_fresh({"generated_at": "2026-07-17T08:00:00Z"}, now)
     assert duration._is_fresh({"generated_at": "2026-07-17T10:00:00Z"}, now)

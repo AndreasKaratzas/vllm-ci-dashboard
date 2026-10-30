@@ -187,9 +187,7 @@ SOURCE_FILES = {
     "queue_timeseries": "queue_timeseries.jsonl",
     "queue_jobs": "queue_jobs.json",
     "omni_heuristic": "omni_surge_heuristic.json",
-    "omni_issue_state": "open_omni_surge_issues.json",
     "project_items": "project_items.json",
-    "ci_ownership": "ci_ownership.json",
 }
 
 MULTISPACE_RE = re.compile(r"\s+")
@@ -3361,7 +3359,6 @@ def _omni(
     queue_jobs: dict,
     queue_history: list[dict],
     heuristic: dict,
-    issue_state: dict,
     workload_mapping: dict | None = None,
     capacity: dict | None = None,
 ) -> dict:
@@ -3464,7 +3461,6 @@ def _omni(
             "excluded_queue_classes": mapping_scope.get("excluded_queue_classes") or ["perf_eval"],
             "count_semantics": "exact pipeline identity plus exact configured queue allowlist",
         },
-        "issue_state": issue_state,
         "provenance": {
             "queue_snapshot_ts": queue_snapshot.get("ts"),
             "queue_jobs_ts": queue_jobs.get("ts"),
@@ -3472,7 +3468,6 @@ def _omni(
                 "queue_aggregates": SOURCE_FILES["queue_timeseries"],
                 "queue_jobs": SOURCE_FILES["queue_jobs"],
                 "heuristic": SOURCE_FILES["omni_heuristic"],
-                "issue_state": SOURCE_FILES["omni_issue_state"],
                 "mapping_history": SOURCE_FILES["workload_mapping"],
             },
             "sources": {
@@ -3491,11 +3486,6 @@ def _omni(
                     "path": SOURCE_FILES["omni_heuristic"],
                     "timestamp": heuristic.get("generated_at"),
                     "evidence_kind": "published threshold configuration",
-                },
-                "issue_state": {
-                    "path": SOURCE_FILES["omni_issue_state"],
-                    "timestamp": issue_state.get("last_snapshot_ts"),
-                    "evidence_kind": "published issue watcher state",
                 },
                 "mapping_history": {
                     "path": SOURCE_FILES["workload_mapping"],
@@ -4181,25 +4171,12 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     latency = ci_analytics.get("current_nightly_latency")
     if not isinstance(latency, dict) or latency.get("schema_version") != 2 or latency.get("hardware_scope") != "amd_mi_gpu" or latency.get("source_pipeline") != "ci" or latency.get("build_limit") != 5:
         latency = build_current_nightly_latency([], generated_at=generated_at, source_available=False)
-    ownership = loaded.get("ci_ownership") or {}
-    ownership = (
-        ownership
-        if ownership.get("schema_version") == 1
-        else {
-            "schema_version": 1,
-            "available": False,
-            "unavailable_reason": "ownership_snapshot_unavailable",
-            "areas": [],
-            "summary": {},
-        }
-    )
     queue = _queue(queue_snapshot, loaded.get("queue_jobs") or {}, queue_history)
     omni = _omni(
         queue_snapshot,
         queue.get("queue_jobs") or {},
         queue_history,
         loaded.get("omni_heuristic") or {},
-        loaded.get("omni_issue_state") or {},
         loaded.get("workload_mapping") or {},
         loaded.get("capacity_monitor") or {},
     )
@@ -4235,8 +4212,7 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
     for name, path in paths.items():
         data = queue_snapshot if name == "queue_timeseries" else loaded.get(name) or {}
         sources[name] = _source_record(path, data, queue_snapshot.get("ts", "") if name == "queue_timeseries" else "")
-    for internal_source in ("agent_health", "omni_issue_state", "ci_ownership"):
-        sources[internal_source]["published"] = False
+    sources["agent_health"]["published"] = False
     perf_eval = load_freshness_targets()["sources"]["perf_eval"]["path"]
     sources["perf_eval"] = {
         **_source_record(data_dir.parent / perf_eval, _load_json(data_dir.parent / perf_eval)),
@@ -4288,7 +4264,6 @@ def build_snapshot(data_dir: Path | str, generated_at: str | None = None) -> dic
         "definition_parity": definition_parity,
         "test_group_parity": test_group_parity,
         "latency": latency,
-        "ownership": ownership,
         "queue": queue,
         "omni": omni,
     } | publication
@@ -5737,32 +5712,6 @@ def _test_group_row_priority(collection: str, row: Any) -> tuple[int, str]:
     return priority, json.dumps(row, sort_keys=True, separators=(",", ":"))
 
 
-def _ownership_row_priority(collection: str, row: Any) -> tuple[int, str]:
-    item = row if isinstance(row, dict) else {}
-    counts = item.get("counts") or {}
-    if collection == "unmapped_targets":
-        priority = 2
-    elif int(counts.get("incidents") or 0):
-        priority = 0
-    elif int(counts.get("pending_soft") or 0):
-        priority = 1
-    elif int(counts.get("upstream_parity_gaps") or 0):
-        priority = 2
-    else:
-        priority = 3
-    return priority, json.dumps(row, sort_keys=True, separators=(",", ":"))
-
-
-def _compact_operations_ownership_row(collection: str, row: Any) -> Any:
-    if collection != "areas" or not isinstance(row, dict):
-        return row
-    compact = dict(row)
-    # ``targets`` duplicates the exact counts and the incident/pending lists;
-    # no Operations consumer reads it.
-    compact.pop("targets", None)
-    return compact
-
-
 def _operation_sections(payload: dict) -> dict[str, dict]:
     reliability = payload.get("reliability") or {}
     public_reliability = _bounded_public_reliability(reliability)
@@ -5788,14 +5737,6 @@ def _operation_sections(payload: dict) -> dict[str, dict]:
         collection_keys=("areas", "groups"),
         row_priority=_test_group_row_priority,
     )
-    ownership = _bounded_operations_collection_payload(
-        payload.get("ownership") or {},
-        section_name="ownership",
-        payload_key="ownership",
-        collection_keys=("areas", "unmapped_targets"),
-        row_priority=_ownership_row_priority,
-        row_transform=_compact_operations_ownership_row,
-    )
     queue = compact_queue_section(_compact_queue(payload.get("queue") or {}))
     sections = {
         "nightly": {"nightly": _compact_nightly(payload.get("nightly") or {})},
@@ -5816,7 +5757,6 @@ def _operation_sections(payload: dict) -> dict[str, dict]:
         )},
         "definition_parity": {"definition_parity": definition_parity},
         "test_group_parity": {"test_group_parity": test_group_parity},
-        "ownership": {"ownership": ownership},
         "queue": queue,
         "omni": {"omni": payload.get("omni") or {}},
         "diagnostics": _diagnostic_section(payload),

@@ -441,7 +441,6 @@ def test_current_operations_payloads_are_bounded(ops_data, ops_manifest):
         "amd_agent_health",
         "reliability",
         "definition_parity",
-        "ownership",
         "queue",
         "omni",
         "diagnostics",
@@ -485,50 +484,6 @@ def test_v2_owns_all_operational_views():
         assert f"'{tab}'" in OPS_JS
     assert "renderPerf" in OPS_JS
     assert ".ops-page .ops-perf-metric-grid" in OPS_CSS
-
-
-def test_ci_ownership_renderer_is_reusable_and_removed_from_ci_health():
-    for contract in (
-        "function openOwnershipAreaDetail",
-        "function renderOwnership(host, ops)",
-        "const ownership = (ops || {}).ownership || {};",
-        "renderOwnership: renderOwnership",
-        "CI test-area ownership",
-        "Regional working-hours routing",
-        "Missing or invalid working-hour schedules",
-        "Europe/Belgrade",
-        "America/Chicago",
-        "UNMAPPED TARGETS",
-        "GitHub assignability is checked before mutation",
-        "Confirmed-incident issues keep their verified assignee while open",
-        "never @-mention owners",
-        "AREAS WITH CONFIRMED INCIDENTS",
-        "PENDING SOFT OBSERVATIONS",
-        "requires 2 distinct completed builds",
-        "Confirmed AMD incidents",
-        "Pending soft observations",
-        "Incident response, escalation, runtime signal, and parity obligations",
-        "incident_observation_eligible === false",
-        "function ownershipObservationLabel",
-        "ignored older build",
-    ):
-        assert contract in OPS_JS
-    assert "private PTO" not in OPS_JS
-    assert "Private availability" not in OPS_JS
-    assert "Regression response, escalation, runtime signal" not in OPS_JS
-    assert "availability.fresh === true" in OPS_JS
-    assert (
-        "['healthView', 'health_view', "
-        "['overview', 'parity', 'coverage', 'mirrors']]"
-    ) in OPS_JS
-    assert "{id: 'ownership', label: 'CI ownership'}" not in OPS_JS
-    assert "if (state.healthView === 'ownership')" not in OPS_JS
-    assert "gating.ownership" not in OPS_JS
-    assert "architectureSignalStateRank(ownershipAreaState(left))" in OPS_JS
-    assert "compareText(left.source_file, right.source_file)" in OPS_JS
-    assert OPS_JS.index("function renderOwnership(host, ops)") < OPS_JS.index(
-        "async function renderHealth"
-    )
 
 
 def test_legacy_renderers_are_removed():

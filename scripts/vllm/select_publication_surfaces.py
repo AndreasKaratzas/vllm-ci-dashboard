@@ -41,11 +41,14 @@ from vllm.publication_surfaces import (  # noqa: E402
     PRE_PARITY_OVERRIDES_SURFACE_SPECS,
     PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION,
     PRE_RUNTIME_PARITY_SURFACE_SPECS,
+    PRE_TICKETING_RETIREMENT_SURFACE_CONTRACT_VERSION,
+    PRE_TICKETING_RETIREMENT_SURFACE_SPECS,
     PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION,
     PRE_VIEW_RETIREMENT_SURFACE_SPECS,
     RETIRED_SURFACES,
     RETIRED_RUNTIME_PARITY_PATHS,
     RETIRED_PARITY_OVERRIDE_PATHS,
+    RETIRED_TICKETING_PATHS,
     SURFACE_CONTRACT_VERSION,
     SURFACE_SPECS,
     SurfaceSpec,
@@ -1732,8 +1735,19 @@ def _migrate_retired_parity_overrides_state(root: Path, ref: str, payload: dict)
     return _migrate_retired_ci_paths(
         root, ref, payload,
         historical_specs=PRE_PARITY_OVERRIDES_SURFACE_SPECS,
-        target_specs=SURFACE_SPECS,
+        target_specs=PRE_TICKETING_RETIREMENT_SURFACE_SPECS,
         retired_paths=RETIRED_PARITY_OVERRIDE_PATHS,
+        target_version=PRE_TICKETING_RETIREMENT_SURFACE_CONTRACT_VERSION,
+    )
+
+
+def _migrate_retired_ticketing_state(root: Path, ref: str, payload: dict) -> dict:
+    """Verify the complete v8 proof before dropping retired ticketing files."""
+    return _migrate_retired_ci_paths(
+        root, ref, payload,
+        historical_specs=PRE_TICKETING_RETIREMENT_SURFACE_SPECS,
+        target_specs=SURFACE_SPECS,
+        retired_paths=RETIRED_TICKETING_PATHS,
         target_version=SURFACE_CONTRACT_VERSION,
     )
 
@@ -1885,6 +1899,13 @@ def _baseline_publication_state(
     if (
         schema_version == 2
         and _uses_declared_surface_domain()
+        and surface_contract_version == PRE_TICKETING_RETIREMENT_SURFACE_CONTRACT_VERSION
+    ):
+        payload = _migrate_retired_ticketing_state(root, ref, payload)
+        surface_contract_version = payload.get("surface_contract_version")
+    if (
+        schema_version == 2
+        and _uses_declared_surface_domain()
         and surface_contract_version != SURFACE_CONTRACT_VERSION
     ):
         raise RuntimeError(
@@ -1983,7 +2004,8 @@ def _baseline_publication_state(
             "restored_manifest": partitioned,
         })
         migrated = _migrate_retired_runtime_parity_state(root, ref, migrated)
-        return _migrate_retired_parity_overrides_state(root, ref, migrated)
+        migrated = _migrate_retired_parity_overrides_state(root, ref, migrated)
+        return _migrate_retired_ticketing_state(root, ref, migrated)
 
     fresh_degraded = payload.get("fresh_degraded_surfaces")
     fallback = payload.get("fallback_surfaces")

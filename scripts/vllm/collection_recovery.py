@@ -23,6 +23,7 @@ from vllm.publication_surfaces import (
     PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION, SURFACE_CONTRACT_VERSION,
     PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION, PRE_RUNTIME_PARITY_SURFACE_SPECS,
     PRE_PARITY_OVERRIDES_SURFACE_CONTRACT_VERSION, PRE_PARITY_OVERRIDES_SURFACE_SPECS,
+    PRE_TICKETING_RETIREMENT_SURFACE_CONTRACT_VERSION, PRE_TICKETING_RETIREMENT_SURFACE_SPECS,
 )
 from vllm import github_git_proof
 from vllm.dashboard_storage_budget import writer_max_bytes
@@ -82,11 +83,13 @@ def _state_retry_lanes(payload: object) -> tuple[set[str], set[str], set[str]]:
     if version not in (None, PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION,
                        PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION,
                        PRE_PARITY_OVERRIDES_SURFACE_CONTRACT_VERSION,
+                       PRE_TICKETING_RETIREMENT_SURFACE_CONTRACT_VERSION,
                        SURFACE_CONTRACT_VERSION) or (version is not None and type(version) is not int):
         raise CollectionEvidenceError("unsupported publication surface contract")
     allowed = (PRE_VIEW_RETIREMENT_SURFACE_SPECS if version in (None, PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION)
                else PRE_RUNTIME_PARITY_SURFACE_SPECS if version == PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION
                else PRE_PARITY_OVERRIDES_SURFACE_SPECS if version == PRE_PARITY_OVERRIDES_SURFACE_CONTRACT_VERSION
+               else PRE_TICKETING_RETIREMENT_SURFACE_SPECS if version == PRE_TICKETING_RETIREMENT_SURFACE_CONTRACT_VERSION
                else SURFACE_SPECS)
     lanes: dict[str, set[str]] = {}
     for field in ("fallback_surfaces", "fresh_degraded_surfaces", "degraded_surfaces"):

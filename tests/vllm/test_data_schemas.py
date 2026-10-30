@@ -17,7 +17,6 @@ import pytest
 
 from vllm.ci import dns_failures as dns_backend
 from vllm.ci import docker_builds as docker_backend
-from vllm.ci.ownership import load_ownership_config
 from vllm.constants import amd_gpu_hardware
 
 from tests.vllm.workload_live_contract import (
@@ -1066,42 +1065,6 @@ class TestWorkloadMapping:
         assert '"job_id":' not in serialized
 
 
-class TestOpenQueueIssues:
-    def test_top_level_keys(self):
-        d = _load_json_or_skip("open_queue_issues.json")
-        _assert_has_keys(d, {"open"}, "open_queue_issues.json")
-        assert isinstance(d["open"], dict)
-
-    def test_open_values_are_issue_numbers_or_entries(self):
-        d = _load_json_or_skip("open_queue_issues.json")
-        for queue, entry in d["open"].items():
-            assert isinstance(entry, (int, dict)), (
-                f"open_queue_issues.json['open'][{queue!r}] must be an int or dict, got {type(entry).__name__}"
-            )
-            if isinstance(entry, dict):
-                assert isinstance(entry.get("number"), int), (
-                    f"open_queue_issues.json['open'][{queue!r}].number must be an int"
-                )
-
-
-class TestOpenQueueZombieIssues:
-    def test_top_level_keys(self):
-        d = _load_json_or_skip("open_queue_zombie_issues.json")
-        _assert_has_keys(d, {"open"}, "open_queue_zombie_issues.json")
-        assert isinstance(d["open"], dict)
-
-    def test_open_values_are_issue_numbers_or_entries(self):
-        d = _load_json_or_skip("open_queue_zombie_issues.json")
-        for queue, entry in d["open"].items():
-            assert isinstance(entry, (int, dict)), (
-                f"open_queue_zombie_issues.json['open'][{queue!r}] must be an int or dict, got {type(entry).__name__}"
-            )
-            if isinstance(entry, dict):
-                assert isinstance(entry.get("number"), int), (
-                    f"open_queue_zombie_issues.json['open'][{queue!r}].number must be an int"
-                )
-
-
 class TestOpenAmdMainFailureIssues:
     def test_state_schema(self):
         d = _load_json_or_skip("open_amd_main_failure_issues.json")
@@ -1182,89 +1145,6 @@ class TestOpenAmdDurationRegressionIssues:
         )
         assert isinstance(d["active"], dict)
         assert d["issue"] is None or isinstance(d["issue"], dict)
-
-
-class TestOpenAgentHealthIssues:
-    def test_state_schema(self):
-        d = _load_json_or_skip("open_agent_health_issues.json")
-        _assert_has_keys(
-            d,
-            {
-                "schema_version",
-                "issue",
-                "suppressed",
-                "last_fingerprint",
-                "last_run",
-            },
-            "open_agent_health_issues.json",
-        )
-        assert d["issue"] is None or isinstance(d["issue"], dict)
-
-
-class TestCiOwnership:
-    def test_status_schema(self):
-        d = _load_json_or_skip("ci_ownership.json")
-        _assert_has_keys(
-            d,
-            {
-                "schema_version",
-                "generated_at",
-                "available",
-                "policy",
-                "availability",
-                "ci_lead",
-                "summary",
-                "areas",
-                "unmapped_targets",
-            },
-            "ci_ownership.json",
-        )
-        assert d["schema_version"] == 1
-        assert isinstance(d["areas"], list)
-        assert all(
-            {"area", "source_file", "owners", "counts", "regressions", "issue"}
-            <= set(row)
-            for row in d["areas"]
-        )
-        configured_areas = load_ownership_config(
-            ROOT / "config" / "vllm_ci_ownership.json"
-        )["areas"]
-        definition_areas = set((d.get("sources") or {}).get("definition_areas") or [])
-        for row in d["areas"]:
-            assert isinstance(row["owners"], list)
-            if row["area"] in configured_areas:
-                assert 1 <= len(row["owners"]) <= 3
-                continue
-            # Newly discovered source areas have no reviewed owner chain yet.
-            # They must retain the explicit CI-lead escalation contract.
-            assert row["area"] in definition_areas
-            assert row["owners"] == []
-            assert row["escalated_to_ci_lead"] is True
-            assert row["selection_reason"] == "no_ranked_owner_selected"
-            assert row["selected_owner"]["github_login"] == d["ci_lead"]["github_login"]
-            assert row["selected_owner"]["display_name"] == d["ci_lead"]["display_name"]
-            assert row["selected_owner"]["rank"] is None
-        assert all(
-            len({owner["rank"] for owner in row["owners"]})
-            == len(row["owners"])
-            for row in d["areas"]
-        )
-        assert not any(
-            "availability" in owner
-            for row in d["areas"]
-            for owner in row["owners"]
-        )
-        assert not any("@" in json.dumps(row) for row in d["areas"])
-
-    def test_managed_issue_state_schema(self):
-        d = _load_json_or_skip("open_ci_area_regression_issues.json")
-        _assert_has_keys(
-            d,
-            {"schema_version", "areas", "last_run"},
-            "open_ci_area_regression_issues.json",
-        )
-        assert d["schema_version"] == 1
-        assert isinstance(d["areas"], dict)
 
 
 class TestConfigParity:

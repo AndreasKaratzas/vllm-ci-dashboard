@@ -10,7 +10,7 @@ describe('old dashboard links', () => {
     expect(route('ci-health')).toBe('#/health')
     expect(route('ci-health', 'ops_health_view=overview')).toBe('#/health')
     expect(route('ci-health', 'ops_health_view=parity')).toBe('#/health?view=parity')
-    // ci_area_regression_watcher links the retired targets view.
+    // Older alert links point at the retired targets view.
     expect(route('ci-health', 'ops_health_view=targets&ops_health_result=non_passing')).toBe('#/health')
     expect(route('ci-health', 'ops_health_view=mirrors')).toBe('#/health?view=mirrors')
     expect(route('ci-health', 'ops_health_view=coverage')).toBe('#/health?view=coverage')

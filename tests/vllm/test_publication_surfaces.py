@@ -42,7 +42,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_surface_contract_version_has_one_owner() -> None:
-    assert surfaces_module.SURFACE_CONTRACT_VERSION == 8
+    assert surfaces_module.SURFACE_CONTRACT_VERSION == 9
     assert (
         selector_module.SURFACE_CONTRACT_VERSION
         == surfaces_module.SURFACE_CONTRACT_VERSION
@@ -4792,15 +4792,17 @@ def test_runtime_parity_retirement_validates_v6_bytes_and_preserves_fallback_clo
     assert old_audit.fallback_surfaces() == frozenset({"ci_core"})
     assert not old_audit.report.errors
     migrated = selector_module._baseline_publication_state(repo, _git(repo, "rev-parse", "HEAD"), state_path)
-    assert migrated["surface_contract_version"] == 8
+    assert migrated["surface_contract_version"] == 9
     for field in ("generated_at", "fallback_since", "degraded_since", "fallback_surfaces", "mode"):
         assert migrated[field] == original[field]
     old_entries = original["restored_manifest"]["ci_core"]
-    assert migrated["restored_manifest"]["ci_core"] == {path: row for path, row in old_entries.items() if path not in retired}
+    assert migrated["restored_manifest"]["ci_core"] == {
+        path: row for path, row in old_entries.items()
+        if path not in retired | surfaces_module.RETIRED_TICKETING_PATHS}
     # A new proof owns only supported files even while old bytes await purge.
     state_path.write_text(json.dumps(migrated))
     _git(repo, "add", ".")
-    _git(repo, "commit", "-m", "exact v8 owned-file projection")
+    _git(repo, "commit", "-m", "exact v9 owned-file projection")
     current_audit = DashboardAudit(repo)
     assert current_audit.fallback_surfaces() == frozenset({"ci_core"})
     assert not current_audit.report.errors
@@ -5026,18 +5028,18 @@ def test_parity_override_retirement_validates_exact_v7_optional_inventory_and_ke
     assert old_audit.fallback_surfaces() == frozenset({"ci_core"})
     assert not old_audit.report.errors
     migrated = selector_module._baseline_publication_state(repo, _git(repo, "rev-parse", "HEAD"), state_path)
-    assert migrated["surface_contract_version"] == 8
+    assert migrated["surface_contract_version"] == 9
     for field in ("generated_at", "fallback_since", "degraded_since", "fallback_surfaces", "mode"):
         assert migrated[field] == original[field]
     assert migrated["restored_manifest"]["ci_core"] == {
         path: descriptor for path, descriptor in original["restored_manifest"]["ci_core"].items()
-        if path not in surfaces_module.RETIRED_PARITY_OVERRIDE_PATHS}
+        if path not in surfaces_module.RETIRED_PARITY_OVERRIDE_PATHS | surfaces_module.RETIRED_TICKETING_PATHS}
     assert not surfaces_module.RETIRED_PARITY_OVERRIDE_PATHS & set(migrated["restored_paths"]["ci_core"])
-    # Active v8 proof remains exact while obsolete bytes await the workflow's
+    # Active proof remains exact while obsolete bytes await the workflow's
     # post-selection purge. They never acquire a current owner again.
     state_path.write_text(json.dumps(migrated))
     _git(repo, "add", ".")
-    _git(repo, "commit", "-m", "exact supported v8 projection")
+    _git(repo, "commit", "-m", "exact supported v9 projection")
     current_audit = DashboardAudit(repo)
     assert current_audit.fallback_surfaces() == frozenset({"ci_core"})
     assert not current_audit.report.errors
@@ -5093,12 +5095,77 @@ def test_v6_runtime_parity_and_optional_override_retire_only_after_full_old_proo
             selector_module._baseline_publication_state(repo, ref, state_path)
         return
     migrated = selector_module._baseline_publication_state(repo, ref, state_path)
-    assert migrated["surface_contract_version"] == 8
-    retired = surfaces_module.RETIRED_RUNTIME_PARITY_PATHS | surfaces_module.RETIRED_PARITY_OVERRIDE_PATHS
+    assert migrated["surface_contract_version"] == 9
+    retired = (surfaces_module.RETIRED_RUNTIME_PARITY_PATHS | surfaces_module.RETIRED_PARITY_OVERRIDE_PATHS
+               | surfaces_module.RETIRED_TICKETING_PATHS)
     assert migrated["restored_manifest"]["ci_core"] == {
         relative: descriptor for relative, descriptor in entries.items() if relative not in retired}
     for field in ("generated_at", "fallback_since", "degraded_since", "fallback_surfaces", "mode"):
         assert migrated[field] == original[field]
+
+
+def _write_v8_ticketing_fallback(repo):
+    since = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    manifests = {}
+    for surface, extra in (("ci_core", ["data/vllm/ci/test_results/2026-10-08_amd.jsonl",
+                                        "data/vllm/ci/ci_ownership.json"]),
+                           ("queue", ["data/vllm/ci/open_queue_issues.json"]),
+                           ("queue_omni", ["data/vllm/ci/open_omni_surge_issues.json"])):
+        spec = surfaces_module.PRE_TICKETING_RETIREMENT_SURFACE_SPECS[surface]
+        entries = {}
+        for relative in (*spec.required_paths, *extra):
+            path = repo / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"path": relative}) + "\n")
+            entries[relative] = _manifest_descriptor(path.read_bytes())
+        manifests[surface] = entries
+    surfaces = sorted(manifests)
+    state = {"schema_version": 2, "surface_contract_version": 8,
+        "generated_at": since, "baseline_ref": "0" * 40, "mode": "fallback",
+        "degraded_surfaces": surfaces, "fresh_degraded_surfaces": [],
+        "fallback_surfaces": surfaces, "degraded_since": dict.fromkeys(surfaces, since),
+        "fallback_since": dict.fromkeys(surfaces, since), "fallback_max_age_hours": 36,
+        "restored_manifest": manifests,
+        "restored_paths": {surface: sorted(entries) for surface, entries in manifests.items()}}
+    state_path = repo / "data/vllm/ci/publication_state.json"
+    state_path.write_text(json.dumps(state))
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "exact v8 ticketing proof")
+    return state_path, state
+
+
+def test_ticketing_retirement_validates_exact_v8_inventory_and_keeps_clocks(tmp_path):
+    retired = surfaces_module.RETIRED_TICKETING_PATHS
+    assert "data/vllm/ci/ownership_config_parity.json" in (
+        surfaces_module.PRE_TICKETING_RETIREMENT_SURFACE_SPECS["ci_core"].required_paths)
+    for spec in surfaces_module.SURFACE_SPECS.values():
+        assert not retired & {*spec.required_paths, *spec.optional_paths}
+    repo = tmp_path / "repo"
+    state_path, original = _write_v8_ticketing_fallback(repo)
+
+    migrated = selector_module._baseline_publication_state(repo, _git(repo, "rev-parse", "HEAD"), state_path)
+
+    assert migrated["surface_contract_version"] == 9
+    for field in ("generated_at", "fallback_since", "degraded_since", "fallback_surfaces", "mode"):
+        assert migrated[field] == original[field]
+    for surface, entries in original["restored_manifest"].items():
+        assert migrated["restored_manifest"][surface] == {
+            path: row for path, row in entries.items() if path not in retired}
+        assert not retired & set(migrated["restored_paths"][surface])
+
+
+def test_ticketing_retirement_cannot_hide_bad_v8_bytes(tmp_path):
+    repo = tmp_path / "repo"
+    state_path, state = _write_v8_ticketing_fallback(repo)
+    state["restored_manifest"]["ci_core"]["data/vllm/ci/ownership_config_parity.json"]["sha256"] = "0" * 64
+    state_path.write_text(json.dumps(state))
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "corrupt v8 ticketing proof")
+    with pytest.raises(RuntimeError, match="manifest"):
+        selector_module._baseline_publication_state(repo, _git(repo, "rev-parse", "HEAD"), state_path)
 
 
 _EMITTERS = frozenset({"error", "degradation"})

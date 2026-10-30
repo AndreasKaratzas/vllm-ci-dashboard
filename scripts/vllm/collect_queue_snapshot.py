@@ -1579,7 +1579,7 @@ def compact_history_to_byte_budget(
     """Return deterministic history that serializes within ``max_bytes``.
 
     The newest observation is protected at every compaction level because the
-    queue and Omni issue watchers read the last JSONL row as live state.  Older
+    Queue and Omni snapshots read the last JSONL row as live state.  Older
     rows retain a coherent real observation plus exact per-queue wait peaks for
     every resulting bucket.  No network data is fetched during compaction.
     """

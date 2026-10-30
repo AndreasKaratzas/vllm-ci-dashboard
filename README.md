@@ -62,16 +62,14 @@ Buildkite-native p50/p95 remain the site-comparable queue series. Percentiles re
 | `scripts/collect_ci.py` | AMD MI test results from current main CI, CI health, and flake/failure data |
 | `scripts/vllm/collect_analytics.py` | Windowed CI analytics from parsed test-result JSONL plus Buildkite metadata |
 | `scripts/vllm/collect_amd_test_matrix.py` | AMD GPU routes from the exact main CI definitions used by the latest nightly |
-| `scripts/vllm/collect_ownership_parity.py` | Build a source-area parity map from the exact vLLM commit used by the latest AMD nightly |
 | `scripts/vllm/build_test_group_parity.py` | Derive configured upstream GPU source groups, AMD MI routes, and required gate coverage |
 | `scripts/vllm/collect_queue_snapshot.py` | Queue timeseries, workload-attributed counts, and the exact active-job ledger |
 | `scripts/vllm/collect_capacity_monitor.py` | AMD queue capacity limits plus mirror test-group dependency projections |
 | `scripts/vllm/collect_docker_builds.py` | Run time of the ROCm docker build jobs on `ci` and `amd-ci`, for main and PR builds, over 30 days |
 | `scripts/vllm/build_operations_snapshot.py` | Build the versioned operations manifest and lazy CI Health, Queue, and Omni read-model shards |
 | `scripts/vllm/build_queue_section.py` | Build only the live Queue read-model shard for the independent queue publisher |
-| `scripts/vllm/ci_area_regression_watcher.py` | Reconcile one dashboard-repository issue per regressing test area using the ranked owner chain, regional working hours, and exact AMD evidence |
-| `scripts/vllm/sync_ci_operations_project.py` | Add open managed dashboard issues to the single AMD CI Operations Project by workstream |
-| `scripts/vllm/ensure_ci_operations_labels.py` | Ensure the managed-issue and Project workstream labels exist before any watcher runs |
+| `scripts/vllm/ci_main_failure_watcher.py` | Track confirmed AMD MI test-group incidents on main for the CI Analytics incidents view |
+| `scripts/vllm/amd_duration_regression_watcher.py` | Track sustained AMD MI test-step slowdowns on main for the slowdowns view |
 | `scripts/vllm/audit_dashboard_data.py` | Cross-surface audit for data totals, frontend assumptions, links, and deploy safety |
 | `scripts/render.py` | Generate markdown dashboards and site data |
 | `scripts/build_site.py` | Assemble `docs/` and `data/` into `_site/` for Pages |
@@ -97,13 +95,10 @@ discovery page preserves the prior generation.
 pip install requests pyyaml
 python scripts/collect.py
 python scripts/vllm/collect_amd_test_matrix.py --output data/vllm/ci/
-python scripts/vllm/collect_ownership_parity.py --input-dir data/vllm/ci --output data/vllm/ci
 python scripts/vllm/build_test_group_parity.py --output data/vllm/ci/
 python scripts/vllm/collect_capacity_monitor.py --output data/vllm/ci/
 python scripts/vllm/build_operations_snapshot.py --input-dir data/vllm/ci --output data/vllm/ci/operations_v2.json.gz
 python scripts/vllm/build_queue_section.py
-env -u GITHUB_TOKEN python scripts/vllm/ci_area_regression_watcher.py
-env -u GITHUB_TOKEN python scripts/vllm/sync_ci_operations_project.py
 python scripts/vllm/audit_dashboard_data.py --strict-warnings
 python scripts/render.py
 python scripts/build_site.py --cache-bust-index
@@ -126,7 +121,7 @@ Each nightly uses its own immutable CI definition tree to identify logical
 workloads. Declared source families and observed physical queues remain separate;
 a DPX workload running on an MI355 queue retains both pieces of evidence.
 
-The private `operations_v2.json.gz` build input produces bundle v3 with eleven
+The private `operations_v2.json.gz` build input produces bundle v5 with eleven
 allowlisted lazy sections. Canonical publication replaces the Pages tree,
 validates historical restore proofs, and purges retired artifacts. The removal
 inventory is tracked in [Dashboard Cleanup](dashboards/dashboard-cleanup.md).
@@ -149,72 +144,19 @@ keeps the newest twenty GitHub deployment records and removes proven superseded
 Pages records. Its [retention policy](scripts/vllm/deployment-retention.md) preserves
 the serving deployment and active work; manual runs default to a preview.
 
-### CI ownership and regression issues
+### Issue tracking
 
-[`config/vllm_ci_ownership.json`](config/vllm_ci_ownership.json) is the
-authoritative 31-area ranked routing map. Each area has one to three active
-owners. The hourly workflow evaluates every exact AMD matrix definition,
-attributes each definition through
-a parity snapshot pinned to that nightly's exact vLLM commit, and reconciles one state-owned issue
-per area in `AndreasKaratzas/vllm-ci-dashboard`. Current regressions, exact
-Buildkite evidence, upstream parity gaps, the ranked chain, and the actual
-GitHub assignees are shown on the managed area issues and AMD CI Operations project.
-
-An incident whose observing nightly also failed the mirrored CUDA step, or
-broke build-wide (at least 30% of both CUDA and AMD final jobs, with at least
-20 of each), is a warning row, not a regression: it is left out of the title,
-counts, owner assignment, and manual-close identity. The agent-health collector
-hands that evidence to the watcher in the same run through the private
-`.cache/cuda_evidence.json`.
-
-The ownership config carries two shared, DST-aware working-hours profiles.
-They are operational shifts, not claims about an engineer's home location. EU
-uses Serbia time (`Europe/Belgrade`), while NA uses Chicago time
-(`America/Chicago`):
-
-| Profile | Local hours | Time zone | Engineers |
-|---|---|---|---|
-| EU | Monday–Friday, 09:00–17:00 | `Europe/Belgrade` (Serbia) | `gchinora`, `stefankoncarevic`, `fxmarty-amd` |
-| NA | Monday–Friday, 09:00–17:00 | `America/Chicago` | `aarushjain29`, `divakar-amd`, `micah-wil`, `mawong-amd`, `AndreasKaratzas` |
-
-Assignment uses only these committed regional schedules. The watcher walks
-each area's configured ranks in ascending order and selects the first owner
-currently inside that profile's working
-hours. If every ranked owner is outside working hours, or a schedule cannot be
-evaluated safely, assignment falls back to the CI lead. The watcher also verifies
-that the selected login can be assigned in this repository; otherwise it
-assigns the CI lead. If neither account is verifiably assignable, the watcher
-refuses to open an unassigned issue. An open issue keeps its verified assignee
-across runs (a CI-lead escalation hands off once to a ranked owner), and its body
-names owners without @-mentions, so the assignment is the only notification. No
-issue can be opened outside the dashboard repository.
-
-Use one GitHub Project, **AMD CI Operations**, with label-backed views instead
-of three separate projects: `workstream:infra`, `workstream:dashboard-ci`, and
-`workstream:dev`. This keeps one lifecycle per incident while still providing
-the requested Infra, dashboard CI, and development queues. The Project sync
-requires a `PROJECTS_WRITE_TOKEN` Actions secret with Projects V2 write access;
-for a classic PAT this is the `project` scope, and the token owner must be able
-to update Andreas Karatzas's Project. The repository-scoped `GITHUB_TOKEN`
-cannot update a user-owned Project. If the secret is absent, issue
-reconciliation and dashboard deployment continue while Project synchronization
-reports a safe no-op.
-
-During credential rotation, the guarded Project-sync step accepts the existing
-`PROJECTS_TOKEN` only as a fallback when `PROJECTS_WRITE_TOKEN` is absent. The
-fallback is confined to the repository/project-validated add-item script;
-install the scoped replacement and remove the legacy secret when rotation is
-complete.
+The dashboard publishes CI data only. It does not open, assign, or route
+issues for CI incidents, and it keeps no roster of team members; ticketing
+is tracked outside this repository. The main-failure and duration watchers
+only keep the incident and slowdown state behind the CI Analytics views. The
+hourly validation incident and the site-health issue remain repository
+self-monitoring.
 
 The hourly GitHub collector reads public `vllm-project` Project #39 and refreshes
 `project_items.json` as a read-only fallback for the Home issue list.
 `PROJECTS_READ_TOKEN` is optional and only raises the API rate limit. Dashboard
 automation never creates or updates Project #39 issues, comments, or fields.
-
-The canonical operational queue is the **AMD CI Operations** project and its managed area issues. Project #39
-supplies read-only issue evidence, while area issues provide the exact latest-nightly
-ownership queue. The existing `amd-main-failure` issue remains a broad all-main
-rollup; these evidence scopes are intentionally distinct.
 
 ## Local development (Nix)
 
