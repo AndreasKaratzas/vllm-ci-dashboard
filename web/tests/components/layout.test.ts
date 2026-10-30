@@ -165,7 +165,7 @@ describe('navigation', () => {
     expect(pageViews('omni')?.items.map((item) => item.value)).toEqual(['workload', 'live'])
     expect(pageViews('home')).toBeUndefined()
     expect(pageViews(undefined)).toBeUndefined()
-    expect(subViewIds('analytics')).toEqual(['groups', 'latency', 'slowdowns', 'nightlies', 'dns', 'agent-health'])
+    expect(subViewIds('analytics')).toEqual(['groups', 'latency', 'slowdowns', 'nightlies', 'dns', 'agent-health', 'docker'])
     expect(subViewIds('perf')).toEqual(['performance', 'accuracy'])
   })
 

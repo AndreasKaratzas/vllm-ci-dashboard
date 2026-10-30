@@ -83,6 +83,23 @@ describe('registry', () => {
     expect(payload.__sourceAsset).toBe(pagesPath)
   })
 
+  it('prefers the newer docker_builds publication and skips a candidate that fails validation', async () => {
+    const fixtures = resolve(__dirname, '../fixtures')
+    const live = JSON.parse(readFileSync(join(fixtures, 'docker_builds_live.json'), 'utf8'))
+    const pages = JSON.parse(readFileSync(join(fixtures, 'docker_builds_pages.json'), 'utf8'))
+    const [livePath, pagesPath] = sources.DATASETS.docker_builds.paths
+    expect(livePath).toMatch(/^https:\/\/raw\.githubusercontent\.com\/.+\/docker-builds-data\/data\/vllm\/ci\/docker_builds\.json$/)
+    expect(pagesPath).toBe('data/vllm/ci/docker_builds.json')
+    server.set(livePath, live)
+    server.set(pagesPath, pages)
+    await expect(sources.datasetLoader('docker_builds')(false, () => {})).resolves.toMatchObject({ generated_at: live.generated_at })
+
+    server.set(livePath, { ...live, jobs: { ...live.jobs, n: live.jobs.n + 1 } })
+    const fallback = sources.datasetLoader('docker_builds')(true, () => {})
+    await vi.advanceTimersByTimeAsync(5000)
+    await expect(fallback).resolves.toMatchObject({ generated_at: pages.generated_at })
+  })
+
   it('registers every data path hard-coded in web/src', () => {
     const root = resolve(__dirname, '../../src')
     const files: string[] = []

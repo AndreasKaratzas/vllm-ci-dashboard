@@ -476,6 +476,7 @@ def test_dashboard_audit_covers_core_user_facing_data_files():
         "data/vllm/test_results.json",
         "data/vllm/ci/ci_health.json",
         "data/vllm/ci/dns_failures.json",
+        "data/vllm/ci/docker_builds.json",
         "data/vllm/ci/analytics.json",
         "data/vllm/ci/amd_test_matrix.json",
         "data/vllm/ci/test_group_parity.json",
@@ -1199,6 +1200,85 @@ def test_dns_only_entrypoint_runs_without_site_packages(tmp_path):
 
     assert completed.returncode == 0, completed.stdout + completed.stderr
     assert "Errors: 0" in completed.stdout
+
+
+def _write_docker_builds_payload(root: Path, generated_at: datetime) -> Path:
+    from vllm.ci import docker_builds
+
+    window_from = generated_at - timedelta(days=docker_builds.RETENTION_DAYS)
+    row = docker_builds.JobRow(
+        id="0193a3b2-58c1-4f4e-9d1e-2f2b6b7c8d9e",
+        build=1234,
+        pipeline="ci",
+        step="image-build-amd",
+        state="passed",
+        source="main",
+        retried=False,
+        created_at=generated_at.replace(microsecond=0) - timedelta(hours=1),
+        wait_s=4,
+        run_s=840,
+        exit=0,
+    )
+    payload = docker_builds.encode_public(
+        [row],
+        generated_at=generated_at,
+        window_days=docker_builds.RETENTION_DAYS,
+        coverage=docker_builds.complete_coverage(window_from.replace(microsecond=0)),
+    )
+    path = root / docker_builds.PUBLIC_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, separators=(",", ":")))
+    return path
+
+
+def _docker_builds_codes(root: Path) -> dict[str, set[str]]:
+    audit = DashboardAudit(root)
+    audit.audit_docker_builds()
+    return {
+        "errors": {finding.code for finding in audit.report.errors},
+        "degradations": {finding.code for finding in audit.report.degradations},
+    }
+
+
+def test_docker_builds_seed_is_degradation_not_error(tmp_path):
+    from vllm.ci import docker_builds
+
+    path = tmp_path / docker_builds.PUBLIC_PATH
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(docker_builds.seed_payload(datetime.now(timezone.utc))))
+
+    assert _docker_builds_codes(tmp_path) == {
+        "errors": set(),
+        "degradations": {"docker-builds-not-collected"},
+    }
+
+
+def test_docker_builds_stale_after_6h(tmp_path):
+    now = datetime.now(timezone.utc)
+    _write_docker_builds_payload(tmp_path, now - timedelta(hours=1))
+    assert _docker_builds_codes(tmp_path) == {"errors": set(), "degradations": set()}
+
+    _write_docker_builds_payload(tmp_path, now - timedelta(hours=7))
+    assert _docker_builds_codes(tmp_path) == {
+        "errors": set(),
+        "degradations": {"docker-builds-stale"},
+    }
+
+
+def test_docker_builds_url_is_error(tmp_path, monkeypatch, capsys):
+    path = _write_docker_builds_payload(tmp_path, datetime.now(timezone.utc))
+    payload = json.loads(path.read_text())
+    payload["jobs"]["id"][0] = "https://buildkite.com/vllm/ci/builds/1234"
+    path.write_text(json.dumps(payload))
+
+    codes = _docker_builds_codes(tmp_path)
+    assert {"docker-builds-secret-or-url", "docker-builds-schema"} <= codes["errors"]
+
+    monkeypatch.setattr(audit_module, "ROOT", tmp_path)
+    assert audit_module.main([
+        "--docker-builds-only", "--docker-builds-path", str(path), "--format", "json",
+    ]) == 1
+    capsys.readouterr()
 
 
 def _dns_candidate_with_changed_lifecycle(tmp_path):

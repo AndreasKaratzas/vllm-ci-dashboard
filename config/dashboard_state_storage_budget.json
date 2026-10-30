@@ -69,6 +69,12 @@
         "data/vllm/ci/dns_failures.json"
       ]
     },
+    "docker_builds": {
+      "max_bytes": 4194304,
+      "patterns": [
+        "data/vllm/ci/docker_builds.json"
+      ]
+    },
     "queue_details": {
       "max_bytes": 2097152,
       "patterns": [
@@ -200,6 +206,10 @@
     "dns_failures": {
       "group": "dns_failures",
       "max_bytes": 6291456
+    },
+    "docker_builds": {
+      "group": "docker_builds",
+      "max_bytes": 4194304
     },
     "queue_details": {
       "group": "queue_details",

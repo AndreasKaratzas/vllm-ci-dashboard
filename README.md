@@ -28,7 +28,7 @@ operational data are published by the scheduled/dispatch
 |------|-------------|
 | **Home** | PRs, project #39 issues, and configured AMD coverage against upstream GPU source definitions |
 | **CI Health** | Current main CI AMD MI runtime health, configured upstream GPU coverage, the AMD test-group inventory (GPU and CPU-only mirrors plus native AMD steps), and MI architecture drilldowns |
-| **CI Analytics** | AMD MI test health, median latency over the latest five completed relevant main CI nightlies, reliability, DNS, and agent health |
+| **CI Analytics** | AMD MI test health, median latency over the latest five completed relevant main CI nightlies, reliability, DNS, agent health, and ROCm docker build run times |
 | **Omni** | Current Omni MI active-job evidence, MI queue windows, queued-age bands, and daily deltas |
 
 ## Markdown Dashboards
@@ -65,6 +65,7 @@ Buildkite-native p50/p95 remain the site-comparable queue series. Percentiles re
 | `scripts/vllm/build_test_group_parity.py` | Derive configured upstream GPU source groups, AMD MI routes, and required gate coverage |
 | `scripts/vllm/collect_queue_snapshot.py` | Queue timeseries, workload-attributed counts, and the exact active-job ledger |
 | `scripts/vllm/collect_capacity_monitor.py` | AMD queue capacity limits plus mirror test-group dependency projections |
+| `scripts/vllm/collect_docker_builds.py` | Run time of the ROCm docker build jobs on `ci` and `amd-ci`, for main and PR builds, over 30 days |
 | `scripts/vllm/build_operations_snapshot.py` | Build the versioned operations manifest and lazy CI Health, Queue, and Omni read-model shards |
 | `scripts/vllm/build_queue_section.py` | Build only the live Queue read-model shard for the independent queue publisher |
 | `scripts/vllm/ci_main_failure_watcher.py` | Track confirmed AMD MI test-group incidents on main for the CI Analytics incidents view |
@@ -77,7 +78,7 @@ Tokenless collection, transformation, and validation steps can be run manually:
 
 Live Buildkite collectors are intentionally excluded from this list. Trigger
 the guarded **Data Collection**, **Queue Monitor**, **Queue Lifecycle Monitor**,
-or **DNS Health Monitor** workflow with `workflow_dispatch` instead. A direct
+**Docker Build Monitor**, or **DNS Health Monitor** workflow with `workflow_dispatch` instead. A direct
 process that can see `BUILDKITE_TOKEN` or `BUILDKITE_API_TOKEN` exits with
 status 78 unless the workflow has supplied a complete durable request-guard
 reservation; exporting a token alone is not a supported local run mode.
@@ -133,8 +134,8 @@ current configuration parity, and queue activity in distinct populations.
 vectors through `source.path`, `source.key`, and `source.vector_key`.
 
 Buildkite collection runs only through the guarded **Data Collection**,
-**Queue Monitor**, **Queue Lifecycle Monitor**, and **DNS Health Monitor**
-GitHub Actions workflows. Local tests and rendering use fixtures without a
+**Queue Monitor**, **Queue Lifecycle Monitor**, **Docker Build Monitor**, and
+**DNS Health Monitor** GitHub Actions workflows. Local tests and rendering use fixtures without a
 Buildkite token. Request allowances and successful collection cadence remain
 bounded by the durable ledgers.
 

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 
+import { routeDocker } from './support/docker.mjs';
 import { collectErrors, expectQuality, setTheme } from './support/quality.mjs';
 
 // Each area adds its routes (every sub-view) once it is on the design system;
@@ -26,6 +27,8 @@ const ROUTES = [
   '/#/analytics?view=agent-health&agent_window=14d&agent_signal=all',
   '/#/analytics?view=agent-health&agent_window=60d&agent_signal=hard&agent_cofail=1440',
   '/#/analytics?view=agent-health&agent_window=14d&agent_signal=all&agent_node=fixture-3f6181c2',
+  '/#/analytics?view=docker',
+  '/#/analytics?view=docker&docker_window=30d&docker_scope=main&docker_pipeline=all',
   '/#/perf',
   '/#/perf?view=accuracy',
   '/#/perf?device=mi300x',
@@ -43,6 +46,7 @@ for (const theme of ['light', 'dark']) {
       test(`${route} meets the quality gates (${theme}, ${viewport.width}px)`, async ({ page }) => {
         await setTheme(page, theme);
         await page.setViewportSize(viewport);
+        await routeDocker(page);
         const errors = collectErrors(page);
         await page.goto(route);
         await page.locator('[data-slot="page-header"]').first().waitFor();
@@ -56,6 +60,7 @@ for (const theme of ['light', 'dark']) {
 // Tables on these routes fit a phone: secondary columns hide below sm instead of scrolling.
 test('phone tables show every visible column without sideways scrolling', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await routeDocker(page);
   for (const [route, ids] of [
     ['/#/', ['nightly-table']],
     ['/#/main', ['main-builds', 'main-incidents-panel', 'main-flaky-panel']],
@@ -71,6 +76,7 @@ test('phone tables show every visible column without sideways scrolling', async 
     ['/#/perf?view=accuracy', ['perf-accuracy']],
     ['/#/omni?view=live', ['omni-live-jobs']],
     ['/#/analytics?view=nightlies', ['nightlies-table']],
+    ['/#/analytics?view=docker', ['docker-jobs']],
   ]) {
     await page.goto(route);
     for (const id of ids) {

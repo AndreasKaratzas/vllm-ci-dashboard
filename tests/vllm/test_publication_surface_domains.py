@@ -107,6 +107,7 @@ def test_active_surfaces_have_unique_ownership_and_cover_public_manifest() -> No
     assert surface_for_path("data/vllm/ci/hotness.json") is None
     assert surface_for_path("data/vllm/ci/parity_key_overrides.json") is None
     assert surface_for_path("data/vllm/ci/dns_failures.json") == "dns_health"
+    assert surface_for_path("data/vllm/ci/docker_builds.json") == "docker_builds"
     assert (
         surface_for_path("data/vllm/ci/test_results/domain-contract.jsonl")
         == "ci_core"
@@ -236,6 +237,7 @@ def test_private_watcher_ledgers_have_no_publication_surface_owner() -> None:
         ("data/vllm/ci/workload_mapping.json", {"queue_workload"}),
         ("data/vllm/ci/omni_surge_heuristic.json", {"queue_omni"}),
         ("data/vllm/ci/dns_failures.json", {"dns_health"}),
+        ("data/vllm/ci/docker_builds.json", {"docker_builds"}),
     ),
 )
 def test_path_specific_findings_route_to_the_owning_domain(
@@ -308,6 +310,7 @@ def test_path_specific_findings_route_to_the_owning_domain(
         ("gating-target-invalid", None, set()),
         ("analytics-invalid", None, {"ci_analytics"}),
         ("dns-health-invalid", None, {"dns_health"}),
+        ("docker-builds-schema", None, {"docker_builds"}),
     ),
 )
 def test_generic_findings_route_to_their_consuming_domains(

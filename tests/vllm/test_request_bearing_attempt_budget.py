@@ -201,6 +201,16 @@ def test_repository_policies_match_audited_composed_caps() -> None:
     assert lifecycle.max_request_bearing_attempts * lifecycle.request_start_allowance == 1_600
 
 
+def test_docker_builds_policy_is_bounded() -> None:
+    docker = budget.load_policy(budget.ROOT / "config/docker_builds_attempt_budget.json")
+    assert docker.producer == "docker_builds"
+    assert docker.branch == "docker-builds-attempt-budget"
+    assert (docker.window_hours, docker.max_request_bearing_attempts) == (25, 16)
+    assert (docker.success_interval_minutes, docker.failed_retry_interval_minutes) == (120, 30)
+    assert docker.request_start_allowance == budget.RUNTIME_ALLOWANCE_CEILINGS["docker_builds"] == 30
+    assert docker.max_request_bearing_attempts * docker.request_start_allowance == 480
+
+
 def test_initialization_is_parentless_exact_one_file_and_missing_fails_closed(
     repo: tuple[Path, Path], policy: budget.AttemptPolicy
 ) -> None:

@@ -274,6 +274,28 @@ def test_send_level_patch_counts_redirect_hops_and_ignores_non_buildkite(
     assert len(transported) == 3
 
 
+def test_graphql_post_is_charged_and_refused_after_allowance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = initialize(tmp_path, allowance=1)
+    transported: list[str] = []
+
+    def fake_send(session, request, *args, **kwargs):
+        transported.append(request.method)
+        response = requests.Response()
+        response.status_code = 200
+        return response
+
+    monkeypatch.setattr(requests.sessions.Session, "send", fake_send)
+    guard.install(path, attempt_id="data-100-1", allowance=1)
+
+    requests.post("https://graphql.buildkite.com/v1", json={"query": "{ viewer { id } }"})
+    assert guard.read_count(path, attempt_id="data-100-1", allowance=1) == 1
+    with pytest.raises(guard.BuildkiteRequestAllowanceExhausted, match="blocked before transport"):
+        requests.post("https://graphql.buildkite.com/v1", json={"query": "{ viewer { id } }"})
+    assert transported == ["POST"]
+
+
 @pytest.mark.parametrize(
     "url",
     [

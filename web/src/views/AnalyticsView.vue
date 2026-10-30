@@ -9,6 +9,7 @@ import { shortDate } from '@/domain/format'
 import { useFreshness } from '@/features/freshness/useFreshness'
 import AnalyticsAgentHealth from './analytics/AnalyticsAgentHealth.vue'
 import AnalyticsDns from './analytics/AnalyticsDns.vue'
+import AnalyticsDocker from './analytics/AnalyticsDocker.vue'
 import AnalyticsGroups from './analytics/AnalyticsGroups.vue'
 import AnalyticsLatency from './analytics/AnalyticsLatency.vue'
 import AnalyticsNightlies from './analytics/AnalyticsNightlies.vue'
@@ -52,6 +53,11 @@ const INFO: Record<string, AnalyticsSubview> = {
     description: 'Failures attributed to physical AMD CI nodes, their clustering in time, and the runs behind them.',
     component: AnalyticsAgentHealth,
     source: 'agent_health',
+  },
+  docker: {
+    description: 'How long the ROCm docker build jobs take on Buildkite, for main and PR builds, and how often the base image is rebuilt.',
+    component: AnalyticsDocker,
+    source: 'docker_builds',
   },
 }
 const VIEWS = SUB_VIEWS.analytics.items.map((item) => ({ ...item, ...INFO[item.value]! }))

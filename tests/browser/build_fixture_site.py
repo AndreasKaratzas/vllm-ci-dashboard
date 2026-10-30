@@ -27,6 +27,7 @@ from vllm import build_operations_snapshot as operations  # noqa: E402
 from vllm import build_test_group_parity as parity  # noqa: E402
 from vllm import collect_agent_health as agents  # noqa: E402
 from vllm import collect_amd_test_matrix as matrix  # noqa: E402
+from vllm.ci import docker_builds  # noqa: E402
 from vllm.ci.nightly_latency import build_current_nightly_latency  # noqa: E402
 from vllm.ci.reliability_history import build_all_main_reliability  # noqa: E402
 from vllm.collect_analytics import summarize_pipeline_builds  # noqa: E402
@@ -308,6 +309,80 @@ def duration_state(mains: list[dict]) -> dict:
     }
 
 
+# ROCm docker build jobs, as (pipeline, step, day before GENERATED_AT, hour, minutes, source) plus options.
+# Over the last 14 days vllm/ci has 20 finished first test image runs (one failed), a retried attempt
+# and a running job, and 29 base runs: 24 reused (72-95 s), partial rebuilds of 15, 45 and 95 min and
+# full rebuilds of 2.5 and 5 h. Day 5 has no test image run. Older days, vllm/amd-ci and the retired
+# ci_base step only widen the other slices.
+IMAGE_MINUTES = (10, 12, 14, 15, 16, 18, 20, 22, 24, 25, 26, 28, 30, 32, 35, 38, 40, 45, 50, 60)
+IMAGE, BASE, RETIRED = "image-build-amd", "refresh-rocm-base-amd", "ensure-ci-base-amd"
+
+
+def docker_jobs() -> list[tuple]:
+    days = [day for day in range(14) if day != 5]
+    jobs: list[tuple] = []
+    for index, minutes in enumerate(IMAGE_MINUTES):
+        jobs.append(("ci", IMAGE, days[index % 13], 2 + 8 * (index // 13), minutes, "pr" if index % 2 else "main",
+                     {"failed": index == 7}))
+    jobs.append(("ci", IMAGE, 0, 1, 8, "main", {"retried": True, "failed": True, "build_of": 0}))
+    jobs.append(("ci", IMAGE, 0, 19.5, None, "pr", {"running": True}))
+    for index in range(24):
+        source = "other" if index == 23 else "pr" if index % 2 else "main"
+        jobs.append(("ci", BASE, index % 14, 3 + 8 * (index // 14), (72 + index) / 60, source, {}))
+    for day, minutes, source in ((1, 15, "main"), (4, 45, "pr"), (8, 95, "main"), (2, 150, "pr"), (10, 300, "main")):
+        jobs.append(("ci", BASE, day, 6, minutes, source, {}))
+    jobs += [("ci", RETIRED, 9, 7, 1.6, "main", {}), ("ci", RETIRED, 12, 7, 40, "pr", {})]
+    for day, minutes in ((16, 20), (19, 30), (23, 40), (27, 55)):
+        jobs.append(("ci", IMAGE, day, 4, minutes, "main", {}))
+    for day in (15, 21, 26):
+        jobs.append(("ci", BASE, day, 4, 1.5, "pr", {}))
+    jobs += [("ci", BASE, 20, 5, 240, "main", {}), ("ci", RETIRED, 25, 5, 1.6, "main", {})]
+    for day, minutes in ((1, 18), (3, 22), (6, 33)):
+        jobs.append(("amd-ci", IMAGE, day, 9, minutes, "main", {}))
+    for day, minutes in ((1, 1.3), (2, 30), (3, 1.4), (6, 1.5)):
+        jobs.append(("amd-ci", BASE, day, 9, minutes, "main", {}))
+    # A job of another queue is dropped by the projection.
+    jobs.append(("ci", IMAGE, 0, 3, 90, "main", {"queue": "medium_cpu_queue_premerge"}))
+    return jobs
+
+
+def docker_builds_payload() -> dict:
+    """GraphQL job nodes for docker_jobs(), through the production projection and encoder."""
+    generated = datetime.fromisoformat(GENERATED_AT.replace("Z", "+00:00"))
+    day_zero = generated.replace(hour=0, minute=0, second=0)
+    stamp = docker_builds.format_timestamp
+    rows = []
+    for index, (pipeline, step, day, hour, minutes, source, options) in enumerate(docker_jobs()):
+        build = (32000 if pipeline == "ci" else 900) + options.get("build_of", index)
+        created = day_zero - timedelta(days=day) + timedelta(hours=hour)
+        started = created + timedelta(seconds=5 + index % 7 * 3)
+        finished = None if minutes is None else started + timedelta(seconds=round(minutes * 60))
+        failed = options.get("failed", False)
+        node = {
+            "uuid": str(uuid5(NAMESPACE_URL, f"browser-docker/{pipeline}/{index}")),
+            "state": "RUNNING" if options.get("running") else "FINISHED",
+            "step": {"key": step}, "createdAt": stamp(created), "runnableAt": stamp(created + timedelta(seconds=5)),
+            "startedAt": stamp(started), "finishedAt": finished and stamp(finished),
+            "retried": options.get("retried", False), "passed": not failed and finished is not None,
+            "exitStatus": "1" if failed else "0" if finished else None,
+            "agentQueryRules": [f"queue={options.get('queue', docker_builds.QUEUE)}"],
+            "build": {"number": build, "branch": "main" if source == "main" else f"fixture/{source}",
+                      "pullRequest": {"id": f"pr-{build}"} if source == "pr" else None},
+        }
+        row = docker_builds.normalize_node(node, pipeline)
+        if row:
+            rows.append(row)
+    window_from = generated - timedelta(days=docker_builds.RETENTION_DAYS)
+    payload = docker_builds.encode_public(
+        docker_builds.merge_rows([], rows, now=generated), generated_at=generated,
+        window_days=docker_builds.RETENTION_DAYS, coverage=docker_builds.complete_coverage(window_from),
+    )
+    errors = docker_builds.validate_public(payload)
+    if errors:
+        raise ValueError(f"synthetic docker_builds payload is invalid: {errors}")
+    return payload
+
+
 def seed_current_ci(data_dir: Path) -> None:
     raw = raw_nightlies()
     builds = summarize_pipeline_builds("ci", raw)
@@ -400,6 +475,7 @@ def seed_current_ci(data_dir: Path) -> None:
         },
     )
     write_json(data_dir / "agent_health.json", generation["payload"])
+    (data_dir / "docker_builds.json").write_bytes(docker_builds.serialize_public(docker_builds_payload()))
 
 
 def main() -> None:

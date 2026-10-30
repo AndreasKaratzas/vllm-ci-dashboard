@@ -89,6 +89,7 @@ def test_every_buildkite_token_step_has_one_initialized_local_transport_guard() 
 
     assert guarded_workflows == {
         "dns-health.yml",
+        "docker-builds.yml",
         "hourly-master.yml",
         "queue-lifecycle.yml",
         "queue-monitor.yml",

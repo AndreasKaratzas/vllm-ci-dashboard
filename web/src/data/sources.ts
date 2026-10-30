@@ -1,4 +1,5 @@
 import { createDnsLoader } from '@/domain/dns'
+import { assertDockerBuilds } from '@/domain/dockerBuilds'
 import type { Rec } from '@/domain/format'
 import { fetchJSON, type FetchOptions } from './client'
 
@@ -7,6 +8,7 @@ const RAW = 'https://raw.githubusercontent.com/AndreasKaratzas/vllm-ci-dashboard
 // Collectors push these branches between Pages deployments, so they can be newer than Pages.
 const QUEUE_LIVE = `${RAW}queue-data/${CI}`
 const DNS_LIVE = `${RAW}dns-health-data/${CI}`
+const DOCKER_LIVE = `${RAW}docker-builds-data/${CI}`
 
 export const OPERATIONS_MANIFEST_PATH = `${CI}operations_v2_manifest.json`
 
@@ -118,6 +120,13 @@ export const DATASETS = {
     publishedAt: generatedAt,
     createLoader: dnsLoader,
     surface: 'dns_health',
+  },
+  docker_builds: {
+    paths: [`${DOCKER_LIVE}docker_builds.json`, `${CI}docker_builds.json`],
+    refresh: { on: 'poll' },
+    publishedAt: generatedAt,
+    validate: assertDockerBuilds,
+    surface: 'docker_builds',
   },
 } as const satisfies Record<string, DatasetSource>
 

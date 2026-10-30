@@ -186,6 +186,9 @@ SURFACE_SPECS: dict[str, SurfaceSpec] = {
     "dns_health": SurfaceSpec(
         required_paths=("data/vllm/ci/dns_failures.json",),
     ),
+    "docker_builds": SurfaceSpec(
+        required_paths=("data/vllm/ci/docker_builds.json",),
+    ),
     "github_home": SurfaceSpec(
         required_paths=(
             "data/vllm/ci/project_items.json",
@@ -578,6 +581,7 @@ _PREFIX_ROUTES = (
     (("latency-",), "ci_analytics"),
     (("queue-lifecycle-",), "queue_lifecycle"),
     (("dns-health-",), "dns_health"),
+    (("docker-builds-",), "docker_builds"),
     (("queue-",), "queue"),
     (("ci-pr-", "linked-ci-pr-", "rocm-pr-", "ci-custom-tag", "rocm-custom-tag", "home-", "project-issue-"), "github_home"),
 )
@@ -627,6 +631,7 @@ PUBLICATION_SURFACE_LABELS = {
     "ci_analytics": "CI analytics",
     "ci_core": "CI core health",
     "dns_health": "DNS health",
+    "docker_builds": "Docker builds",
     "github_home": "Project activity",
     "perf_eval": "Performance evaluation",
     "queue": "Queue health",

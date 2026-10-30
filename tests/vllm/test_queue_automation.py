@@ -1043,6 +1043,125 @@ class TestQueueLifecycleWorkflow:
         assert "queue_timeseries.jsonl" not in publish
 
 
+class TestDockerBuildsWorkflow:
+    """The docker build producer reuses the lifecycle ledger, guard and branch shape."""
+
+    @pytest.fixture
+    def workflow(self):
+        return yaml.safe_load((WORKFLOWS / "docker-builds.yml").read_text())
+
+    @pytest.fixture
+    def steps(self, workflow):
+        return workflow["jobs"]["docker-builds"]["steps"]
+
+    def test_independent_lock_and_off_minute_schedule(self, workflow):
+        triggers = workflow.get(True, {})
+        assert [row.get("cron") for row in triggers["schedule"]] == ["21,51 * * * *"]
+        assert triggers["repository_dispatch"] == {"types": ["docker_builds_tick"]}
+        assert workflow["concurrency"] == {
+            "group": "docker-builds-data-publish",
+            "cancel-in-progress": False,
+        }
+        assert workflow["permissions"] == {"actions": "write", "contents": "write"}
+        job = workflow["jobs"]["docker-builds"]
+        assert job["timeout-minutes"] == 30
+        assert job["env"] == {
+            "PYTHONPATH": "${{ github.workspace }}/scripts",
+            "DOCKER_CHECKPOINT": "data/vllm/ci/.cache/docker-builds-wip-v1/checkpoint.json.gz",
+        }
+
+    def test_token_reaches_only_the_guarded_collect_step(self, steps):
+        names = [step.get("name") for step in steps]
+        token_steps = [
+            step["name"]
+            for step in steps
+            if {"BUILDKITE_TOKEN", "BUILDKITE_API_TOKEN"} & set(step.get("env") or {})
+        ]
+        assert token_steps == ["Collect ROCm docker build jobs"]
+        collect = steps[names.index("Collect ROCm docker build jobs")]
+        assert collect["env"]["BUILDKITE_TOKEN"] == "${{ secrets.BUILDKITE_TOKEN }}"
+        assert collect["timeout-minutes"] == 22
+        assert "--max-requests 30" in collect["run"]
+        assert "--time-budget-seconds 1080" in collect["run"]
+        assert names.index("Reserve guarded Docker Builds attempt") == 1
+        assert names.index("Reserve guarded Docker Builds attempt") < names.index(
+            "Initialize exact Buildkite request guard"
+        ) < names.index("Restore durable docker builds baseline") < names.index(
+            "Collect ROCm docker build jobs"
+        ) < names.index("Read exact guarded Buildkite request total")
+
+    def test_gated_attempt_makes_no_requests(self, steps):
+        reserved = "steps.request-attempt.outputs.request_mode == 'reserved'"
+        reserve = steps[1]["run"]
+        assert "--config config/docker_builds_attempt_budget.json reserve" in reserve
+        assert '[ "$ALLOWANCE" != 30 ]' in reserve
+        assert "buildkite_request_guard.py initialize" not in reserve
+        for step in steps[2:]:
+            condition = str(step.get("if", ""))
+            if step.get("name") == "Report bounded request gate":
+                assert condition == "steps.request-attempt.outputs.request_mode != 'reserved'"
+            elif "durable_ref" not in condition:
+                assert reserved in condition, step.get("name")
+        assert sum(
+            str(step.get("uses", "")).startswith("actions/setup-python@") for step in steps
+        ) == 1
+
+    def test_bounded_yields_are_private_progress(self, steps):
+        by_name = {step.get("name"): step for step in steps}
+        script = by_name["Collect ROCm docker build jobs"]["run"]
+        assert 'elif [ "$DOCKER_STATUS" -eq 75 ]' in script
+        assert 'elif [ "$DOCKER_STATUS" -eq 76 ]' in script
+        assert script.count('echo "collection_complete=false"') == 2
+        assert 'exit "$DOCKER_STATUS"' in script
+        for name in ("Validate docker builds evidence", "Publish durable docker builds evidence"):
+            condition = by_name[name]["if"]
+            assert "collection_complete == 'true'" in condition
+            assert "steps.request-guard-report.outcome == 'success'" in condition
+        validate = by_name["Validate docker builds evidence"]["run"]
+        assert "collect_docker_builds.py --validate-only" in validate
+        assert "--docker-builds-only --docker-builds-path" in validate
+
+    def test_publishes_only_the_public_aggregate_under_a_lease(self, steps):
+        names = [step.get("name") for step in steps]
+        by_name = {step.get("name"): step for step in steps}
+        restore = by_name["Restore durable docker builds baseline"]["run"]
+        assert "git ls-remote --exit-code --refs origin refs/heads/docker-builds-data" in restore
+        assert "--restore-git-ref origin/docker-builds-data" in restore
+        assert "baseline_ref=bootstrap" in restore
+        assert "refusing to publish" in restore
+        publish = by_name["Publish durable docker builds evidence"]["run"]
+        assert 'git -C "$LIVE_ROOT" add data/vllm/ci/docker_builds.json' in publish
+        assert "checkpoint" not in publish.casefold()
+        assert "--force-with-lease=refs/heads/docker-builds-data:" in publish
+        assert ":$DOCKER_BASELINE_REF" in publish
+        assert "HEAD:docker-builds-data" in publish
+        mark = by_name["Mark durable Docker Builds success"]["run"]
+        assert "--config config/docker_builds_attempt_budget.json mark-success" in mark
+        assert "for MARK_ATTEMPT in 1 2 3" in mark
+        assert names.index("Publish durable docker builds evidence") < names.index(
+            "Mark durable Docker Builds success"
+        ) < names.index("Clear published docker builds WIP") < names.index(
+            "Save private docker builds recovery checkpoint"
+        )
+
+    def test_private_checkpoint_cache_is_namespaced_and_pruned(self, steps):
+        by_name = {step.get("name"): step for step in steps}
+        cache_path = "data/vllm/ci/.cache/docker-builds-wip-v1"
+        assert 'CACHE_NAMESPACE="docker-builds-wip-v1-${{ runner.os }}"' in by_name[
+            "Prepare private docker builds WIP cache key"
+        ]["run"]
+        restore = by_name["Restore newest private docker builds WIP"]
+        save = by_name["Save private docker builds recovery checkpoint"]
+        assert restore["uses"] == f"actions/cache/restore@{CACHE_ACTION_REVISION}"
+        assert save["uses"] == f"actions/cache/save@{CACHE_ACTION_REVISION}"
+        assert restore["with"]["path"] == save["with"]["path"] == cache_path
+        assert "always()" in save["if"]
+        prune = by_name["Prune superseded private docker builds caches"]
+        assert prune["continue-on-error"] is True
+        assert '--key "docker-builds-wip-v1-${{ runner.os }}-"' in prune["run"]
+        assert "--jq '.[8:] | .[].id'" in prune["run"]
+
+
 class TestCollectorPagination:
     """Validate the collector handles pagination for large result sets."""
 
