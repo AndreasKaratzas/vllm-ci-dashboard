@@ -3135,18 +3135,18 @@ def test_v7_fallback_rejects_invalid_retired_override_proof_before_retirement(tm
     assert state_path.read_bytes() == before
 
 
-def test_v8_fallback_inventory_excludes_retired_parity_override(tmp_path):
+def test_current_fallback_inventory_excludes_retired_parity_override(tmp_path):
     state_path, override = _write_parity_override_fallback_fixture(tmp_path, historical=False)
     payload = json.loads(state_path.read_text())
     relative = override.relative_to(tmp_path).as_posix()
-    assert payload["surface_contract_version"] == 8
+    assert payload["surface_contract_version"] == 9
     assert not override.exists()
     assert relative not in payload["restored_manifest"]["ci_core"]
     audit = DashboardAudit(tmp_path, publication_state_path=state_path)
     assert audit.fallback_surfaces() == frozenset({"ci_core", "ci_analytics"})
     assert audit.report.errors == []
 
-    # A v8 proof cannot re-admit a retired v7 artifact as current ownership.
+    # A current proof cannot re-admit a retired v7 artifact as current ownership.
     override.write_text('{}\n')
     payload["restored_manifest"]["ci_core"][relative] = _manifest_descriptor(override)
     payload["restored_paths"]["ci_core"].append(relative)
@@ -4262,7 +4262,6 @@ def test_hourly_workflow_orders_live_audit_tests_and_enforcement(tmp_path):
         "name: Save resumable CI backfill checkpoint",
         "name: Collect AMD test matrix",
         "name: Refresh current main CI parity",
-        "name: Collect build-pinned CI ownership parity",
         "name: Validate current CI core before analytics",
         "name: Collect CI analytics",
         "name: Save private analytics build cache",
@@ -4308,8 +4307,7 @@ def test_actual_workflow_audit_accepts_current_producers_without_retired_expecta
 
 
 @pytest.mark.parametrize("step", [
-    "Refresh current main CI parity", "Collect build-pinned CI ownership parity",
-    "Validate current CI core before analytics",
+    "Refresh current main CI parity", "Validate current CI core before analytics",
 ])
 def test_actual_workflow_audit_requires_current_source_stages(tmp_path, step):
     hourly = tmp_path / ".github/workflows/hourly-master.yml"
@@ -4327,7 +4325,6 @@ def test_actual_workflow_audit_requires_current_source_stages(tmp_path, step):
     "Save resumable CI backfill checkpoint",
     "Collect AMD test matrix",
     "Refresh current main CI parity",
-    "Collect build-pinned CI ownership parity",
     "Validate current CI core before analytics",
 ])
 def test_actual_workflow_audit_rejects_core_validation_moved_after_analytics(tmp_path, step):
@@ -5676,7 +5673,7 @@ def test_operations_bundle_accepts_current_latency_above_retired_comparison_limi
     )
 
     _output, manifest = _large_current_latency_bundle(tmp_path)
-    assert manifest["bundle_version"] == 4
+    assert manifest["bundle_version"] == 5
     assert 1_500_000 < manifest["sections"]["comparison"]["bytes"] <= OPERATIONS_CANARY_SECTION_MAX_BYTES["comparison"]
     assert OPERATIONS_CANARY_SECTION_MAX_BYTES["comparison"] == 6 * 1024 * 1024
     assert OPERATIONS_CANARY_BUNDLE_MAX_BYTES == 32 * 1024 * 1024

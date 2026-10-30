@@ -2190,7 +2190,7 @@ def main():
     # YAML config parity (fetches from upstream GitHub)
     if not args.skip_config_parity:
         log.info("Running YAML config parity analysis (fetching from upstream)...")
-        from vllm.collect_ownership_parity import bounded_config_parity_payload
+        from vllm.config_parity import bounded_config_parity_payload
         config_parity = runtime_config_parity
         if "error" not in config_parity:
             config_parity = bounded_config_parity_payload(

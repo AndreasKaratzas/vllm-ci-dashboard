@@ -94,9 +94,22 @@ def _managed_issue(number: int) -> dict:
 
 
 def test_suballocations_compose_exactly_to_the_shared_watcher_budget() -> None:
-    assert len(WATCHER_STATE_WRITERS) == 8
-    assert "open_amd_main_failure_issues.json" not in WATCHER_STATE_WRITERS
-    assert watcher_state_max_bytes("open_amd_main_failure_issues.json") > 0
+    assert set(WATCHER_STATE_WRITERS) == {
+        "open_ci_main_failure_issues.json",
+        "open_amd_duration_regression_issues.json",
+    }
+    # Retired ledgers keep their envelope so historical state stays readable.
+    for retired in (
+        "open_amd_main_failure_issues.json",
+        "open_agent_health_issues.json",
+        "open_ci_area_regression_issues.json",
+        "open_ci_flakiness_issues.json",
+        "open_omni_surge_issues.json",
+        "open_queue_issues.json",
+        "open_queue_zombie_issues.json",
+    ):
+        assert retired not in WATCHER_STATE_WRITERS
+        assert watcher_state_max_bytes(retired) > 0
     assert watcher_state_allocated_bytes() == 3 * 1024 * 1024 + 256 * 1024
     assert watcher_state_allocated_bytes() == group_max_bytes("watcher_state")
 
@@ -104,15 +117,9 @@ def test_suballocations_compose_exactly_to_the_shared_watcher_budget() -> None:
 @pytest.mark.parametrize(
     "module_path",
     [
-        "scripts/vllm/agent_health_issue_watcher.py",
         "scripts/vllm/amd_duration_regression_watcher.py",
         "scripts/vllm/amd_main_failure_watcher.py",
-        "scripts/vllm/ci_area_regression_watcher.py",
-        "scripts/vllm/ci_flakiness_watcher.py",
         "scripts/vllm/ci_main_failure_watcher.py",
-        "scripts/vllm/omni_surge_watcher.py",
-        "scripts/vllm/queue_issue_watcher.py",
-        "scripts/vllm/queue_zombie_watcher.py",
     ],
 )
 def test_every_watcher_routes_state_through_the_shared_writer(module_path: str) -> None:
@@ -351,56 +358,6 @@ def test_area_state_prunes_clear_cache_but_keeps_open_and_pending_mappings() -> 
     assert retention["protected_mappings"]["omitted"] == 0
     assert retention["collections"]["signals"]["omitted"] == 10_000
     assert retention["collections"]["areas"]["omitted"] == 1
-
-
-def test_managed_area_keeps_a_clear_schema_sentinel_for_soft_hysteresis() -> None:
-    from vllm.ci.ownership import apply_incident_hysteresis
-
-    source = {
-        "schema_version": 1,
-        "areas": {
-            "kernels": {
-                "issue": {"number": 44, "opened_at": "now"},
-                "incident_state_version": 1,
-                "signals": {
-                    "old-clear": {
-                        "status": "clear",
-                        "build_watermark": 10,
-                        "identity": {"id": "old-clear", "label": "old"},
-                        "refetchable": "x" * 5_000,
-                    }
-                },
-            }
-        },
-        "last_run": "now",
-    }
-    published, _ = bounded_watcher_state(
-        Path("open_ci_area_regression_issues.json"),
-        source,
-        max_bytes=2_000,
-    )
-    assert set(published["areas"]["kernels"]["signals"]) == {"old-clear"}
-
-    status = {
-        "areas": [
-            {
-                "area": "kernels",
-                "targets": [
-                    {
-                        "id": "new-soft",
-                        "label": "new soft",
-                        "result": "soft",
-                        "build_number": 11,
-                        "observed_at": "2026-09-01T00:00:00Z",
-                    }
-                ],
-                "counts": {},
-            }
-        ],
-        "summary": {},
-    }
-    signals = apply_incident_hysteresis(status, published["areas"])
-    assert signals["kernels"]["new-soft"]["status"] == "pending_soft"
 
 
 def test_queue_state_keeps_every_open_and_suppressed_mapping() -> None:

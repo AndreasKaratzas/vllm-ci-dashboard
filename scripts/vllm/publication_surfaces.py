@@ -17,12 +17,22 @@ PRE_QUEUE_SPLIT_SURFACE_CONTRACT_VERSION = 4
 PRE_VIEW_RETIREMENT_SURFACE_CONTRACT_VERSION = 5
 PRE_RUNTIME_PARITY_SURFACE_CONTRACT_VERSION = 6
 PRE_PARITY_OVERRIDES_SURFACE_CONTRACT_VERSION = 7
-SURFACE_CONTRACT_VERSION = 8
+PRE_TICKETING_RETIREMENT_SURFACE_CONTRACT_VERSION = 8
+SURFACE_CONTRACT_VERSION = 9
 RETIRED_SURFACES = frozenset({"ci_gating", "ci_changes", "ci_hotness"})
 RETIRED_RUNTIME_PARITY_PATHS = frozenset({
     "data/vllm/ci/parity_report.json", "data/vllm/parity_report.json",
 })
 RETIRED_PARITY_OVERRIDE_PATHS = frozenset({"data/vllm/ci/parity_key_overrides.json"})
+# Issue ticketing and owner routing left the dashboard; these were its inputs,
+# outputs and ledgers.
+RETIRED_TICKETING_PATHS = frozenset({
+    "data/vllm/ci/ci_ownership.json",
+    "data/vllm/ci/open_omni_surge_issues.json",
+    "data/vllm/ci/open_queue_issues.json",
+    "data/vllm/ci/open_queue_zombie_issues.json",
+    "data/vllm/ci/ownership_config_parity.json",
+})
 
 
 @dataclass(frozen=True)
@@ -215,6 +225,30 @@ CI_CORE_SURFACE_SPEC = SurfaceSpec(
     globs=CI_CORE_SURFACE_SPEC.globs,
 )
 SURFACE_SPECS = {**SURFACE_SPECS, "ci_core": CI_CORE_SURFACE_SPEC}
+PRE_TICKETING_RETIREMENT_SURFACE_SPECS = dict(SURFACE_SPECS)
+# Contract v8 still owned the ticketing files. Validate that historical proof
+# in full before publishing a v9 without them.
+
+
+def _without_ticketing(spec: SurfaceSpec) -> SurfaceSpec:
+    return SurfaceSpec(
+        required_paths=tuple(path for path in spec.required_paths
+                             if path not in RETIRED_TICKETING_PATHS),
+        optional_paths=tuple(path for path in spec.optional_paths
+                             if path not in RETIRED_TICKETING_PATHS),
+        globs=spec.globs,
+    )
+
+
+CI_CORE_SURFACE_SPEC = _without_ticketing(CI_CORE_SURFACE_SPEC)
+QUEUE_LIVE_SURFACE_SPEC = _without_ticketing(QUEUE_LIVE_SURFACE_SPEC)
+QUEUE_OMNI_SURFACE_SPEC = _without_ticketing(QUEUE_OMNI_SURFACE_SPEC)
+SURFACE_SPECS = {
+    **SURFACE_SPECS,
+    "ci_core": CI_CORE_SURFACE_SPEC,
+    "queue": QUEUE_LIVE_SURFACE_SPEC,
+    "queue_omni": QUEUE_OMNI_SURFACE_SPEC,
+}
 
 
 # Schema-v1 publication state used one monolithic ``ci`` transaction.  Keep
@@ -324,9 +358,7 @@ SOURCE_SURFACES = {
     "queue_jobs": "queue",
     "workload_mapping": "queue_workload",
     "omni_heuristic": "queue_omni",
-    "omni_issue_state": "queue_omni",
     "project_items": "github_home",
-    "ci_ownership": "ci_core",
 }
 
 # Operations is a derived read model, so its findings must roll back the source

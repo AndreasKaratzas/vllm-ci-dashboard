@@ -12,13 +12,13 @@ latency. Physical node and DNS history remain independent infrastructure evidenc
 | Target Health | `collect_gating_targets.py`, `collect_gating_target_candidates.py`, `collect_gating_proposals.py`, `write_gating_nightlies`, target renderers and joins | `vllm_amd_gating_targets.json`, `gating_targets.json`, `gating_target_candidates.json`, `gating_proposals.json`, `gating_nightlies.json`, `operations_v2/gating.json` |
 | Flake / Retry Comparison | comparison tables, historical comparison projections, retry-only comparison helpers | `operations_v2/comparison_retry_evidence.json` |
 | CUDA execution comparison | CUDA nightly cohort/selector, counterpart matching, ratios/deltas, comparison charts/drawers, the uncalled generic history browser, legacy utils parity/link/overlay graph, unused parity-family/hardware helpers, runtime override producer/API, and empty upstream-summary plumbing | Raw runtime `parity_report.json`, its mirrored root file, and `parity_key_overrides.json` are retired inputs |
-| Duplicate AMD main alert | Duplicate scheduled reconciliation and state projection; shared retry and issue-state helpers remain in use by the canonical MI CI watcher | `open_amd_main_failure_issues.json` |
+| Duplicate AMD main alert | Duplicate scheduled reconciliation and state projection | `open_amd_main_failure_issues.json` |
+| Issue ticketing and owner routing (tracked outside this repository) | `ci_area_regression_watcher.py`, `ci_flakiness_watcher.py`, `agent_health_issue_watcher.py`, `queue_issue_watcher.py`, `queue_zombie_watcher.py`, Omni issue mode, `sync_ci_operations_project.py`, `ensure_ci_operations_labels.py`, `collect_ownership_parity.py`, `ci/managed_issue.py`, `ci/ownership.py`, `ci/group_identity.py`, the owner roster config, the classic ownership renderer, and the issue paths of the main-failure, duration and main-pulse watchers | `ci_ownership.json`, `ownership_config_parity.json`, `operations_v2/ownership.json`, `omni.issue_state`, and the queue, zombie, Omni, flakiness, agent-health and area issue ledgers |
 | Queue Monitor page | queue page renderer, page-only helpers, navigation, controls, CSS, and the obsolete `test_dashboard_trends_data.py` chart contracts | No independent collector retirement: shared observations still serve Omni and infrastructure automation |
 
 Exclusive tests, workflow steps, public manifest entries, storage allocations,
 source-audit rules, and CSS were retired with their consumers. Old deep links
-redirect to supported views. The still-used hardware identity normalizer moved
-from the retired candidate collector into `ci/group_identity.py`.
+redirect to supported views.
 Latency publication audits use the shared bundle allocation; the historical
 flake/retry comparison limits and their exclusive live-data checks are removed.
 

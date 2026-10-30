@@ -17,6 +17,7 @@ from vllm import (
     check_site_health,
     github_git_proof,
     public_projection,
+    publication_surfaces,
 )
 from vllm import publication_limits
 
@@ -56,28 +57,20 @@ def test_operational_documentation_matches_the_canonical_publication_path() -> N
         assert "scripts/vllm/collect_gating_targets.py" not in text
         assert "scripts/vllm/build_test_group_parity.py" in text
         assert "scripts/vllm/build_operations_snapshot.py" in text
-        assert "scripts/vllm/collect_ownership_parity.py" in text
-        assert "scripts/vllm/ci_area_regression_watcher.py" in text
-        assert "env -u GITHUB_TOKEN python scripts/vllm/ci_area_regression_watcher.py" in text
-        assert "AMD CI Operations" in text
-        assert "Ready Tickets → CI ownership" not in text
-        assert "CI_OWNER_AVAILABILITY_JSON" not in text
-        assert "Europe/Belgrade" in text
-        assert "America/Chicago" in text
-        assert "Assignment uses only these committed regional schedules" in text
-        assert "a schedule cannot be" in text
-        assert "evaluated safely" in text
-        assert "PROJECTS_WRITE_TOKEN" in text
+        assert "ticketing" in text and "is tracked outside this repository" in text
+        for retired in ("collect_ownership_parity.py", "ci_area_regression_watcher.py",
+                        "sync_ci_operations_project.py", "vllm_ci_ownership.json",
+                        "PROJECTS_WRITE_TOKEN", "AMD CI Operations"):
+            assert retired not in text
         assert "`gating_targets.json` is regenerated" not in text
-        assert "The private `operations_v2.json.gz` build input produces bundle v3 with eleven" in text
+        assert "The private `operations_v2.json.gz` build input produces bundle v5 with eleven" in text
         assert "Current CI execution metrics use only AMD MI GPU jobs from the `ci` pipeline." in text
         assert "runtime gates" not in text
 
-    assert "CI_OWNER_AVAILABILITY_JSON" not in scripts_readme
-    assert "regional working-hour profiles" in scripts_readme
+    assert "vllm_ci_ownership.json" not in scripts_readme
     assert "Every two hours via `hourly-master.yml`" in scripts_readme
     assert "operations_v2_manifest.json + operations_v2/*.json" in scripts_readme
-    assert "Contract v8" in scripts_readme
+    assert "Contract v9" in scripts_readme
     assert "`ci_analytics` publication surface" in scripts_readme
     assert "`ci-collect.yml` workflow is validation-only" in scripts_readme
     assert "runtime health from the observed `ci` nightly" in audit
@@ -107,7 +100,6 @@ def _operation_generated_files() -> list[str]:
             "main_ci",
             "nightly",
             "omni",
-            "ownership",
             "queue",
             "reliability",
             "test_group_parity",
@@ -914,10 +906,14 @@ def test_production_manifest_matches_current_operation_sections() -> None:
         for record in operation_manifest["shell"]["sources"].values()
         if record.get("published") is False
     }
-    mutation_checkpoints = {"vllm/ci/open_omni_surge_issues.json"}
+    retired_ledgers = {
+        path.removeprefix("data/") for path in publication_surfaces.RETIRED_TICKETING_PATHS
+    }
     assert published_diagnostic_sources <= allowed_exact
     assert private_diagnostic_sources.isdisjoint(allowed_exact)
-    assert mutation_checkpoints <= private_diagnostic_sources
+    assert retired_ledgers.isdisjoint(
+        published_diagnostic_sources | private_diagnostic_sources
+    )
 
 
 @pytest.mark.live_data

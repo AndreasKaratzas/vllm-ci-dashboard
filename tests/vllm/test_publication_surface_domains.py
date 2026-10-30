@@ -116,7 +116,7 @@ def test_active_surfaces_have_unique_ownership_and_cover_public_manifest() -> No
 
 def test_retired_parity_override_is_owned_only_by_exact_historical_contracts() -> None:
     path = "data/vllm/ci/parity_key_overrides.json"
-    assert surfaces_module.SURFACE_CONTRACT_VERSION == 8
+    assert surfaces_module.SURFACE_CONTRACT_VERSION == 9
     assert surfaces_module.PRE_PARITY_OVERRIDES_SURFACE_CONTRACT_VERSION == 7
     for specs in (surfaces_module.PRE_VIEW_RETIREMENT_SURFACE_SPECS,
                   surfaces_module.PRE_RUNTIME_PARITY_SURFACE_SPECS,
@@ -130,6 +130,20 @@ def test_retired_parity_override_is_owned_only_by_exact_historical_contracts() -
     assert relative in manifest["never_publish_patterns"]
     assert all(relative not in manifest[field] for field in (
         "required_files", "optional_files", "build_inputs", "generated_files"))
+
+
+def test_retired_ticketing_paths_are_owned_only_by_exact_historical_contracts() -> None:
+    assert surfaces_module.PRE_TICKETING_RETIREMENT_SURFACE_CONTRACT_VERSION == 8
+    historical = surfaces_module.PRE_TICKETING_RETIREMENT_SURFACE_SPECS
+    for path in surfaces_module.RETIRED_TICKETING_PATHS:
+        assert any(path in {*spec.required_paths, *spec.optional_paths} for spec in historical.values())
+        assert surface_for_path(path) is None
+    manifest = json.loads((ROOT / "config/public_data_manifest.json").read_text())
+    for path in ("vllm/ci/ci_ownership.json", "vllm/ci/ownership_config_parity.json",
+                 "vllm/ci/operations_v2/ownership.json"):
+        assert path in manifest["never_publish_patterns"]
+        assert all(path not in manifest[field] for field in (
+            "required_files", "optional_files", "build_inputs", "generated_files"))
 
 
 def test_legacy_monolithic_ci_contract_is_exactly_partitioned() -> None:
@@ -242,7 +256,6 @@ def test_path_specific_findings_route_to_the_owning_domain(
         ("operations-stale-source", "capacity_monitor", {"queue_capacity"}),
         ("operations-stale-source", "workload_mapping", {"queue_workload"}),
         ("operations-stale-source", "omni_heuristic", {"queue_omni"}),
-        ("operations-stale-source", "omni_issue_state", {"queue_omni"}),
         ("operations-source-schema", "group_changes", set()),
         (
             "operations-gating-runtime-resolution",

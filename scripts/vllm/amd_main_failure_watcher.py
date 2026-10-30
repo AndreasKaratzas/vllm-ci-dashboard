@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Open one state-owned issue for unresolved AMD test-group failures on main.
+"""Track unresolved AMD test-group failures on main for the dashboard.
 
 The source is ci.all_main_reliability from analytics.json: an exhaustive
 Buildkite branch=main cohort of completed passed/failed builds with exact
@@ -10,7 +10,6 @@ retry does not create an incident.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -26,19 +25,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.ci import main_flakiness  # noqa: E402
 from vllm.ci.incident_transitions import advance_incident  # noqa: E402
-from vllm.ci.managed_issue import (  # noqa: E402
-    DASHBOARD_REPO,
-    GitHubIssueClient,
-    normalize_managed_state,
-    reconcile_managed_issue,
-    repo_owner,
-    validate_target_repo,
-)
 from vllm.ci.reliability_history import (  # noqa: E402
     hydrate_reliability_observations,
     validate_all_main_reliability,
 )
-from vllm.ci.watcher_state import write_watcher_state  # noqa: E402
+from vllm.ci.watcher_state import normalize_ledger_state, write_watcher_state  # noqa: E402
 
 
 logging.basicConfig(
@@ -54,9 +45,6 @@ STATE = ROOT / "data" / "vllm" / "ci" / "open_ci_main_failure_issues.json"
 
 PIPELINE = "ci"
 MAX_DATA_AGE = timedelta(hours=3)
-MAX_ISSUE_ROWS = 50
-MAX_BISECT_COMMANDS = 12
-ISSUE_BODY_SCHEMA_VERSION = 2
 UPSTREAM_REPO_URL = "https://github.com/vllm-project/vllm"
 TIMELINE_MAX_EVENTS = 300
 TIMELINE_MAX_AGE = timedelta(days=30)
@@ -67,17 +55,9 @@ COMMIT_RE = re.compile(r"[0-9a-f]{40}", re.IGNORECASE)
 class WatcherConfig:
     pipeline: str
     state: Path
-    ownership_marker: str
-    label_specs: tuple[tuple[str, str, str], ...]
-    dashboard_url: str
-    title_prefix: str
-    heading: str
-    scope_name: str
-    script_name: str
     track_commit_range: bool = False
     initialize_from_history: bool = False
     job_scope: str = ""
-    refresh_before_close: bool = False
 
 
 
@@ -163,7 +143,7 @@ def _read_state(path: Path = STATE) -> dict:
         raw = json.loads(path.read_text())
     except (OSError, json.JSONDecodeError):
         return _default_state()
-    state = normalize_managed_state(raw)
+    state = normalize_ledger_state(raw)
     source_schema_version = raw.get("schema_version")
     if not isinstance(source_schema_version, int) or isinstance(source_schema_version, bool):
         source_schema_version = 1
@@ -342,7 +322,7 @@ def _build_source_rank(build: dict) -> tuple[str, int, str]:
 
 
 def _readable_state_copy(state: dict) -> dict:
-    normalized = normalize_managed_state(state)
+    normalized = normalize_ledger_state(state)
     if state.get("hardware_scope") == "amd_mi_gpu":
         normalized["hardware_scope"] = "amd_mi_gpu"
     source_schema_version = state.get("schema_version")
@@ -926,193 +906,9 @@ def advance_incidents(
     return updated
 
 
-def _fingerprint(active: dict[str, dict]) -> str:
-    compact = []
-    for group_id, row in sorted(active.items()):
-        transition = _entry_transition(row) or _legacy_transition(row)
-        compact.append(
-            {
-                "group_id": group_id,
-                "generation": transition.get("incident_start_build_id"),
-                "peak_severity": transition.get("peak_severity"),
-            }
-        )
-    encoded = json.dumps(compact, sort_keys=True, separators=(",", ":")).encode()
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def _content_fingerprint(active: dict[str, dict]) -> str:
-    encoded = json.dumps(
-        {
-            "body_schema_version": ISSUE_BODY_SCHEMA_VERSION,
-            "active": active,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode()
-    return hashlib.sha256(encoded).hexdigest()
-
-
-def _migrate_signal_fingerprint(state: dict, active: dict[str, dict]) -> str:
-    signal_fingerprint = _fingerprint(active)
-    if _nonnegative_int(state.get("signal_fingerprint_version") or 1) < 2:
-        # Schema-v1 fingerprints included changing build/job evidence. Preserve
-        # manual-close suppression while moving it to the stable signal ID.
-        state["last_fingerprint"] = signal_fingerprint if active else ""
-        if state.get("suppressed"):
-            state["suppressed_fingerprint"] = signal_fingerprint
-        state["signal_fingerprint_version"] = 2
-    return signal_fingerprint
-
-
-def _md(value: Any) -> str:
-    return str(value or "-").replace("|", "\\|").replace("\n", " ")
-
-
 def _peak_severity(row: dict) -> str:
     transition = _entry_transition(row) or _legacy_transition(row)
     return str(transition.get("peak_severity") or "soft")
-
-
-def _issue_title_for(config: WatcherConfig) -> str:
-    return f"{config.title_prefix}: confirmed test-group failures"
-
-
-def _commit_link(value: Any) -> str:
-    commit = _commit(value)
-    return f"[`{commit[:12]}`]({UPSTREAM_REPO_URL}/commit/{commit})" if commit else "-"
-
-
-def _issue_body_for(
-    active: dict[str, dict],
-    reliability: dict,
-    run_url: str,
-    owner: str,
-    config: WatcherConfig,
-) -> str:
-    if config.job_scope == "amd_gpu":
-        from vllm.pipelines import is_amd_ci_job
-        active = {identity: row for identity, row in active.items() if is_amd_ci_job(row)}
-    hard = sum(_peak_severity(row) == "hard" for row in active.values())
-    soft = sum(_peak_severity(row) == "soft" for row in active.values())
-    generated_at = str(reliability.get("generated_at") or "unknown")
-    rows = sorted(
-        active.values(),
-        key=lambda row: (
-            row.get("result") != "failed",
-            str(row.get("observed_at") or ""),
-            str(row.get("name") or "").lower(),
-        ),
-    )
-    lines = [
-        f"## {config.heading}",
-        "",
-        (
-            f"**{len(active)} strict {config.scope_name} test groups have confirmed "
-            f"unresolved incidents: {hard} peak hard, {soft} soft.**"
-        ),
-        "",
-        "Signal rules:",
-        "",
-        (
-            f"- Source: exhaustive completed {config.pipeline} builds on branch=main "
-            "with build state passed or failed."
-        ),
-        "- Identity: exact test label + Buildkite step key + hardware + queue.",
-        "- Retry handling: the latest eligible attempt for the same strict group inside a build wins.",
-        "- Confirmation: a hard failure confirms immediately; a soft failure requires two distinct eligible builds.",
-        "- Resolution: only an explicit pass by the same strict group resolves an incident.",
-        (
-            "- Renames: once a newer build runs the same step key, hardware and queue only under "
-            "new labels, the old incident resolves if they all passed and otherwise moves to the "
-            "failing new label."
-        ),
-        "- Missing or indeterminate observations hold state without advancing or resolving it.",
-        (
-            "- Soft-failed jobs remain visible as warnings and advance confirmation "
-            "because the test command failed even when Buildkite permits the build to continue."
-        ),
-        "",
-        f"Collected at **{generated_at}**. [Open test health]({config.dashboard_url}).",
-        "",
-    ]
-    if config.track_commit_range:
-        lines.extend(
-            [
-                "- Bisect range: the last eligible pass before the incident is retained as "
-                "`good_commit`; the first observed failure is retained as `bad_commit`.",
-                "- Range status `candidate` means both commits are known and distinct; ancestry "
-                "must be verified before an automated bisect starts.",
-                "",
-                "| test group | hardware / queue | result | good commit | first bad | latest build |",
-                "|---|---|---|---|---|---|",
-            ]
-        )
-    else:
-        lines.extend(
-            [
-                "| test group | hardware / queue | result | latest build | observed |",
-                "|---|---|---|---|---|",
-            ]
-        )
-    for row in rows[:MAX_ISSUE_ROWS]:
-        job_url = row.get("job_url") or row.get("build_url") or ""
-        group = _md(row.get("name"))
-        group_md = f"[{group}]({job_url})" if job_url else group
-        build_number = int(row.get("build_number") or 0)
-        build_url = row.get("build_url") or job_url
-        build_md = f"[#{build_number}]({build_url})" if build_url else f"#{build_number}"
-        if config.track_commit_range:
-            good = _commit_link(row.get("good_commit"))
-            bad = _commit_link(row.get("bad_commit"))
-            compare_url = str(row.get("compare_url") or "")
-            status = _md(row.get("commit_range_status"))
-            compare = f"[compare]({compare_url})" if compare_url else ""
-            bad = f"{bad} {compare} ({status})".strip()
-            lines.append(
-                f"| {group_md} | {_md(row.get('hardware'))} / {_md(row.get('queue'))} "
-                f"| {_md(row.get('result'))} | {good} | {bad} | {build_md} |"
-            )
-        else:
-            lines.append(
-                f"| {group_md} | {_md(row.get('hardware'))} / {_md(row.get('queue'))} "
-                f"| {_md(row.get('result'))} | {build_md} | {_md(row.get('observed_at'))} |"
-            )
-    if len(rows) > MAX_ISSUE_ROWS:
-        lines.extend(
-            ["", f"{len(rows) - MAX_ISSUE_ROWS} additional groups are retained in watcher state."]
-        )
-    if config.track_commit_range:
-        candidates = [row for row in rows if row.get("bisect_command")]
-        if candidates:
-            lines.extend(
-                [
-                    "",
-                    "### Bisect candidates",
-                    "",
-                    "Verify commit ancestry, then pair the retained range with the exact test command:",
-                    "",
-                ]
-            )
-            for row in candidates[:MAX_BISECT_COMMANDS]:
-                lines.append(f"- `{_md(row.get('group_id'))}`: `{row['bisect_command']}`")
-            if len(candidates) > MAX_BISECT_COMMANDS:
-                lines.append(
-                    f"- {len(candidates) - MAX_BISECT_COMMANDS} additional candidate ranges "
-                    f"are retained in `{config.state.name}`."
-                )
-    lines.extend(
-        [
-            "",
-            f"GitHub assignee: {owner}.",
-            "",
-            (
-                f"*Managed by {config.script_name} from {run_url}. Only this tracked "
-                "umbrella issue can be updated or closed by the watcher.*"
-            ),
-        ]
-    )
-    return "\n".join(lines) + "\n"
 
 
 def bounded_timeline(events: list[dict], now: datetime) -> list[dict]:
@@ -1169,7 +965,7 @@ def mi_scoped_reliability(reliability: dict) -> dict:
 
 
 def mi_scoped_state(state: dict, reliability: dict) -> dict:
-    """Purge non-MI incidents and their ordering fences, retaining issue ownership."""
+    """Purge non-MI incidents and their ordering fences."""
     from vllm.pipelines import is_amd_ci_job
     updated = _readable_state_copy(state)
     source_groups = mi_scoped_reliability(reliability)["groups"]
@@ -1193,133 +989,50 @@ def mi_scoped_state(state: dict, reliability: dict) -> dict:
     return updated
 
 
-def reconcile_issue(
-    state: dict,
-    reliability: dict,
-    config: WatcherConfig,
-    *,
-    client: Any,
-    repo: str,
-    run_url: str,
-    observed_at: str,
-    hold_close: str | None = None,
-) -> dict:
-    """Reconcile the managed umbrella issue with ``state['active']``.
-
-    ``hold_close`` names why the issue may not be closed (or recovered and
-    closed) in this run; the issue is then left untouched while nothing is
-    active.
-    """
-    active = state.get("active") or {}
-    if hold_close and not active:
-        log.warning("::warning::Leaving the managed issue untouched: %s", hold_close)
-        reconciled = normalize_managed_state(state)
-    else:
-        reconciled = reconcile_managed_issue(
-            state,
-            active=bool(active),
-            fingerprint=_migrate_signal_fingerprint(state, active),
-            content_fingerprint=_content_fingerprint(active),
-            title=_issue_title_for(config),
-            body=_issue_body_for(active, reliability, run_url, repo_owner(repo), config),
-            ownership_marker=config.ownership_marker,
-            recovery_body=(
-                f"No strict {config.scope_name} origin/main test-group incidents remain under the "
-                "watcher's explicit-pass resolution rule. Closing this tracked umbrella issue.\n\n"
-                f"*{run_url}*"
-            ),
-            observed_at=observed_at,
-            label_specs=list(config.label_specs),
-            client=client,
-            discovery_label=config.label_specs[0][0],
-            recovery_labels=("automated", "workstream:dev"),
-            refresh_before_close=config.refresh_before_close,
-        )
-    reconciled["schema_version"] = 2
-    if config.job_scope == "amd_gpu":
-        reconciled["hardware_scope"] = "amd_mi_gpu"
-    reconciled["signal_fingerprint_version"] = 2
-    return reconciled
-
-
-def _merge_main_pulse(state: dict) -> tuple[dict, dict | str | None]:
-    """Adopt newer main-pulse observations named by ``MAIN_PULSE_STATE_FILE``.
-
-    Returns the merged state and the export record, or the reason the overlay
-    could not be read (closing must then wait), or None outside pulse mode.
-    """
+def _merge_main_pulse(state: dict) -> dict:
+    """Adopt newer main-pulse observations named by ``MAIN_PULSE_STATE_FILE``."""
     path = os.getenv("MAIN_PULSE_STATE_FILE")
     if not path:
-        return state, None
+        return state
     from vllm.ci.main_pulse_overlay import load_export_file, merge_overlay
 
     try:
         export = load_export_file(Path(path))
     except (OSError, ValueError) as error:
         log.warning("::warning::Main pulse overlay is unavailable: %s", error)
-        return state, f"the main pulse overlay is unavailable ({error})"
+        return state
     overlay = export["overlay"]
     if overlay is None:
-        return state, export
+        return state
     log.info("Merged the main pulse overlay of %d groups", len(overlay["groups"]))
-    return merge_overlay(state, overlay), export
-
-
-def _main_pulse_close_hold(export: dict | str | None) -> str | None:
-    """Why closing must wait: the overlay was unreadable or the pulse moved on."""
-    if export is None or isinstance(export, str):
-        return export
-    from vllm.ci.main_pulse_overlay import state_head
-    from vllm.queue_request_budget import QueueRequestBudgetError
-
-    try:
-        head = state_head(ROOT, "origin", export["branch"])
-    except (QueueRequestBudgetError, OSError, ValueError) as error:
-        return f"the main pulse state head is unreadable ({error})"
-    if head != export["state_sha"]:
-        return "the main pulse published newer observations after the overlay export"
-    return None
+    return merge_overlay(state, overlay)
 
 
 def run_watcher(config: WatcherConfig) -> int:
-    token = os.getenv("GITHUB_TOKEN")
-    repo = os.getenv("GITHUB_REPOSITORY") or DASHBOARD_REPO
-    validate_target_repo(repo)
-    run_id = os.getenv("GITHUB_RUN_ID", "")
-    run_url = (
-        f"https://github.com/{repo}/actions/runs/{run_id}"
-        if run_id
-        else f"https://github.com/{repo}"
-    )
-
     reliability = _read_reliability(config.pipeline)
     if not reliability or not validate_all_main_reliability(reliability, config.pipeline):
         log.error(
-            "Strict exhaustive %s main reliability is unavailable; refusing issue mutations",
+            "Strict exhaustive %s main reliability is unavailable; leaving state untouched",
             config.pipeline,
         )
         return 0
     now = datetime.now(timezone.utc)
     if not _is_fresh(reliability, now):
         log.error(
-            "%s main reliability is stale or future-dated; refusing issue mutations",
+            "%s main reliability is stale or future-dated; leaving state untouched",
             config.pipeline,
         )
-        return 0
-    if not token:
-        log.warning("GITHUB_TOKEN not set; leaving issue state untouched")
         return 0
 
     if config.job_scope == "amd_gpu":
         if reliability.get("hardware_scope") != "amd_mi_gpu":
-            log.error("MI-only reliability is unavailable; refusing issue mutations")
+            log.error("MI-only reliability is unavailable; leaving state untouched")
             return 0
         reliability = mi_scoped_reliability(reliability)
 
     restored_state = _read_state(config.state)
-    pulse_export: dict | str | None = None
     if config.job_scope == "amd_gpu":
-        restored_state, pulse_export = _merge_main_pulse(mi_scoped_state(restored_state, reliability))
+        restored_state = _merge_main_pulse(mi_scoped_state(restored_state, reliability))
     events: list[dict] = []
     state = advance_incidents(
         reliability,
@@ -1329,33 +1042,18 @@ def run_watcher(config: WatcherConfig) -> int:
         events=events,
     )
     state["timeline"] = _timeline_for_run(restored_state, reliability, events, config, now)
-    active = state.get("active") or {}
-    pending_soft = state.get("pending_soft") or {}
-    observed_at = str(reliability.get("generated_at") or now.strftime("%Y-%m-%dT%H:%M:%SZ"))
-    reconciled = reconcile_issue(
-        state,
-        reliability,
-        config,
-        client=GitHubIssueClient(token, repo),
-        repo=repo,
-        run_url=run_url,
-        observed_at=observed_at,
-        hold_close=None if active else _main_pulse_close_hold(pulse_export),
-    )
-    _write_state(
-        reconciled,
-        config.state,
-        state_filename=(
-            config.state.name
-        ),
-    )
+    state["schema_version"] = 2
+    if config.job_scope == "amd_gpu":
+        state["hardware_scope"] = "amd_mi_gpu"
+    state["signal_fingerprint_version"] = 2
+    state["last_run"] = str(reliability.get("generated_at") or now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    state["issue"] = None
+    state["suppressed"] = False
+    _write_state(state, config.state, state_filename=config.state.name)
     log.info(
-        "%s main watcher evaluated %d confirmed and %d pending-soft strict groups; "
-        "issue=%s suppressed=%s",
+        "%s main watcher evaluated %d confirmed and %d pending-soft strict groups",
         config.pipeline,
-        len(active),
-        len(pending_soft),
-        (reconciled.get("issue") or {}).get("number"),
-        reconciled.get("suppressed"),
+        len(state.get("active") or {}),
+        len(state.get("pending_soft") or {}),
     )
     return 0

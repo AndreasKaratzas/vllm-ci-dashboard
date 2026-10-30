@@ -447,30 +447,7 @@ def _fixture_data(tmp_path: Path) -> Path:
         "dynamic_component": 3,
         "total_groups": 2,
     })
-    _write_json(tmp_path / "open_omni_surge_issues.json", {
-        "last_snapshot_ts": current_queue["ts"],
-        "last_value": 2,
-        "open": None,
-    })
     return tmp_path
-
-
-def test_ci_ownership_snapshot_is_top_level_but_raw_source_is_private(tmp_path):
-    data_dir = _fixture_data(tmp_path)
-    ownership = {
-        "schema_version": 1,
-        "generated_at": GENERATED_AT,
-        "available": True,
-        "summary": {"areas": 25, "areas_with_incidents": 2},
-        "areas": [{"area": "kernels", "counts": {"incidents": 1}}],
-    }
-    _write_json(data_dir / "ci_ownership.json", ownership)
-
-    payload = ops.build_snapshot(data_dir, generated_at=GENERATED_AT)
-
-    assert payload["ownership"] == ownership
-    assert "gating" not in payload
-    assert payload["sources"]["ci_ownership"]["published"] is False
 
 
 def test_shell_core_clock_is_the_oldest_core_collection_including_perf_eval(tmp_path):
@@ -2270,7 +2247,6 @@ def test_v2_snapshot_transition_math_links_and_queue_provenance(tmp_path):
         "queue_aggregates": "queue_timeseries.jsonl",
         "queue_jobs": "queue_jobs.json",
         "heuristic": "omni_surge_heuristic.json",
-        "issue_state": "open_omni_surge_issues.json",
         "mapping_history": "workload_mapping.json",
     }
     assert "trajectory" not in payload
@@ -2365,7 +2341,6 @@ def test_omni_keeps_partial_aggregate_and_exact_job_ledger_distinct():
         queue_jobs,
         [queue_snapshot],
         {"healthy": 1, "trigger": 3},
-        {},
         {
             "hardware_scope": "amd_mi_gpu",
             "execution_scope_contract": ops.EXECUTION_SCOPE_CONTRACT,
@@ -2408,7 +2383,6 @@ def test_omni_uses_job_ledger_when_workload_aggregate_is_unavailable():
         queue_snapshot,
         queue_jobs,
         [queue_snapshot],
-        {},
         {},
         {
             "hardware_scope": "amd_mi_gpu",
@@ -3525,7 +3499,6 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
         "reliability",
         "definition_parity",
         "test_group_parity",
-        "ownership",
         "queue",
         "omni",
         "diagnostics",
@@ -3579,18 +3552,6 @@ def test_snapshot_bundle_publishes_fast_shell_and_lazy_sections(tmp_path):
     assert chart["wait_sources"][encoded_sample_peak[1]] == "sample_wait"
     assert chart["wait_providers"][encoded_sample_peak[2]] == "scheduled_job_scan"
     assert encoded_sample_peak[3:] == [4, "2026-04-22T12:25:00Z", 4, True]
-
-    ownership = json.loads(
-        (output.parent / manifest["sections"]["ownership"]["path"]).read_text()
-    )["ownership"]
-    assert {
-        key: value
-        for key, value in ownership.items()
-        if key != "operations_publication_retention"
-    } == payload["ownership"]
-    assert ownership["operations_publication_retention"][
-        "complete_relative_to_source"
-    ] is True
 
     omni = json.loads(
         (output.parent / manifest["sections"]["omni"]["path"]).read_text()
@@ -4143,15 +4104,6 @@ def test_operations_collection_sections_compact_every_legal_growing_catalog() ->
         {"id": index, "target_signal": "red" if index % 4 == 0 else "green", "detail": bulky}
         for index in range(300)
     ]
-    ownership_rows = [
-        {
-            "area": f"area-{index}",
-            "counts": {"incidents": index % 5 == 0, "pending_soft": 0},
-            "regressions": [{"label": bulky}],
-            "targets": [{"label": bulky}],
-        }
-        for index in range(100)
-    ]
     sections = ops._operation_sections(
         {
             "definition_parity": {
@@ -4168,18 +4120,11 @@ def test_operations_collection_sections_compact_every_legal_growing_catalog() ->
                 "target_groups": gating_rows,
                 "active_target_groups": gating_rows,
             },
-            "ownership": {
-                "schema_version": 1,
-                "available": True,
-                "summary": {"areas": len(ownership_rows)},
-                "areas": ownership_rows,
-                "unmapped_targets": [],
-            },
             "reliability": {},
         }
     )
 
-    for name in ("definition_parity", "test_group_parity", "ownership"):
+    for name in ("definition_parity", "test_group_parity"):
         assert ops._json_bytes(sections[name]) <= (
             ops.OPERATIONS_CANARY_SECTION_MAX_BYTES[name]
         )
@@ -4291,17 +4236,17 @@ def test_omni_mapping_requires_new_ci_aggregate_scope_without_reclassifying_omni
     capacity = {"queues": [{"id": "amd_mi300_1", "monitored": True}]}
     for marker in (None, "physical_mi_only"):
         old = {**mapping, "execution_scope_contract": marker}
-        result = ops._omni(snapshot, jobs, [], {}, {}, old, capacity)
+        result = ops._omni(snapshot, jobs, [], {}, old, capacity)
         assert result["mapping_history"] == {}
         assert result["provenance"]["sources"]["mapping_history"]["timestamp"] is None
         assert result["current"]["waiting"] == 1
     current = {**mapping, "execution_scope_contract": ops.EXECUTION_SCOPE_CONTRACT}
-    result = ops._omni(snapshot, jobs, [], {}, {}, current, capacity)
+    result = ops._omni(snapshot, jobs, [], {}, current, capacity)
     assert result["mapping_history"] == current
     assert result["current"]["waiting"] == 1
     wrong_pipeline = {**current, "scope": {**current["scope"],
         "workload_pipelines": {"main": ["amd-ci"], "omni": ["vllm-omni-amd-ci"]}}}
-    assert ops._omni(snapshot, jobs, [], {}, {}, wrong_pipeline, capacity)["mapping_history"] == {}
+    assert ops._omni(snapshot, jobs, [], {}, wrong_pipeline, capacity)["mapping_history"] == {}
 
 
 def test_current_queue_projection_removes_legacy_pipelines_and_attributes_exact_job_identity():

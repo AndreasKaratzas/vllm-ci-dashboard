@@ -211,7 +211,7 @@ Seven workflows divide canonical publication from focused manual/event collector
 | `hourly-master.yml` | Every two hours + coalesced Buildkite nightly-completion webhooks | Full collection, validation, atomic dashboard-state rotation, and the only scheduled root-site deployment |
 | `daily-update.yml` | Manual | Compatibility handoff to the canonical collector; never writes generated data to `main` |
 | `ci-collect.yml` | Manual | Tokenless compatibility dispatch into the canonical guarded collector; it cannot run an independent Buildkite refresh |
-| `queue-monitor.yml` | Ten-minute recovery checks + external tick + queue webhooks + manual | Queue snapshots and bounded queue issue automation; canonical publication follows via `hourly-master.yml` |
+| `queue-monitor.yml` | Ten-minute recovery checks + external tick + queue webhooks + manual | Queue snapshots and the main pulse; canonical publication follows via `hourly-master.yml` |
 | `queue-lifecycle.yml` | 30-minute recovery checks + external tick, two-hour successful cadence + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
 | `dns-health.yml` | Hourly recovery opportunity + external tick + manual | Request-budgeted observed DNS sampling with an isolated durable state branch, a durable three-hour scan gate, and conditional canonical reconciliation |
 | `publication-watchdog.yml` | Data Collection, Pages deployment, Queue Lifecycle Monitor, DNS Health Monitor, and Site Health Check completions + every 15 minutes + external tick + manual | Validates the durable state identity against Pages and routes bounded collector, DNS, or deploy-only recovery |
@@ -613,7 +613,7 @@ over-650 seed becomes migration debt and blocks new request permits until
 enough 25-hour reservations expire. Initialization refuses an existing branch,
 and runtime updates are parentless replacements protected by exact leases.
 
-Queue analytics intentionally exclude waiting or running jobs older than 4 hours. Those jobs are treated as zombies, surfaced separately in `queue_jobs.json`, and tracked via `queue_zombie_watcher.py` so the main queue charts stay conservative.
+Queue analytics intentionally exclude waiting or running jobs older than 4 hours. Those jobs are treated as zombies, and surfaced separately in `queue_jobs.json` so the main queue charts stay conservative.
 
 Canonical AMD lifecycle analytics are intentionally narrower than the general
 queue monitor. `collect_queue_lifecycle.py` queries only the twelve standard
@@ -907,10 +907,11 @@ Keep the encryption key stable across runs. Rotate it through a controlled
 decrypt-and-re-encrypt migration, retaining the old key until the durable
 ciphertext has been replaced successfully.
 
-### Managed Alert Issues
+### Main CI Watchers
 
-The unified two-hour Data Collection workflow also reconciles three bounded
-umbrella issues in this repository:
+The unified two-hour Data Collection workflow also advances two detection
+ledgers behind `operations_v2/main_ci.json`. They open no issues; ticketing is
+tracked outside this repository.
 
 - Current main CI test-group failures use AMD MI GPU jobs in the exhaustive
   `ci` branch=main reliability cohort. The latest retry attempt in a build wins;
@@ -920,48 +921,36 @@ umbrella issues in this repository:
   incidents. Missing or indeterminate observations neither advance nor resolve
   the signal. Each active incident retains the last known passing commit and
   first failing commit as a candidate range for later ancestry validation and
-  automated git bisection. The duplicate AMD main watcher is retired; its shared
-  retry and issue-state helpers remain in use by the canonical CI watcher.
+  automated git bisection. The duplicate AMD main watcher is retired.
 - AMD main duration slowdowns treat one Buildkite step on one queue as one
   signal: per completed main build, the summed wall time of its jobs (shards)
   when all of them passed, compared only across builds with the step's current
   shard count. Jobs without a step key are not signals, and the watcher
-  refuses issue mutations while more than 10% of the AMD duration history
+  leaves its state untouched while more than 10% of the AMD duration history
   lacks a step key (builds cached before step keys were kept, until the next
   full refresh). Each signal is segmented into level regimes (splits need half a
   minute, 3% and five standard errors of the median difference). A slowdown is
   the latest level change whose prior level the current level exceeds by two
   minutes and 20% (or 15 minutes), five standard errors, with 80% of the
   current runs above the midpoint, at most 20% of the baseline runs above it
-  and no level since the change back at the baseline. It opens once the new
+  and no level since the change back at the baseline. It is reported once the new
   level has 8 runs over 24 hours and the slowdown is 48 hours old, so
   self-recovering infrastructure events (such as a day of slow setup on one
   queue) stay out; an open one keeps its onset and holds until its increase
   falls below half of the thresholds. Queue wait is excluded. Fourteen days
-  after its latest increase a slowdown leaves the issue and stays listed as
-  settled in `operations_v2/main_ci.json` (`slowdowns`, published only when
-  the watcher evaluated the same cohort), with its onset builds, vLLM compare
-  range and up to 60 samples (20 before the onset). The issue body is
-  rewritten when a slowdown or its onset changes and at most daily for levels.
-- CI agent health uses the dashboard's "Hurting" verdict, excludes canceled
-  builds and unidentified nodes, and alerts on a physical AMD node with at
-  least two failing attempts attributed to it, from at least two builds, among
-  builds created in the last three UTC days. Node failures confined to one
-  build only put the node on watch.
+  after its latest increase a slowdown is settled and stays listed as such in
+  `operations_v2/main_ci.json` (`slowdowns`, published only when the watcher
+  evaluated the same cohort), with its onset builds, vLLM compare range and up
+  to 60 samples (20 before the onset).
 
-State lives in `open_ci_main_failure_issues.json`, `open_amd_duration_regression_issues.json`,
-`open_agent_health_issues.json`, `open_ci_area_regression_issues.json`,
-`open_omni_surge_issues.json`, `open_queue_issues.json`, and
-`open_queue_zombie_issues.json`. Fixed per-ledger producer limits sum exactly to
-the dashboard state's 3 MiB watcher allocation. Every replacement is atomic;
-bounded compaction keeps all actionable issue and incident mappings, prefers
+State lives in `open_ci_main_failure_issues.json` and
+`open_amd_duration_regression_issues.json`; both watchers set `last_run` on
+every fresh run without a GitHub token, and their `issue` is always `null`.
+The retired issue ledgers keep their envelopes, so fixed per-ledger producer
+limits still sum exactly to the dashboard state's watcher allocation. Every
+replacement is atomic; bounded compaction keeps all incident mappings, prefers
 dropping refetchable or retired cache detail, and attests any omission through
 `publication_retention` counts.
-Each watcher can update or close only the issue number in its own state file; it
-never searches for issues by label, and it verifies a watcher-specific ownership
-marker before any update or close. When a signal recovers, its watcher comments
-with the recovery rule and automatically closes that tracked issue. Manually
-closing an active alert suppresses reopening until that signal first recovers.
 
 ## Architecture
 

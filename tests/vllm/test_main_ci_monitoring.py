@@ -12,7 +12,6 @@ import pytest
 
 from vllm import amd_main_failure_watcher as amd
 from vllm import build_operations_snapshot as ops
-from vllm import ci_flakiness_watcher as flaky
 from vllm import ci_main_failure_watcher as upstream
 from vllm import main_ci_section
 from vllm.ci import main_flakiness
@@ -25,41 +24,6 @@ from vllm.ci.reliability_history import (
 from vllm.ci.watcher_state import bounded_watcher_state
 
 NOW = datetime(2026, 10, 19, 12, 0, tzinfo=timezone.utc)
-
-
-class FakeIssueClient:
-    def __init__(self):
-        self.next_number = 700
-        self.states = {}
-        self.opened = []
-        self.updated = []
-        self.closed = []
-        self.comments = []
-
-    def issue_state(self, number, ownership_marker):
-        return self.states.get(number, "open")
-
-    def open_issue(self, title, body, label_specs):
-        self.next_number += 1
-        self.states[self.next_number] = "open"
-        self.opened.append((self.next_number, title, body))
-        return self.next_number
-
-    def update_issue(self, number, title, body):
-        self.updated.append((number, title, body))
-        return True
-
-    def ensure_owner_assigned(self, number):
-        return True
-
-    def comment_issue(self, number, body):
-        self.comments.append((number, body))
-        return True
-
-    def close_issue(self, number):
-        self.states[number] = "closed"
-        self.closed.append(number)
-        return True
 
 
 def _ts(value: datetime) -> str:
@@ -186,19 +150,9 @@ def _write_analytics(path: Path, reliability: dict) -> None:
     path.write_text(json.dumps({"ci": {"all_main_reliability": reliability}}))
 
 
-def _alerting_env(monkeypatch, tmp_path, client):
-    monkeypatch.setenv("GITHUB_TOKEN", "offline-test")
-    monkeypatch.setenv("GITHUB_REPOSITORY", "andreaskaratzas/vllm-ci-dashboard")
-    monkeypatch.setenv("GITHUB_RUN_ID", "42")
+def test_new_hard_failure_on_main_reaches_main_ci_in_the_same_run(monkeypatch, tmp_path):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.setattr(amd, "ANALYTICS", tmp_path / "analytics.json")
-    monkeypatch.setattr(amd, "GitHubIssueClient", lambda *_args: client)
-    monkeypatch.setattr(flaky, "GitHubIssueClient", lambda *_args: client)
-    monkeypatch.setattr(flaky, "STATE", tmp_path / "open_ci_flakiness_issues.json")
-
-
-def test_new_hard_failure_on_main_opens_issue_in_the_same_run_and_reaches_main_ci(monkeypatch, tmp_path):
-    client = FakeIssueClient()
-    _alerting_env(monkeypatch, tmp_path, client)
     config = dataclasses.replace(upstream.CONFIG, state=tmp_path / "open_ci_main_failure_issues.json")
     start = datetime.now(timezone.utc) - timedelta(hours=2, minutes=30)
 
@@ -209,21 +163,18 @@ def test_new_hard_failure_on_main_opens_issue_in_the_same_run_and_reaches_main_c
     history = [build(201, "passed", 0), build(202, "passed", 20)]
     _write_analytics(tmp_path / "analytics.json", _reliability(history, datetime.now(timezone.utc)))
     assert amd.run_watcher(config) == 0
-    assert client.opened == []
+    assert json.loads(config.state.read_text())["active"] == {}
 
     history.append(build(203, "failed", 40))
-    _write_analytics(tmp_path / "analytics.json", _reliability(history, datetime.now(timezone.utc)))
+    generated_at = datetime.now(timezone.utc)
+    _write_analytics(tmp_path / "analytics.json", _reliability(history, generated_at))
     assert amd.run_watcher(config) == 0
 
-    assert len(client.opened) == 1
-    number, title, body = client.opened[0]
-    assert title == "AMD MI main CI: confirmed test-group failures"
-    assert f"{202:040x}"[:12] in body and f"{203:040x}"[:12] in body
     state = json.loads(config.state.read_text())
     (incident,) = state["active"].values()
     assert (incident["good_commit"], incident["bad_commit"]) == (f"{202:040x}", f"{203:040x}")
     assert [(row["event"], row["build_number"]) for row in state["timeline"]] == [("opened", 203)]
-    assert state["issue"]["number"] == number
+    assert state["last_run"] == _ts(generated_at) and state["issue"] is None
 
     section = main_ci_section.build_main_ci(
         json.loads((tmp_path / "analytics.json").read_text())["ci"],
@@ -234,14 +185,14 @@ def test_new_hard_failure_on_main_opens_issue_in_the_same_run_and_reaches_main_c
     (row,) = section["incidents"]["active"]
     assert row["bad_build_number"] == 203 and row["good_build_number"] == 202
     assert row["compare_url"].endswith(f"{202:040x}...{203:040x}")
-    assert section["incidents"]["issue"]["number"] == number
+    assert section["incidents"]["watcher_last_run"] == _ts(generated_at)
+    assert section["incidents"]["issue"] is None and section["incidents"]["suppressed"] is False
     assert section["timeline"][0]["event"] == "opened"
 
     history.append(build(204, "failed", 50))
     _write_analytics(tmp_path / "analytics.json", _reliability(history, datetime.now(timezone.utc)))
     assert amd.run_watcher(config) == 0
     state = json.loads(config.state.read_text())
-    assert len(client.opened) == 1
     assert [(row["event"], row["build_number"]) for row in state["timeline"]] == [("opened", 203)]
 
     history.append(build(205, "passed", 60))
@@ -249,7 +200,6 @@ def test_new_hard_failure_on_main_opens_issue_in_the_same_run_and_reaches_main_c
     assert amd.run_watcher(config) == 0
     state = json.loads(config.state.read_text())
     assert state["active"] == {}
-    assert client.closed == [number]
     assert [row["event"] for row in state["timeline"]] == ["resolved", "opened"]
 
 
@@ -526,45 +476,9 @@ def test_carried_incident_keeps_its_good_build_before_its_bad_build():
     assert (incident["bad_build_number"], incident["good_build_number"]) == (300, None)
 
 
-def test_flakiness_drops_renamed_labels_and_keeps_listed_since_across_group_ids():
+def test_flakiness_drops_renamed_labels():
     rows = main_flakiness.group_rows(_renamed_lora_shards("passed"), NOW, 7)
     assert sorted(row["name"] for row in rows) == ["LoRA Shard 1/2", "LoRA Shard 2/2"]
-
-    row = {**rows[0], "group_id": "new-id"}
-    previous = {"old-id": {"name": row["name"], "hardware": row["hardware"], "queue": row["queue"],
-                           "listed_since": "2026-10-18T00:00:00Z"}}
-    assert flaky.tracked_groups([row], previous, _ts(NOW))["new-id"]["listed_since"] == "2026-10-18T00:00:00Z"
-
-
-def test_flakiness_watcher_opens_then_resolves_one_managed_issue(monkeypatch, tmp_path):
-    client = FakeIssueClient()
-    _alerting_env(monkeypatch, tmp_path, client)
-    now = datetime.now(timezone.utc).replace(microsecond=0)
-    builds = _flaky_builds(now - timedelta(days=6), 8, outcome=lambda i: "failed" if i % 2 else "passed")
-    _write_analytics(tmp_path / "analytics.json", _reliability(builds, now))
-
-    assert flaky.run(now=now) == 0
-
-    (number, title, body), = client.opened
-    assert title == "AMD MI main CI flakiness: unstable test groups"
-    assert "**2 strict AMD MI test groups crossed a flakiness threshold" in body
-    assert "Flipper" in body and "Rescued" in body and "Steady" not in body
-    assert "https://buildkite.com/vllm/ci/builds/1007" in body
-    state = json.loads(flaky.STATE.read_text())
-    assert set(row["name"] for row in state["groups"].values()) == {"Flipper", "Rescued"}
-    assert state["issue"]["number"] == number
-
-    later = now + timedelta(days=8)
-    calm = _flaky_builds(later - timedelta(hours=12), 2, outcome=lambda _i: "passed")
-    for build in calm:
-        for job in build["jobs"]:
-            job.update(state="passed", retried=False, retried_in_job_id=None)
-    _write_analytics(tmp_path / "analytics.json", _reliability(builds + calm, later))
-
-    assert flaky.run(now=later) == 0
-
-    assert client.closed == [number]
-    assert json.loads(flaky.STATE.read_text())["groups"] == {}
 
 
 def test_flakiness_thresholds_are_inclusive():
@@ -578,89 +492,6 @@ def test_flakiness_thresholds_are_inclusive():
     # Four builds: Flipper p,f,p,p flips twice; Rescued is rescued twice.
     below = _flaky_builds(NOW - timedelta(days=6), 4, outcome=lambda i: "failed" if i == 1 else "passed")
     assert main_flakiness.alerting_rows(_reliability(below), NOW, thresholds) == []
-
-
-def _flaky_issue_run(tmp_path, now, *, extra_group=False):
-    builds = _flaky_builds(now - timedelta(days=6), 8, outcome=lambda i: "failed" if i % 2 else "passed")
-    if extra_group:
-        for index, build in enumerate(builds):
-            at = datetime.fromisoformat(build["created_at"].replace("Z", "+00:00"))
-            build["jobs"].append(_job(f"n{build['number']}", "Newcomer", "failed" if index % 2 else "passed", at))
-    _write_analytics(tmp_path / "analytics.json", _reliability(builds, now))
-    assert flaky.run(now=now) == 0
-    return json.loads(flaky.STATE.read_text())
-
-
-def test_flakiness_rerun_keeps_listed_since_and_issue(monkeypatch, tmp_path):
-    client = FakeIssueClient()
-    _alerting_env(monkeypatch, tmp_path, client)
-    now = datetime.now(timezone.utc).replace(microsecond=0)
-    first = _flaky_issue_run(tmp_path, now)
-    second = _flaky_issue_run(tmp_path, now + timedelta(hours=2), extra_group=True)
-
-    assert len(client.opened) == 1 and len(client.updated) == 1
-    assert {row["name"] for row in second["groups"].values()} == {"Flipper", "Rescued", "Newcomer"}
-    for group_id, row in first["groups"].items():
-        assert second["groups"][group_id]["listed_since"] == row["listed_since"] == _ts(now)
-    newcomer = next(row for row in second["groups"].values() if row["name"] == "Newcomer")
-    assert newcomer["listed_since"] == _ts(now + timedelta(hours=2))
-
-
-def test_manual_close_holds_while_listed_groups_change(monkeypatch, tmp_path):
-    client = FakeIssueClient()
-    _alerting_env(monkeypatch, tmp_path, client)
-    now = datetime.now(timezone.utc).replace(microsecond=0)
-    _flaky_issue_run(tmp_path, now)
-    (number, _title, _body), = client.opened
-    client.states[number] = "closed"
-
-    assert _flaky_issue_run(tmp_path, now + timedelta(hours=2))["suppressed"] is True
-    state = _flaky_issue_run(tmp_path, now + timedelta(hours=4), extra_group=True)
-    assert state["suppressed"] is True and state["issue"] is None
-    assert [row[0] for row in client.opened] == [number]
-
-    later = now + timedelta(days=8)
-    calm = _flaky_builds(later - timedelta(hours=12), 2, outcome=lambda _i: "passed")
-    for build in calm:
-        for job in build["jobs"]:
-            job.update(state="passed", retried=False, retried_in_job_id=None)
-    _write_analytics(tmp_path / "analytics.json", _reliability(calm, later))
-    assert flaky.run(now=later) == 0
-    assert json.loads(flaky.STATE.read_text())["suppressed"] is False
-
-    _flaky_issue_run(tmp_path, later + timedelta(hours=1))
-    assert [row[0] for row in client.opened] == [number, number + 1]
-
-
-def test_flakiness_state_keeps_only_the_groups_shown_in_the_issue(monkeypatch, tmp_path):
-    client = FakeIssueClient()
-    _alerting_env(monkeypatch, tmp_path, client)
-    thresholds = {**main_flakiness.load_thresholds(), "max_issue_rows": 1}
-    monkeypatch.setattr(main_flakiness, "load_thresholds", lambda *_args: thresholds)
-    state = _flaky_issue_run(tmp_path, datetime.now(timezone.utc).replace(microsecond=0))
-
-    (_number, title, body), = client.opened
-    assert title == "AMD MI main CI flakiness: unstable test groups"
-    assert "**2 strict AMD MI test groups crossed a flakiness threshold" in body
-    assert len(state["groups"]) == 1
-    assert "1 additional groups are listed on the dashboard." in body
-
-
-def test_flakiness_watcher_refuses_stale_or_history_free_evidence(monkeypatch, tmp_path):
-    client = FakeIssueClient()
-    _alerting_env(monkeypatch, tmp_path, client)
-    now = datetime.now(timezone.utc)
-    builds = _flaky_builds(now - timedelta(days=6), 8, outcome=lambda i: "failed" if i % 2 else "passed")
-    _write_analytics(tmp_path / "analytics.json", _reliability(builds, now - timedelta(hours=4)))
-    assert flaky.run(now=now) == 0
-
-    legacy = _reliability(builds, now)
-    for group in legacy["groups"]:
-        group.pop("outcome_history")
-    _write_analytics(tmp_path / "analytics.json", legacy)
-    assert flaky.run(now=now) == 0
-
-    assert client.opened == [] and not flaky.STATE.exists()
 
 
 def test_main_ci_section_summarizes_every_main_build_and_series():

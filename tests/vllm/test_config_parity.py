@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import tarfile
 
 import pytest
@@ -1680,3 +1681,100 @@ def test_production_config_inventory_uses_explicit_main_ci_routes_and_ignores_le
     assert report["inline_mirror_variants"][0]["nvidia_definition_id"] == f"{path}#cuda"
     catalog = config_parity.extract_shard_base_catalog()
     assert any(row["pipeline"] == "amd" and row["source_file"] == path for row in catalog["definitions"])
+
+
+def _oversized_parity_report() -> dict:
+    report = {
+        "generated_at": "2026-09-01T00:00:00Z",
+        "source": {"commit_sha": "7f599d78546819948c32f2b23d913507bbb38875", "repository": "vllm-project/vllm"},
+        "summary": {"total_amd_steps": 180, "uncovered": 20},
+    }
+    for collection, count in {
+        "matches": 18,
+        "inline_mirror_variants": 12,
+        "additional_variants": 8,
+        "amd_only": 16,
+        "nvidia_only": 14,
+        "mirrors": 40,
+    }.items():
+        report[collection] = [
+            {
+                "identity_key": f"{collection}-{index:03d}",
+                "color": "red" if collection == "amd_only" else "green",
+                "command_similarity": 0.1 if collection == "amd_only" else 1.0,
+                "commands": ["pytest " + ("x" * 500)],
+            }
+            for index in range(count)
+        ]
+    return report
+
+
+def test_execution_catalog_is_bounded_and_accounts_for_omitted_physical_rows():
+    report = _oversized_parity_report()
+    report["amd_execution_definitions"] = [
+        {
+            "definition_id": f".buildkite/test-amd.yaml#{index}",
+            "label": "Long name " * 40,
+            "execution_sha256": f"{index:064x}",
+        }
+        for index in range(300)
+    ]
+    bounded = config_parity.bounded_config_parity_payload(report, max_bytes=8_000)
+    assert len((json.dumps(bounded, indent=2) + "\n").encode()) <= 8_000
+    counts = bounded["publication_retention"]["collections"]["amd_execution_definitions"]
+    assert counts["source"] == 300
+    assert counts["published"] + counts["omitted"] == 300
+    assert counts["omitted"] > 0
+    assert counts["complete_relative_to_source"] is False
+    assert bounded["summary"] == report["summary"]
+
+
+def test_config_parity_compaction_drops_duplicate_targets_before_core_rows():
+    report = _oversized_parity_report()
+
+    bounded = config_parity.bounded_config_parity_payload(
+        report,
+        max_bytes=50_000,
+    )
+    encoded = (json.dumps(bounded, indent=2) + "\n").encode()
+    retention = bounded["publication_retention"]
+
+    assert len(encoded) <= 50_000
+    assert retention["complete_relative_to_source"] is False
+    assert retention["aggregate_summary_complete"] is True
+    assert retention["collections"]["mirrors"]["omitted"] > 0
+    for name in (
+        "matches",
+        "inline_mirror_variants",
+        "additional_variants",
+        "amd_only",
+        "nvidia_only",
+    ):
+        assert retention["collections"][name]["omitted"] == 0
+    assert bounded["summary"] == report["summary"]
+
+
+def test_config_parity_compaction_retains_actionable_rows_first_and_is_stable():
+    report = _oversized_parity_report()
+    reversed_report = dict(report)
+    for name in config_parity.CONFIG_PARITY_ROW_COLLECTIONS:
+        reversed_report[name] = list(reversed(report.get(name, [])))
+
+    bounded = config_parity.bounded_config_parity_payload(
+        report,
+        max_bytes=14_000,
+    )
+    reversed_bounded = config_parity.bounded_config_parity_payload(
+        reversed_report,
+        max_bytes=14_000,
+    )
+
+    assert bounded == reversed_bounded
+    assert len((json.dumps(bounded, indent=2) + "\n").encode()) <= 14_000
+    retention = bounded["publication_retention"]["collections"]
+    assert retention["mirrors"]["published"] == 0
+    assert retention["amd_only"]["published"] > 0
+    assert retention["matches"]["published"] == 0
+    for name in config_parity.CONFIG_PARITY_ROW_COLLECTIONS:
+        counts = retention[name]
+        assert counts["source"] == counts["published"] + counts["omitted"]

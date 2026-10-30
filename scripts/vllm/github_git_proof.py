@@ -66,6 +66,9 @@ PAGES_MARKER_PATH = "publication_generation.json"
 PAGES_STATUS_PATH = "data/vllm/ci/publication_status.json"
 PAGES_PREVIEW_PREFIX = "pr-preview/"
 PAGES_PREVIEW_RE = re.compile(r"pr-[1-9][0-9]*")
+# Retired public sections that older preview cohorts still carry. The canonical
+# root drops them on its own; preserved previews are copied verbatim otherwise.
+RETIRED_PREVIEW_PATHS = frozenset({"data/vllm/ci/operations_v2/ownership.json"})
 MAX_PAGES_BLOB_BYTES = PUBLICATION_MAX_BLOB_BYTES
 MAX_PAGES_TREE_BYTES = PUBLICATION_MAX_TREE_BYTES
 MAX_PAGES_FILES = PUBLICATION_MAX_FILES
@@ -739,6 +742,15 @@ def bound_pages_directory(root: Path, *, protected_preview: str | None = None) -
             raise InvalidProof("protected preview must have the pr-N shape")
         protected = protected_preview
     files = _local_page_files(root)
+    for path in sorted(files):
+        parts = path.split("/", 2)
+        if (
+            path.startswith(PAGES_PREVIEW_PREFIX)
+            and len(parts) == 3
+            and parts[2] in RETIRED_PREVIEW_PATHS
+        ):
+            root.absolute().joinpath(*PurePosixPath(path).parts).unlink()
+            del files[path]
     canonical: dict[str, int] = {}
     groups: dict[str, dict[str, int]] = {}
     invalid_preview_roots: set[str] = set()

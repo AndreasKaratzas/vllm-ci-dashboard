@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Open one state-owned issue for AMD MI main test steps that became slower.
+"""Track AMD MI main test steps that became slower for the dashboard.
 
 The source is ci.all_main_reliability from analytics.json, whose groups carry
 the wall minutes of every final attempt over the 30-day main cohort. One
@@ -16,7 +16,7 @@ level change whose prior level the current level exceeds by at least two
 minutes and 20 percent (or 15 minutes for long steps) and five standard
 errors, with at least 80 percent of the current runs above the midpoint, at
 most 20 percent of the baseline runs above it, and no level since the change
-back at the baseline. Opening needs the new level over 8 runs and 24 hours
+back at the baseline. Reporting needs the new level over 8 runs and 24 hours
 and the slowdown 48 hours old, so self-recovering infrastructure events do
 not alert. Queue wait is excluded; jobs without a Buildkite step key are not
 signals.
@@ -27,7 +27,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import re
 import statistics
 import sys
@@ -38,15 +37,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vllm.ci.managed_issue import (  # noqa: E402
-    DASHBOARD_REPO,
-    GitHubIssueClient,
-    normalize_managed_state,
-    reconcile_managed_issue,
-    repo_owner,
-    validate_target_repo,
-)
-from vllm.ci.watcher_state import write_watcher_state  # noqa: E402
+from vllm.ci.watcher_state import normalize_ledger_state, write_watcher_state  # noqa: E402
 from vllm.ci.reliability_history import validate_all_main_reliability  # noqa: E402
 
 
@@ -88,19 +79,7 @@ MAX_DATA_AGE = timedelta(hours=3)
 # refresh; with that many observations without a key the history is incomplete.
 MAX_KEYLESS_SHARE = 0.1
 SERIES_LIMIT = 60
-MAX_ISSUE_ROWS = 40
 VLLM_REPO_URL = "https://github.com/vllm-project/vllm"
-OWNERSHIP_MARKER = "<!-- vllm-ci-dashboard:managed-alert:amd-duration-regression:v1 -->"
-LABEL_SPECS = [
-    (
-        "amd-duration-regression",
-        "d93f0b",
-        "AMD main test step is at least 20 percent and two minutes slower",
-    ),
-    ("automated", "6f42c1", "Managed by dashboard automation"),
-    ("workstream:dev", "1d76db", "AMD CI test-area development"),
-]
-DASHBOARD_URL = "https://andreaskaratzas.github.io/vllm-ci-dashboard/#/analytics?view=slowdowns"
 _SHARD_SUFFIX = re.compile(r"\s+shard\s*\d+(?:\s*/\s*\d+)?\s*$", re.IGNORECASE)
 
 
@@ -146,7 +125,7 @@ def _read_state() -> dict:
         raw = json.loads(STATE.read_text())
     except (OSError, json.JSONDecodeError):
         return _default_state()
-    normalized = normalize_managed_state(raw)
+    normalized = normalize_ledger_state(raw)
     raw_active = raw.get("active") if isinstance(raw, dict) else {}
     # Older rows were keyed by strict job identity; they are re-derived.
     current = isinstance(raw, dict) and raw.get("incident_state_version") == INCIDENT_STATE_VERSION
@@ -516,142 +495,7 @@ def evaluate_slowdowns(reliability: dict, state: dict) -> dict[str, dict]:
     return active
 
 
-def _issue_rows(active: dict[str, dict]) -> list[dict]:
-    return sorted(
-        (row for row in active.values() if row.get("status") == "active"),
-        key=lambda row: (-float(row.get("increase_mins") or 0), str(row.get("name") or "")),
-    )
-
-
-def _fingerprint(active: dict[str, dict]) -> str:
-    """The set of slowdowns in the issue; a manually closed issue reopens when it changes."""
-    compact = sorted(row["signal_id"] for row in _issue_rows(active))
-    return hashlib.sha256(json.dumps(compact, separators=(",", ":")).encode()).hexdigest()
-
-
-def _content_fingerprint(active: dict[str, dict], generated_at: str) -> str:
-    """Rewrite the body when a slowdown or its onset changes, and at most daily
-    for the levels, which move a little with every new run."""
-    compact = [
-        str(generated_at)[:10],
-        sorted([row["signal_id"], (row.get("onset") or {}).get("build_number")] for row in _issue_rows(active)),
-    ]
-    return hashlib.sha256(json.dumps(compact, separators=(",", ":")).encode()).hexdigest()
-
-
-def _md(value: Any) -> str:
-    return str(value or "-").replace("|", "\\|").replace("\n", " ")
-
-
-def _minutes(value: Any) -> str:
-    number = _positive_float(value)
-    return f"{number:.1f}m" if number is not None else "-"
-
-
-ISSUE_TITLE = "AMD main duration: test steps slower since a change"
-
-
-def _change_md(row: dict) -> str:
-    last_good, onset = row.get("last_good") or {}, row.get("onset") or {}
-    builds = f"#{last_good.get('build_number')} -> [#{onset.get('build_number')}]({onset.get('build_url')})"
-    if row.get("likely_cause") == "environment":
-        return f"{builds}, same vLLM commit (environment)"
-    compare = row.get("compare_url")
-    commits = f"{str(last_good.get('commit'))[:10]}...{str(onset.get('commit'))[:10]}"
-    return f"{builds}, [{commits}]({compare})" if compare else builds
-
-
-def _issue_body(active: dict[str, dict], reliability: dict, run_url: str, owner: str) -> str:
-    rows = _issue_rows(active)
-    settled = sum(row.get("status") == "settled" for row in active.values())
-    generated_at = str(reliability.get("generated_at") or "unknown")
-    lines = [
-        "## AMD origin/main test-step slowdowns",
-        "",
-        f"**{len(rows)} AMD MI test steps on main are sustainably slower than before a change.**",
-        "",
-        "Signal rules:",
-        "",
-        (
-            "- One signal per Buildkite step and queue: per completed main build, the summed wall "
-            "time of its jobs when all passed. Queue wait, failed and soft-failed runs are excluded."
-        ),
-        "- Only builds with the step's current shard count are compared, so shard re-layouts are not slowdowns.",
-        (
-            f"- Alert: the current level is at least {RULES['alert_min_mins']:.0f} minutes and "
-            f"{RULES['alert_min_fraction'] * 100:.0f}% (or {RULES['alert_large_mins']:.0f} minutes) above "
-            f"the level before the change and {RULES['sigmas']:.0f} standard errors, held by "
-            f"{RULES['consistency'] * 100:.0f}% of its runs. The new level needs {RULES['min_recent_runs']} runs "
-            f"over {RULES['min_level_hours']} hours, the slowdown {RULES['min_slowdown_hours']} hours, and the "
-            f"level before it {RULES['min_baseline_runs']} runs."
-        ),
-        (
-            f"- Resolution: the increase falls below half of those thresholds or the step stops running "
-            f"for {RULES['stale_after_hours']} hours. A slowdown that has not grown for "
-            f"{RULES['settle_after_days']} days is the new normal: it leaves this issue and stays listed "
-            "on the dashboard as settled."
-        ),
-        "",
-        f"Collected at **{generated_at}**. [Open AMD main slowdowns]({DASHBOARD_URL}).",
-        "",
-        "| test step | hardware / queue | before | now | increase | changed between |",
-        "|---|---|---:|---:|---:|---|",
-    ]
-    for row in rows[:MAX_ISSUE_ROWS]:
-        latest = row.get("latest") or {}
-        name = _md(row.get("name"))
-        if int(row.get("jobs") or 1) > 1:
-            name = f"{name} ({row['jobs']} shards)"
-        lines.append(
-            f"| [{name}]({latest.get('build_url')}) | {_md(row.get('hardware'))} / {_md(row.get('queue'))} "
-            f"| {_minutes(row.get('baseline_mins'))} ({row.get('baseline_runs')}) "
-            f"| {_minutes(row.get('recent_mins'))} ({row.get('recent_runs')}) "
-            f"| +{_minutes(row.get('increase_mins'))} (+{float(row.get('increase_pct') or 0):.0f}%) "
-            f"| {_change_md(row)} |"
-        )
-    if len(rows) > MAX_ISSUE_ROWS:
-        lines.extend(["", f"{len(rows) - MAX_ISSUE_ROWS} additional steps are on the dashboard."])
-    if settled:
-        lines.extend(["", f"{settled} settled slowdowns are listed on the dashboard."])
-    lines.extend(
-        [
-            "",
-            f"GitHub assignee: {owner}.",
-            "",
-            (
-                f"*Managed by amd_duration_regression_watcher.py from {run_url}. "
-                "Only this tracked umbrella issue can be updated or closed by the watcher.*"
-            ),
-        ]
-    )
-    return "\n".join(lines) + "\n"
-
-
-def _recovery_body(active: dict[str, dict], run_url: str) -> str:
-    settled = len(active) - len(_issue_rows(active))
-    state = (
-        f"{settled} AMD MI main test steps are still slower than before their change, but none has "
-        f"become slower within {RULES['settle_after_days']} days; they stay listed as settled."
-        if settled
-        else "No AMD MI main test step is slower than before a change by the alert thresholds."
-    )
-    return (
-        f"{state} Closing this tracked umbrella issue.\n\n"
-        f"[Open AMD main slowdowns]({DASHBOARD_URL}).\n\n*{run_url}*"
-    )
-
-
 def run() -> int:
-    token = os.getenv("GITHUB_TOKEN")
-    repo = os.getenv("GITHUB_REPOSITORY") or DASHBOARD_REPO
-    validate_target_repo(repo)
-    run_id = os.getenv("GITHUB_RUN_ID", "")
-    run_url = (
-        f"https://github.com/{repo}/actions/runs/{run_id}"
-        if run_id
-        else f"https://github.com/{repo}"
-    )
-
     reliability = _read_reliability()
     if (
         not reliability
@@ -659,45 +503,26 @@ def run() -> int:
         or not validate_all_main_reliability(reliability, PIPELINE)
         or not _keyed_duration_history(reliability)
     ):
-        log.error("Step-keyed AMD main duration history is unavailable; refusing issue mutations")
+        log.error("Step-keyed AMD main duration history is unavailable; leaving state untouched")
         return 0
     now = datetime.now(timezone.utc)
     if not _is_fresh(reliability, now):
-        log.error("AMD main reliability is stale or future-dated; refusing issue mutations")
-        return 0
-    if not token:
-        log.warning("GITHUB_TOKEN not set; leaving issue state untouched")
+        log.error("AMD main reliability is stale or future-dated; leaving state untouched")
         return 0
 
     state = _read_state()
     active = evaluate_slowdowns(reliability, state)
     state["active"] = active
     state["hardware_scope"] = "amd_mi_gpu"
-    observed_at = str(reliability.get("generated_at") or _iso(now))
-    rows = _issue_rows(active)
-    client = GitHubIssueClient(token, repo)
-    reconciled = reconcile_managed_issue(
-        state,
-        active=bool(rows),
-        fingerprint=_fingerprint(active),
-        content_fingerprint=_content_fingerprint(active, observed_at),
-        title=ISSUE_TITLE,
-        body=_issue_body(active, reliability, run_url, repo_owner(repo)),
-        ownership_marker=OWNERSHIP_MARKER,
-        recovery_body=_recovery_body(active, run_url),
-        observed_at=observed_at,
-        label_specs=LABEL_SPECS,
-        client=client,
-        discovery_label="amd-duration-regression",
-        recovery_labels=("automated", "workstream:dev"),
-    )
-    _write_state(reconciled)
+    state["last_run"] = str(reliability.get("generated_at") or _iso(now))
+    state["issue"] = None
+    state["suppressed"] = False
+    _write_state(state)
+    current = sum(row.get("status") == "active" for row in active.values())
     log.info(
-        "AMD duration watcher: %d active and %d settled slowdowns; issue=%s suppressed=%s",
-        len(rows),
-        len(active) - len(rows),
-        (reconciled.get("issue") or {}).get("number"),
-        reconciled.get("suppressed"),
+        "AMD duration watcher: %d active and %d settled slowdowns",
+        current,
+        len(active) - current,
     )
     return 0
 

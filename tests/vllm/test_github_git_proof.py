@@ -373,6 +373,23 @@ def test_pages_bounds_prune_only_whole_preview_cohorts(
     assert (tmp_path / "pr-preview/pr-101/asset.js").is_file()
 
 
+def test_pages_bounds_drop_retired_sections_from_preserved_previews(tmp_path) -> None:
+    """Old previews must not keep republishing the retired team roster."""
+    retired = "data/vllm/ci/operations_v2/ownership.json"
+    kept = "data/vllm/ci/operations_v2/main_ci.json"
+    (tmp_path / "index.html").write_text("root\n")
+    preview = tmp_path / "pr-preview/pr-101"
+    for relative in (retired, kept):
+        (preview / relative).parent.mkdir(parents=True, exist_ok=True)
+        (preview / relative).write_text("{}\n")
+
+    summary = proof.bound_pages_directory(tmp_path)
+
+    assert summary["preview_files"] == 1
+    assert not (preview / retired).exists()
+    assert (preview / kept).is_file()
+
+
 def test_compare_ancestor_is_strict_and_stream_cap_is_explicit(monkeypatch) -> None:
     head = "c" * 40
     payload = {

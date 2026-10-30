@@ -37,8 +37,6 @@ dropping the oldest complete UTC days):
 Assembled output (read by build_operations_snapshot and published atomically
 with the two-file ledger):
     data/vllm/ci/agent_health.json
-Private handoff to the same run's CI area watcher (see ``_cuda_evidence``):
-    data/vllm/ci/.cache/cuda_evidence.json
 
 Guarded workflow CLI form (a token without durable guard state exits 78):
     python scripts/vllm/collect_agent_health.py --days 60 --output data/vllm/ci/  # backfill
@@ -100,7 +98,6 @@ STORE_SUBDIR = "agent_health"
 OUTPUT_JSON = "agent_health.json"
 NODE_DAYS_JSONL = "node_days.jsonl"
 INFRA_FAILURES_JSONL = "infra_failures.jsonl"
-CUDA_EVIDENCE_JSON = "cuda_evidence.json"
 
 # Bound every tracked blob and the complete three-file generation well below
 # the dashboard sync layer's 90 MB ceiling. The assembled JSON repeats the two
@@ -344,29 +341,6 @@ def _mirror_step(row: dict) -> tuple[str, str] | None:
     if not key.startswith(AMD_MIRROR_KEY_PREFIX):
         return None
     return key[len(AMD_MIRROR_KEY_PREFIX):], _test_name(row.get("group"))
-
-
-def _cuda_evidence(obs: list[dict]) -> dict[str, dict]:
-    """CUDA evidence about the AMD jobs of each current-ci nightly.
-
-    A build is ``build_wide`` under the ``upstream_build_wide`` share rule;
-    ``mirror_failed_jobs`` maps every AMD job (any shard or attempt) whose CUDA
-    mirror step failed in the same build to that CUDA step key.
-    """
-    builds: dict[str, dict] = {}
-    for r in obs:
-        context = r.get("upstream")
-        if r["pipeline"] != "ci" or not r["nightly"] or not context:
-            continue
-        build = builds.setdefault(str(r["build_number"]), {
-            **{key: context[key] for key in ("jobs", "failed", "amd_jobs", "amd_failed")},
-            "build_wide": _upstream_build_wide(context),
-            "mirror_failed_jobs": {},
-        })
-        mirror = _mirror_step(r)
-        if mirror in context["failed_steps"]:
-            build["mirror_failed_jobs"][r["job_id"]] = mirror[0]
-    return builds
 
 
 def _incremental_slices(
@@ -1834,10 +1808,6 @@ def main() -> int:
         },
     )
     _publish_generation(args.output, generation)
-    _atomic_write_bytes(
-        args.output / ".cache" / CUDA_EVIDENCE_JSON,
-        json.dumps({"builds": _cuda_evidence(obs)}, sort_keys=True).encode(),
-    )
     payload = generation["payload"]
     out_path = args.output / OUTPUT_JSON
     log.info(

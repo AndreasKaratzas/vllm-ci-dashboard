@@ -148,7 +148,6 @@ export const SECTIONS = {
   comparison: section('comparison', inputs('analytics')),
   definition_parity: section('definition_parity', inputs('config_parity')),
   test_group_parity: section('test_group_parity', inputs('test_group_parity', 'config_parity')),
-  ownership: section('ownership', inputs('ci_ownership')),
   queue: {
     ...section('queue', { on: 'poll' }),
     inputs: ['queue_timeseries', 'queue_jobs'],
@@ -157,7 +156,7 @@ export const SECTIONS = {
   },
   omni: section(
     'omni',
-    inputs('queue_timeseries', 'queue_jobs', 'omni_heuristic', 'omni_issue_state', 'workload_mapping', 'capacity_monitor'),
+    inputs('queue_timeseries', 'queue_jobs', 'omni_heuristic', 'workload_mapping', 'capacity_monitor'),
   ),
   diagnostics: section('diagnostics', { on: 'publication' }),
   // The all-main cohort clock (main_ci) and the retry summary in analytics feed this section.

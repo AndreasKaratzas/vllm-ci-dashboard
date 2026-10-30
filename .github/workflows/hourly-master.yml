@@ -1456,7 +1456,7 @@ jobs:
         run: |
           source "$PUBLICATION_COLLECTOR_HELPERS"
           run_surface_collector queue_omni "Omni surge heuristic" \
-            python scripts/vllm/omni_surge_watcher.py --heuristic-only
+            python scripts/vllm/omni_surge_watcher.py
 
       - name: Prepare private CI roster cache key
         id: ci-roster-cache-key
@@ -1684,16 +1684,6 @@ jobs:
           run_surface_collector ci_core "Current main CI parity" \
             python scripts/vllm/build_test_group_parity.py \
             --source-commit "$VLLM_CONFIG_SHA" --output data/vllm/ci/
-
-      - name: Collect build-pinned CI ownership parity
-        if: inputs.dns_generation == '' && inputs.queue_generation == ''
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          source "$PUBLICATION_COLLECTOR_HELPERS"
-          run_surface_collector ci_core "CI ownership parity" \
-            python scripts/vllm/collect_ownership_parity.py \
-            --input-dir data/vllm/ci --output data/vllm/ci
 
       - name: Validate current CI core before analytics
         id: ci-core-validation
@@ -2080,69 +2070,22 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          from vllm.publication_surfaces import PRE_VIEW_RETIREMENT_SURFACE_SPECS, RETIRED_SURFACES, RETIRED_RUNTIME_PARITY_PATHS, RETIRED_PARITY_OVERRIDE_PATHS
+          from vllm.publication_surfaces import PRE_VIEW_RETIREMENT_SURFACE_SPECS, RETIRED_SURFACES, RETIRED_RUNTIME_PARITY_PATHS, RETIRED_PARITY_OVERRIDE_PATHS, RETIRED_TICKETING_PATHS
           for surface in sorted(RETIRED_SURFACES):
               for relative in PRE_VIEW_RETIREMENT_SURFACE_SPECS[surface].required_paths:
                   Path(relative).unlink(missing_ok=True)
-          for relative in RETIRED_RUNTIME_PARITY_PATHS | RETIRED_PARITY_OVERRIDE_PATHS:
+          for relative in RETIRED_RUNTIME_PARITY_PATHS | RETIRED_PARITY_OVERRIDE_PATHS | RETIRED_TICKETING_PATHS:
               Path(relative).unlink(missing_ok=True)
-          for name in ("gating", "trajectory", "comparison_retry_evidence"):
+          for name in ("gating", "trajectory", "comparison_retry_evidence", "ownership"):
               Path(f"data/vllm/ci/operations_v2/{name}.json").unlink(missing_ok=True)
           PY
 
-      # Side-effecting watchers run only after selection and only when their
-      # authoritative surface is current. They never mutate issues from a
+      # Stateful watchers run only after selection and only when their
+      # authoritative surface is current. They never advance state from a
       # rejected candidate or a restored last-known-good transaction.
-      - name: Ensure CI Operations issue labels
-        if: >-
-          inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.request-attempt.outputs.request_mode == 'reserved' &&
-          steps.publication-selector.outcome == 'success'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: python scripts/vllm/ensure_ci_operations_labels.py
-
-      - name: Watch queue latency (open/close issues)
-        if: >-
-          inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.request-attempt.outputs.request_mode == 'reserved' &&
-          steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',queue,')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/queue_issue_watcher.py
-
-      - name: Watch zombie queue jobs (open/close issues)
-        if: >-
-          inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.request-attempt.outputs.request_mode == 'reserved' &&
-          steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',queue,')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/queue_zombie_watcher.py
-
-      - name: Watch Omni workload surge (open/close issues)
-        if: >-
-          inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.request-attempt.outputs.request_mode == 'reserved' &&
-          steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',queue,') &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',queue_omni,')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/omni_surge_watcher.py --issues-only
-
       # The main pulse (queue-monitor.yml) records failures from builds that
       # finished after this cohort. If this export fails the watcher still
-      # runs on its own cohort but keeps the managed issue open.
+      # runs on its own cohort.
       - name: Read main pulse observations
         if: >-
           inputs.dns_generation == '' && inputs.queue_generation == '' &&
@@ -2152,109 +2095,45 @@ jobs:
         continue-on-error: true
         run: python scripts/vllm/main_pulse.py export-overlay --output "$RUNNER_TEMP/main-pulse-state.json"
 
-      - name: Watch AMD MI main CI test-group failures (open/close issue)
+      - name: Track AMD MI main CI test-group failures
         if: >-
           inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_analytics,')
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
           MAIN_PULSE_STATE_FILE: ${{ runner.temp }}/main-pulse-state.json
         run: python scripts/vllm/ci_main_failure_watcher.py
 
-      - name: Watch AMD MI main CI flakiness and retries (open/close issue)
+      - name: Track AMD main duration regressions
         if: >-
           inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success' &&
           !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_analytics,')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/ci_flakiness_watcher.py
-
-      - name: Watch AMD main duration regressions (open/close issue)
-        if: >-
-          inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.request-attempt.outputs.request_mode == 'reserved' &&
-          steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_analytics,')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
         run: python scripts/vllm/amd_duration_regression_watcher.py
 
-      - name: Watch AMD CI agent health (open/close issue)
-        if: >-
-          inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.request-attempt.outputs.request_mode == 'reserved' &&
-          steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',agent_health,')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/agent_health_issue_watcher.py
-
-      - name: Stage managed alert issue state
+      - name: Stage watcher state
         if: >-
           inputs.dns_generation == '' && inputs.queue_generation == '' &&
           steps.request-attempt.outputs.request_mode == 'reserved' &&
           steps.publication-selector.outcome == 'success'
         run: |
-          # One MI-only CI watcher owns the umbrella issue. The old AMD
-          # watcher state belongs to the retired amd-ci collection path.
-          git rm -f --ignore-unmatch -- data/vllm/ci/open_amd_main_failure_issues.json
-          rm -f data/vllm/ci/open_amd_main_failure_issues.json
+          # Retired ledgers: the old AMD watcher and the issue-only watchers.
+          for retired in \
+            open_amd_main_failure_issues.json \
+            open_agent_health_issues.json \
+            open_ci_flakiness_issues.json \
+            open_ci_area_regression_issues.json \
+            open_queue_issues.json \
+            open_queue_zombie_issues.json \
+            open_omni_surge_issues.json; do
+            git rm -f --ignore-unmatch -- "data/vllm/ci/$retired"
+            rm -f "data/vllm/ci/$retired"
+          done
           git add \
             data/vllm/ci/open_ci_main_failure_issues.json \
-            data/vllm/ci/open_amd_duration_regression_issues.json \
-            data/vllm/ci/open_agent_health_issues.json
-          # The flakiness ledger appears after its first fresh evaluation.
-          if [ -e data/vllm/ci/open_ci_flakiness_issues.json ]; then
-            git add data/vllm/ci/open_ci_flakiness_issues.json
-          fi
-
-      - name: Watch AMD CI test-area regressions (ranked owners)
-        if: >-
-          inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.request-attempt.outputs.request_mode == 'reserved' &&
-          steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_RUN_ID: ${{ github.run_id }}
-        run: python scripts/vllm/ci_area_regression_watcher.py
-
-      - name: Sync managed issues to AMD CI Operations project
-        if: >-
-          inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.request-attempt.outputs.request_mode == 'reserved' &&
-          steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
-        continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          # Prefer the least-privilege replacement. The legacy secret remains
-          # a temporary fallback so Project sync is operational during rotation.
-          PROJECTS_WRITE_TOKEN: ${{ secrets.PROJECTS_WRITE_TOKEN || secrets.PROJECTS_TOKEN }}
-        run: python scripts/vllm/sync_ci_operations_project.py
-
-      - name: Stage CI ownership issue state
-        if: >-
-          inputs.dns_generation == '' && inputs.queue_generation == '' &&
-          steps.request-attempt.outputs.request_mode == 'reserved' &&
-          steps.publication-selector.outcome == 'success' &&
-          !contains(format(',{0},', steps.publication-selector.outputs.degraded_surfaces), ',ci_core,')
-        run: |
-          git add data/vllm/ci/open_ci_area_regression_issues.json
+            data/vllm/ci/open_amd_duration_regression_issues.json
 
       - name: Advance canonical collector clock
         if: >-
@@ -2262,7 +2141,7 @@ jobs:
           steps.request-attempt.outputs.request_mode == 'reserved'
         run: python scripts/vllm/write_last_collected_at.py
 
-      - name: Rebuild v2 operations snapshot with selected issue state
+      - name: Rebuild v2 operations snapshot with selected watcher state
         if: >-
           inputs.dns_generation != '' ||
           inputs.queue_generation != '' ||

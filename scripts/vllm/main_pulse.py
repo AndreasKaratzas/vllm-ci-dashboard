@@ -5,23 +5,14 @@ Data Collection replays the full 30-day main cohort at most every two hours.
 The pulse fills the gap between collections: on each reserved run it lists
 ``ci`` branch=main builds finished since its durable cursor, keeps their AMD MI
 jobs, and applies them with the same incident transitions on top of the
-published collection watcher state. A new hard failure therefore opens or
-updates the managed issue in the pulse run.
+published collection watcher state, so a new hard failure reaches the
+dashboard before the next collection.
 
 Durable state lives on two parentless one-file branches: the request ledger
 (``budget_branch``) is reserved before any Buildkite token is exposed, and the
 overlay (``state_branch``) holds the cursor plus only the observations that
-are newer than the collection state. The pulse reconciles the issue only while
-an incident is active, so closing a resolved issue stays with the collection
-watcher, which merges the overlay first. (The shared reconciliation may still
-close a verified duplicate managed issue, as the collection would.)
-
-The authority state is the last *published* collection state, which lags the
-collection's own issue mutation. Before mutating the issue the pulse checks
-that GitHub agrees with it (its issue is still open, or no managed issue is
-open when it owns none) and otherwise defers to its next run. The pulse also
-publishes its observations before mutating the issue, so a collection that
-exported an older overlay sees the state branch move and does not close.
+are newer than the collection state. The collection watcher merges the
+overlay before it advances its own state.
 """
 
 from __future__ import annotations
@@ -36,7 +27,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -48,12 +39,6 @@ from vllm import amd_main_failure_watcher as watcher  # noqa: E402
 from vllm import ci_main_failure_watcher as ci_watcher  # noqa: E402
 from vllm import queue_request_budget as ledger_git  # noqa: E402
 from vllm.ci import main_pulse_overlay as overlay_lib  # noqa: E402
-from vllm.ci.managed_issue import (  # noqa: E402
-    DASHBOARD_REPO,
-    GitHubIssueClient,
-    normalize_managed_state,
-    validate_target_repo,
-)
 from vllm.ci.reliability_history import (  # noqa: E402
     build_all_main_reliability,
     validate_all_main_reliability,
@@ -368,40 +353,6 @@ def fetch_window(config: PulseConfig, overlay: dict | None, now: datetime) -> da
     return max(cursor, floor) if cursor else floor
 
 
-class DryRunIssueClient:
-    """Records the issue mutations a real run would make."""
-
-    def __init__(self, known_open: Sequence[int] = ()):
-        self.known_open = set(known_open)
-        self.actions: list[tuple[str, int]] = []
-
-    def issue_state(self, number: int, ownership_marker: str) -> str:
-        return "open"
-
-    def find_open_issues(self, ownership_marker: str) -> list[int]:
-        return sorted(self.known_open)
-
-    def open_issue(self, title: str, body: str, label_specs: Any) -> int:
-        number = 900_000 + len(self.actions)
-        self.actions.append(("open", number))
-        return number
-
-    def update_issue(self, number: int, title: str, body: str) -> bool:
-        self.actions.append(("update", number))
-        return True
-
-    def ensure_owner_assigned(self, number: int) -> bool:
-        return True
-
-    def comment_issue(self, number: int, body: str) -> bool:
-        self.actions.append(("comment", number))
-        return True
-
-    def close_issue(self, number: int) -> bool:
-        self.actions.append(("close", number))
-        return True
-
-
 def _ready_authority(raw: Any) -> dict:
     if not isinstance(raw, dict):
         raise MainPulseError("collection watcher state is not an object")
@@ -409,25 +360,6 @@ def _ready_authority(raw: Any) -> dict:
     if not state.get("initialized") or raw.get("hardware_scope") != "amd_mi_gpu":
         raise MainPulseError("collection watcher state is not an initialized MI-scoped state")
     return state
-
-
-def issue_basis_is_current(state: dict, client: Any) -> bool:
-    """Whether GitHub agrees with the issue ownership the pulse is working from."""
-    managed = normalize_managed_state(state)
-    marker = ci_watcher.CONFIG.ownership_marker
-    if managed["issue"]:
-        return client.issue_state(managed["issue"]["number"], marker) == "open"
-    if managed["suppressed"]:
-        return True
-    if isinstance(client, GitHubIssueClient):
-        found = client.find_open_issues(
-            marker,
-            durable_label=ci_watcher.CONFIG.label_specs[0][0],
-            recovery_labels=("automated", "workstream:dev"),
-        )
-    else:
-        found = client.find_open_issues(marker)
-    return not found
 
 
 def pulse_step(
@@ -439,16 +371,8 @@ def pulse_step(
     *,
     since: datetime,
     fetched_at: datetime,
-    client: Any,
-    repo: str,
-    run_url: str,
-    before_issue_mutation: Callable[[dict], None] | None = None,
 ) -> tuple[dict, dict]:
-    """Apply one fetched slice; return the next overlay and a run summary.
-
-    ``before_issue_mutation`` receives the overlay without the issue change
-    and must make it durable before the issue is touched.
-    """
+    """Apply one fetched slice; return the next overlay and a run summary."""
     authority = _ready_authority(authority_raw)
     base = overlay_lib.merge_overlay(authority, overlay)
     previous_processed = {row["number"]: row for row in (overlay or {}).get("processed_builds") or []}
@@ -476,17 +400,6 @@ def pulse_step(
         partial_cohort=True,
     )
     active = state.get("active") or {}
-    content = watcher._content_fingerprint(active)
-    changed = content != watcher._content_fingerprint(base.get("active") or {})
-    issue, basis = None, ""
-    if overlay and overlay["issue"] is not None and overlay["issue_basis"] == overlay_lib.issue_basis(authority):
-        issue, basis = overlay["issue"], overlay["issue_basis"]
-    needs_issue = bool(active) and (
-        changed
-        or not state.get("suppressed")
-        and (not state.get("issue") or state.get("last_content_fingerprint") != content)
-    )
-
     groups = overlay_lib.overlay_groups(authority, state)
     timeline = watcher.bounded_timeline(
         list((overlay or {}).get("timeline") or []) + [{**event, "source": "pulse"} for event in events],
@@ -521,47 +434,23 @@ def pulse_step(
         "resolved": sum(event["event"] == "resolved" for event in events),
         "active": len(active),
         "pending_soft": len(state.get("pending_soft") or {}),
-        "issue_action": "none",
     }
     if not exhaustive:
         log.warning("::warning::Main pulse page was truncated; the cursor stays at %s", since.isoformat())
 
-    def overlay_with(issue_fields: dict | None, issue_basis: str) -> dict:
-        return overlay_lib.normalize_overlay(
-            {
-                "schema_version": overlay_lib.OVERLAY_SCHEMA_VERSION,
-                "updated_at": generated_at,
-                "cursor": _iso(cursor),
-                "groups": groups,
-                "issue": issue_fields,
-                "issue_basis": issue_basis,
-                "timeline": [event for event in timeline if event.get("group_id") in groups],
-                "processed_builds": processed_builds,
-                "last_run": dict(summary),
-            }
-        )
-
-    if needs_issue:
-        if not issue_basis_is_current(state, client):
-            summary["issue_action"] = "deferred"
-            log.info("Published collection state disagrees with GitHub; deferring the issue to the next pulse")
-        else:
-            if before_issue_mutation is not None:
-                before_issue_mutation(overlay_with(issue, basis))
-            before = (state.get("issue") or {}).get("number")
-            state = watcher.reconcile_issue(
-                state,
-                reliability,
-                ci_watcher.CONFIG,
-                client=client,
-                repo=repo,
-                run_url=run_url,
-                observed_at=generated_at,
-            )
-            after = (state.get("issue") or {}).get("number")
-            summary["issue_action"] = "opened" if after and not before else "updated" if after else "unresolved"
-            issue, basis = overlay_lib.issue_block(state), overlay_lib.issue_basis(authority)
-    next_overlay = overlay_with(issue, basis)
+    next_overlay = overlay_lib.normalize_overlay(
+        {
+            "schema_version": overlay_lib.OVERLAY_SCHEMA_VERSION,
+            "updated_at": generated_at,
+            "cursor": _iso(cursor),
+            "groups": groups,
+            "issue": None,
+            "issue_basis": "",
+            "timeline": [event for event in timeline if event.get("group_id") in groups],
+            "processed_builds": processed_builds,
+            "last_run": dict(summary),
+        }
+    )
     return next_overlay, summary
 
 
@@ -596,17 +485,6 @@ def run(args: argparse.Namespace, config: PulseConfig) -> dict:
         if not token:
             raise MainPulseError("BUILDKITE_TOKEN is not set")
         builds, leg = fetch_finished_builds(config, token, since)
-    repo = os.getenv("GITHUB_REPOSITORY") or DASHBOARD_REPO
-    validate_target_repo(repo)
-    run_id = os.getenv("GITHUB_RUN_ID", "")
-    run_url = f"https://github.com/{repo}/actions/runs/{run_id}" if run_id else f"https://github.com/{repo}"
-    if args.dry_run:
-        client: Any = DryRunIssueClient()
-    else:
-        github_token = os.getenv("GITHUB_TOKEN")
-        if not github_token:
-            raise MainPulseError("GITHUB_TOKEN is not set")
-        client = GitHubIssueClient(github_token, repo)
     lease = {"sha": observed_sha}
 
     def publish(value: dict) -> None:
@@ -625,12 +503,8 @@ def run(args: argparse.Namespace, config: PulseConfig) -> dict:
         )
 
     next_overlay, summary = pulse_step(
-        config, authority, overlay, builds, leg,
-        since=since, fetched_at=started, client=client, repo=repo, run_url=run_url,
-        before_issue_mutation=publish,
+        config, authority, overlay, builds, leg, since=since, fetched_at=started,
     )
-    if args.dry_run:
-        summary["dry_run_issue_actions"] = [list(action) for action in client.actions]
     publish(next_overlay)
     if lease["sha"] is not None and args.state_file is None:
         summary["state_sha"] = lease["sha"]
@@ -666,14 +540,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     run_parser.add_argument("--authority-state", type=Path, required=True)
     run_parser.add_argument("--state-file", type=Path, help="local overlay instead of the state branch")
     run_parser.add_argument("--recorded-builds", type=Path, help="recorded Buildkite builds instead of the API")
-    run_parser.add_argument("--dry-run", action="store_true", help="record issue mutations instead of making them")
     run_parser.add_argument("--now")
     export_parser = commands.add_parser("export-overlay", parents=[common])
     export_parser.add_argument("--output", type=Path, required=True)
-    args = parser.parse_args(argv)
-    if args.command == "run" and args.dry_run and (args.state_file is None or args.recorded_builds is None):
-        parser.error("--dry-run needs --state-file and --recorded-builds")
-    return args
+    return parser.parse_args(argv)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

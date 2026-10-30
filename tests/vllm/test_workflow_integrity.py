@@ -1490,7 +1490,7 @@ class TestHourlyMasterWorkflow:
         heuristic_index = names.index("Refresh Omni surge heuristic")
         selector = names.index("Select validated publication surfaces")
         second_build = names.index(
-            "Rebuild v2 operations snapshot with selected issue state"
+            "Rebuild v2 operations snapshot with selected watcher state"
         )
         assert restore_index < collect_index < heuristic_index < selector < second_build
         collect = steps[collect_index]
@@ -1506,7 +1506,7 @@ class TestHourlyMasterWorkflow:
             in heuristic["run"]
         )
         assert (
-            "python scripts/vllm/omni_surge_watcher.py --heuristic-only"
+            "python scripts/vllm/omni_surge_watcher.py"
             in heuristic["run"]
         )
         assert "--output data/vllm/ci/workload_mapping.json" in collect["run"]
@@ -1754,7 +1754,6 @@ class TestHourlyMasterWorkflow:
             "Refresh current main CI parity": "ci_core",
             "Collect CI analytics": "ci_analytics",
             "Collect AMD test matrix": "ci_core",
-            "Collect build-pinned CI ownership parity": "ci_core",
             "Collect queue capacity monitor": "queue_capacity",
             "Collect vLLM/Omni AMD workload mappings": "queue_workload",
             "Refresh Omni surge heuristic": "queue_omni",
@@ -2196,25 +2195,8 @@ class TestHourlyMasterWorkflow:
         selector = names.index("Select validated publication surfaces")
         live_audit = names.index("Live publication audit")
         watcher_surfaces = (
-            ("Watch queue latency (open/close issues)", ("queue",)),
-            ("Watch zombie queue jobs (open/close issues)", ("queue",)),
-            (
-                "Watch Omni workload surge (open/close issues)",
-                ("queue", "queue_omni"),
-            ),
-            (
-                "Watch AMD MI main CI test-group failures (open/close issue)",
-                ("ci_analytics",),
-            ),
-            (
-                "Watch AMD main duration regressions (open/close issue)",
-                ("ci_analytics",),
-            ),
-            ("Watch AMD CI agent health (open/close issue)", ("agent_health",)),
-            (
-                "Watch AMD CI test-area regressions (ranked owners)",
-                ("ci_core",),
-            ),
+            ("Track AMD MI main CI test-group failures", ("ci_analytics",)),
+            ("Track AMD main duration regressions", ("ci_analytics",)),
         )
         for name, surfaces in watcher_surfaces:
             watcher = steps[names.index(name)]
@@ -2225,18 +2207,9 @@ class TestHourlyMasterWorkflow:
             assert "degraded_surfaces" in condition
             for surface in surfaces:
                 assert f",{surface}," in condition
-        omni_watcher = steps[
-            names.index("Watch Omni workload surge (open/close issues)")
-        ]
-        assert ",queue_capacity," not in omni_watcher["if"]
-        assert ",queue_workload," not in omni_watcher["if"]
-        assert (
-            omni_watcher["run"]
-            == "python scripts/vllm/omni_surge_watcher.py --issues-only"
-        )
         assert selector < names.index("Render dashboards after publication selection")
         assert names.index(
-            "Rebuild v2 operations snapshot with selected issue state"
+            "Rebuild v2 operations snapshot with selected watcher state"
         ) < live_audit
         assert names.index("Render dashboards after publication selection") < names.index(
             "Live publication audit"
@@ -2275,17 +2248,9 @@ class TestHourlyMasterWorkflow:
                 assert "request_mode == 'reserved'" in step.get("if", "")
 
         issue_side_effect_steps = {
-            "Ensure CI Operations issue labels",
-            "Watch queue latency (open/close issues)",
-            "Watch zombie queue jobs (open/close issues)",
-            "Watch Omni workload surge (open/close issues)",
-            "Watch AMD MI main CI test-group failures (open/close issue)",
-            "Watch AMD main duration regressions (open/close issue)",
-            "Watch AMD CI agent health (open/close issue)",
-            "Stage managed alert issue state",
-            "Watch AMD CI test-area regressions (ranked owners)",
-            "Sync managed issues to AMD CI Operations project",
-            "Stage CI ownership issue state",
+            "Track AMD MI main CI test-group failures",
+            "Track AMD main duration regressions",
+            "Stage watcher state",
             "Create hourly validation incident",
         }
         assert issue_side_effect_steps <= set(names)
@@ -2464,7 +2429,7 @@ class TestHourlyMasterWorkflow:
         assert artifact["uses"] == "actions/upload-artifact@" + ACTION_PINS["actions/upload-artifact"]
         assert artifact["with"]["path"] == "${{ runner.temp }}/ci-core-validation.json"
         assert artifact["with"]["retention-days"] == 7
-        assert names.index("Prepare private analytics cache key") < names.index("Collect CI data") < names.index("Collect build-pinned CI ownership parity") < names.index("Validate current CI core before analytics") < names.index("Upload current CI core validation diagnostics") < names.index("Collect CI analytics")
+        assert names.index("Prepare private analytics cache key") < names.index("Collect CI data") < names.index("Refresh current main CI parity") < names.index("Validate current CI core before analytics") < names.index("Upload current CI core validation diagnostics") < names.index("Collect CI analytics")
 
     def test_current_ci_core_workflow_records_collector_failure_without_running_audit(self, tmp_path, monkeypatch):
         from vllm import select_publication_surfaces as selector
@@ -5140,33 +5105,22 @@ class TestAlertAutomationWorkflow:
 
         amd_collect = names.index("Collect CI analytics")
         agent_collect = names.index("Collect AMD MI agent health (ci/main builds)")
-        ci_watch = names.index(
-            "Watch AMD MI main CI test-group failures (open/close issue)"
-        )
-        duration_watch = names.index("Watch AMD main duration regressions (open/close issue)")
-        agent_watch = names.index("Watch AMD CI agent health (open/close issue)")
-        flaky_watch = names.index(
-            "Watch AMD MI main CI flakiness and retries (open/close issue)"
-        )
+        ci_watch = names.index("Track AMD MI main CI test-group failures")
+        duration_watch = names.index("Track AMD main duration regressions")
 
         assert restore < min(amd_collect, agent_collect)
         assert ci_watch > amd_collect
-        assert flaky_watch > ci_watch
-        assert steps[flaky_watch]["run"] == "python scripts/vllm/ci_flakiness_watcher.py"
-        assert steps[flaky_watch]["if"] == steps[ci_watch]["if"]
-        assert "',ci_analytics,'" in steps[ci_watch]["if"]
         assert duration_watch > amd_collect
-        assert agent_watch > agent_collect
+        assert "',ci_analytics,'" in steps[ci_watch]["if"]
         assert steps[ci_watch]["run"] == "python scripts/vllm/ci_main_failure_watcher.py"
         assert steps[duration_watch]["run"] == "python scripts/vllm/amd_duration_regression_watcher.py"
-        assert steps[agent_watch]["run"] == "python scripts/vllm/agent_health_issue_watcher.py"
-        for index in (ci_watch, duration_watch, agent_watch, flaky_watch):
-            env = steps[index].get("env") or {}
-            assert {"GITHUB_TOKEN", "GITHUB_REPOSITORY", "GITHUB_RUN_ID"} <= set(env)
+        # Detection-only: a missing GitHub token must never freeze these ledgers.
+        for index in (ci_watch, duration_watch):
+            assert "GITHUB_TOKEN" not in (steps[index].get("env") or {})
 
-        persist = names.index("Stage managed alert issue state")
-        assert persist > max(ci_watch, duration_watch, agent_watch, flaky_watch)
-        assert persist < names.index("Rebuild v2 operations snapshot with selected issue state")
+        persist = names.index("Stage watcher state")
+        assert persist > max(ci_watch, duration_watch)
+        assert persist < names.index("Rebuild v2 operations snapshot with selected watcher state")
         assert steps[persist].get("if") == (
             "inputs.dns_generation == '' && "
             "inputs.queue_generation == '' && "
@@ -5179,17 +5133,25 @@ class TestAlertAutomationWorkflow:
             for line in persist_run.replace("\\\n", " ").splitlines()
             if line.strip().startswith("git add ")
         ).split()
-        assert "git rm -f --ignore-unmatch -- data/vllm/ci/open_amd_main_failure_issues.json" in persist_run
+        assert 'git rm -f --ignore-unmatch -- "data/vllm/ci/$retired"' in persist_run
+        for retired in (
+            "open_amd_main_failure_issues.json",
+            "open_agent_health_issues.json",
+            "open_ci_flakiness_issues.json",
+            "open_ci_area_regression_issues.json",
+            "open_queue_issues.json",
+            "open_queue_zombie_issues.json",
+            "open_omni_surge_issues.json",
+        ):
+            assert retired in persist_run
+            assert f"data/vllm/ci/{retired}" not in staged_paths
         assert "python scripts/vllm/amd_main_failure_watcher.py" not in _load_workflow_text("hourly-master.yml")
         for state_file in (
             "open_ci_main_failure_issues.json",
             "open_amd_duration_regression_issues.json",
-            "open_agent_health_issues.json",
-            "open_ci_flakiness_issues.json",
         ):
             assert f"data/vllm/ci/{state_file}" in staged_paths, state_file
             assert surface_for_path(f"data/vllm/ci/{state_file}") is None
-        assert "git add" in persist_run
         assert "git commit" not in persist_run
         assert "git push" not in persist_run
 
@@ -5215,77 +5177,20 @@ class TestAlertAutomationWorkflow:
             (REPO_ROOT / "README.md").read_text()
         )
 
-    def test_ranked_ci_area_watcher_runs_after_matrix_and_persists_before_rebuild(self):
-        data = _load_workflow("hourly-master.yml")
-        job = next(iter(data["jobs"].values()))
-        steps = job.get("steps", []) or []
-        names = [step.get("name") for step in steps]
-
-        ensure_labels = names.index("Ensure CI Operations issue labels")
-        first_issue_watcher = names.index("Watch queue latency (open/close issues)")
-        matrix = names.index("Collect AMD test matrix")
-        ownership_parity = names.index("Collect build-pinned CI ownership parity")
-        selector = names.index("Select validated publication surfaces")
-        watcher = names.index("Watch AMD CI test-area regressions (ranked owners)")
-        project_sync = names.index("Sync managed issues to AMD CI Operations project")
-        persist = names.index("Stage CI ownership issue state")
-        second_build = names.index(
-            "Rebuild v2 operations snapshot with selected issue state"
-        )
-
-        assert (
-            ensure_labels
-            < first_issue_watcher
-            and
-            matrix
-            < ownership_parity
-            < selector
-            < ensure_labels
-            < watcher
-            < project_sync
-            < persist
-            < second_build
-        )
-        assert steps[ensure_labels]["run"] == (
-            "python scripts/vllm/ensure_ci_operations_labels.py"
-        )
-        assert {"GITHUB_TOKEN", "GITHUB_REPOSITORY"} <= set(
-            steps[ensure_labels].get("env") or {}
-        )
-        assert 'run_surface_collector ci_core "CI ownership parity"' in (
-            steps[ownership_parity]["run"]
-        )
-        assert "python scripts/vllm/collect_ownership_parity.py" in (
-            steps[ownership_parity]["run"]
-        )
-        assert "GITHUB_TOKEN" in (steps[ownership_parity].get("env") or {})
-        assert steps[watcher]["run"] == "python scripts/vllm/ci_area_regression_watcher.py"
-        assert {
-            "GITHUB_TOKEN",
-            "GITHUB_REPOSITORY",
-            "GITHUB_RUN_ID",
-        } <= set(steps[watcher].get("env") or {})
-        assert "CI_OWNER_AVAILABILITY_JSON" not in (
-            steps[watcher].get("env") or {}
-        )
-        assert "publication-selector.outcome == 'success'" in steps[persist].get(
-            "if", ""
-        )
-        assert ",ci_core," in steps[persist].get("if", "")
-        assert "open_ci_area_regression_issues.json" in steps[persist]["run"]
-        assert (
-            surface_for_path("data/vllm/ci/open_ci_area_regression_issues.json")
-            is None
-        )
-        assert "git add" in steps[persist]["run"]
-        assert "git commit" not in steps[persist]["run"]
-        assert "git push" not in steps[persist]["run"]
-        assert steps[project_sync]["run"] == (
-            "python scripts/vllm/sync_ci_operations_project.py"
-        )
-        assert steps[project_sync].get("continue-on-error") is True
-        assert {
-            "GITHUB_TOKEN",
-            "GITHUB_REPOSITORY",
-            "PROJECTS_WRITE_TOKEN",
-        } <= set(steps[project_sync].get("env") or {})
+    def test_retired_ticketing_automation_stays_retired(self):
+        text = _load_workflow_text("hourly-master.yml")
+        for retired in (
+            "ensure_ci_operations_labels.py",
+            "queue_issue_watcher.py",
+            "queue_zombie_watcher.py",
+            "ci_flakiness_watcher.py",
+            "agent_health_issue_watcher.py",
+            "ci_area_regression_watcher.py",
+            "sync_ci_operations_project.py",
+            "collect_ownership_parity.py",
+        ):
+            assert retired not in text
+            assert not (REPO_ROOT / "scripts/vllm" / retired).exists()
+        assert "--issues-only" not in text
+        assert "PROJECTS_WRITE_TOKEN" not in text and "PROJECTS_TOKEN" not in text
+        assert not (REPO_ROOT / "config/vllm_ci_ownership.json").exists()

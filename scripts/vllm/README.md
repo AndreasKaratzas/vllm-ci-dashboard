@@ -10,17 +10,12 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `collect_queue_lifecycle.py` | Collects seven-day privacy-minimized queue lifecycle events through resumable exhaustive disjoint parent-created query units without publishing partial generations | 30-minute recovery checks with a two-hour successful cadence via `queue-lifecycle.yml` |
 | `collect_analytics.py` | Builds failure rankings, duration rankings, queue wait stats | Every two hours via `hourly-master.yml` |
 | `collect_amd_test_matrix.py` | Derives inline and native AMD GPU main CI routes at the exact observed nightly commit | Every reserved full collection via `hourly-master.yml`; cooldown runs retain the validated matrix |
-| `collect_ownership_parity.py` | Builds the ownership routing map from the exact vLLM commit referenced by the latest AMD matrix | Hourly after matrix collection |
 | `collect_perf_eval_artifacts.py` | Ingests AMD nightly perf-eval results from Buildkite artifacts newest-first, persisting what fits the guarded request allowance and deferring the rest to the next run | Every reserved full collection via `hourly-master.yml` |
 | `merge_perf_eval_events.py` | Strictly merges a validated durable baseline with candidate perf-eval JSONL through the bounded atomic writer | Every canonical perf-eval seed sync |
-| `build_operations_snapshot.py` | Builds the private operations input and bundle-v4 manifest with twelve retained lazy sections (including the compact all-main-builds `main_ci` section), current runtime GPU cohorts, source parity, and exact five-nightly latency | Every canonical collection and Pages assembly |
+| `build_operations_snapshot.py` | Builds the private operations input and bundle-v5 manifest with eleven retained lazy sections (including the compact all-main-builds `main_ci` section), current runtime GPU cohorts, source parity, and exact five-nightly latency | Every canonical collection and Pages assembly |
 | `build_queue_section.py` | Builds only the compact public Queue shard from queue-owned inputs | Every independent queue-monitor run |
-| `ci_main_failure_watcher.py` | Reconciles one upstream `ci`/`main` failure issue and retains bisect candidate bounds per strict group | Hourly after analytics collection |
-| `ci_flakiness_watcher.py` | Reconciles one issue listing AMD MI groups whose final outcome flips, or whose hard failures are rescued by retries, at or above `config/ci_flakiness_thresholds.json` on `ci`/`main` | Every reserved full collection after analytics |
-| `main_pulse.py` | Lists `ci` branch=main builds finished since its durable cursor, applies their AMD MI jobs through the main-failure watcher's transitions on top of the published watcher state, and opens or updates the managed issue while an incident is active; `export-overlay` hands its newer observations to the collection watcher | Every `queue-monitor.yml` trigger, admitted at most every ten minutes by its own ledger |
-| `ci_area_regression_watcher.py` | Maps every exact AMD matrix definition to its owned test-area rotation and reconciles one state-owned dashboard issue per area with confirmed incidents; incidents that also failed on CUDA or broke build-wide in their nightly (`.cache/cuda_evidence.json` from `collect_agent_health.py`) are warnings | Hourly after matrix collection |
-| `ensure_ci_operations_labels.py` | Ensures managed and workstream labels exist before issue watchers run | Every canonical collection |
-| `sync_ci_operations_project.py` | Adds open managed dashboard issues to the linked AMD CI Operations Project, split by workstream labels | Hourly after issue reconciliation |
+| `ci_main_failure_watcher.py` | Tracks confirmed `ci`/`main` AMD MI test-group incidents and retains bisect candidate bounds per strict group | Hourly after analytics collection |
+| `main_pulse.py` | Lists `ci` branch=main builds finished since its durable cursor and applies their AMD MI jobs through the main-failure watcher's transitions on top of the published watcher state; `export-overlay` hands its newer observations to the collection watcher | Every `queue-monitor.yml` trigger, admitted at most every ten minutes by its own ledger |
 | `audit_dashboard_data.py` | Cross-checks generated data, frontend assumptions, and deploy workflow ordering before publishing | Every two hours via `hourly-master.yml` + local debugging |
 | `check_site_health.py` | Probes the deployed shell and bounded publication-status contract, emitting JSON and Markdown evidence | Hourly at :57 UTC-minute plus manual `health-check.yml` runs |
 | `plan_dns_publication_reconcile.py` | Decides whether a successful live DNS publish must wake the canonical publisher and verifies that queued work still has an unacknowledged DNS generation | After every successful `dns-health.yml` collection and before a DNS-targeted canonical run |
@@ -48,24 +43,12 @@ Exporting a token alone is therefore not a supported local run mode. Use the
 corresponding workflow's `workflow_dispatch` trigger, and never hardcode tokens
 in source files.
 
-The CI ownership watcher reads its only availability input from the committed
-regional working-hour profiles in `config/vllm_ci_ownership.json`. EU follows
-09:00–17:00 Serbia time (`Europe/Belgrade`) and NA follows 09:00–17:00 Chicago
-time (`America/Chicago`), Monday through Friday. Assignment walks each area's
-configured ranks in ascending order and falls back to the CI lead when no ranked
-owner is in hours or the schedule cannot be evaluated safely.
+The dashboard publishes CI data only: no script opens, assigns, or routes
+issues for CI incidents, and no team roster is kept here. Ticketing is tracked
+outside this repository.
 
 The project snapshot reads upstream vLLM Project #39 as public, read-only
-evidence; it does not mutate that Project's issues, comments, or fields. Its
-sole writable summary surface is one automation-owned managed comment on dashboard
-issue #255, created or updated with the repository-scoped `GITHUB_TOKEN` and
-`issues: write`.
-
-Project synchronization uses the repository `GITHUB_TOKEN` only to list the
-dashboard's managed issues. The separate `PROJECTS_WRITE_TOKEN` secret is used
-only for the `addProjectV2ItemById` mutation against the configured Project.
-Missing project credentials are a safe no-op; the script never removes Project
-items, edits issue content, or targets another repository.
+evidence; it does not mutate that Project's issues, comments, or fields.
 
 For queue monitoring specifically, the token needs Buildkite GraphQL access so `collect_queue_snapshot.py` can read cluster queue metrics and scheduled jobs. A dedicated replacement token should be read-only (`read_builds` and `read_clusters`; plus GraphQL access). The production workflow does not fall back to per-queue GraphQL or REST scans: current metrics fail closed, while an incomplete bounded detail read retains the last complete job overlay.
 
@@ -229,22 +212,15 @@ build_queue_section.py    --> data/vllm/ci/operations_v2/queue.json
                           --> queue-data branch (live browser feed)
 collect_capacity_monitor.py --> data/vllm/ci/capacity_monitor.json
 collect_analytics.py      --> data/vllm/ci/analytics.json (private full input)
-                           --> ci_main_failure_watcher.py, ci_flakiness_watcher.py
+                           --> ci_main_failure_watcher.py,
+                               amd_duration_regression_watcher.py
                            --> open_ci_main_failure_issues.json,
-                               open_ci_flakiness_issues.json (private state)
+                               open_amd_duration_regression_issues.json
+                               (private state)
 private analytics.json    --> ci/public_analytics.py during build_site.py
                            --> bounded _site/data/vllm/ci/analytics.json
 collect_amd_test_matrix.py --> data/vllm/ci/amd_test_matrix.json
-collect_ownership_parity.py --> data/vllm/ci/ownership_config_parity.json
 config_parity.py          --> data/vllm/ci/config_parity.json
-amd_test_matrix.json + config_parity.json + ownership_config_parity.json
-                         + config/vllm_ci_ownership.json
-                         + .cache/cuda_evidence.json (collect_agent_health.py)
-                           --> ci_area_regression_watcher.py
-                           --> ci_ownership.json
-                           --> open_ci_area_regression_issues.json (private state)
-managed dashboard issues  --> sync_ci_operations_project.py
-                           --> AMD CI Operations Project
 raw operational inputs    --> build_operations_snapshot.py
                            --> operations_v2.json.gz (private bounded build input)
                            --> operations_v2_manifest.json + operations_v2/*.json
@@ -300,22 +276,22 @@ discarded and reconciled once from the exhaustive source before it can replace
 the cache.
 
 The immutable dashboard-state tree has a checked 256 MiB ceiling. Its shared
-allocation policy now assigns 223 MiB, leaving 33 MiB of global headroom, and
+allocation policy now assigns 222 MiB, leaving 34 MiB of global headroom, and
 includes a separate 18 MiB envelope for unclassified code/config assets.
 Generated operational data has disjoint aggregate groups: Operations control
-files (5 MiB), watcher state (3.25 MiB), GitHub Home (768 KiB), and small fixed
+files (4 MiB), watcher state (3.25 MiB), GitHub Home (768 KiB), and small fixed
 operational files (256 KiB). Retired gating, hotness, and group-change data have
 no active allocation. The final staged-index guard checks
 every group before commit; bounded evidence writers compact whole units and
 attest source/published/omitted counts.
 
-The eight `open_*_issues.json` watcher ledgers compose inside that 3 MiB
-allocation through fixed producer envelopes: upstream-main 1 MiB; AMD-main and
-CI-area 512 KiB each; duration, queue-latency, and queue-zombie 256 KiB each;
-agent-health and Omni 128 KiB each. Their shared atomic writer preserves every
-open issue, suppression identity, and confirmed/pending incident. When needed,
-it removes only refetchable row detail, inactive ordering fences, clear area
-signals, and retired cache rows, recording exact
+The `open_*_issues.json` watcher ledgers compose inside that allocation
+through fixed producer envelopes: upstream-main 1 MiB and duration 256 KiB are
+written; the retired AMD-main, CI-area, queue-latency, queue-zombie,
+agent-health, Omni and flakiness ledgers keep their envelopes so historical
+state stays readable. The shared atomic writer preserves every confirmed/pending
+incident. When needed, it removes only refetchable row detail, inactive ordering
+fences, clear area signals, and retired cache rows, recording exact
 source/published/omitted counts in `publication_retention`.
 
 The GitHub Home allocation is also compositional: `projects.json` and
@@ -333,11 +309,13 @@ create dangling links.
 The canonical workflow separates core health/matrix/current-source parity from
 private analytics/reliability. Queue observations, capacity, workload, Omni,
 lifecycle, agent health, GitHub home, and perf evaluation have independent
-transactions. Contract v8 validates historical v5, v6 and v7 restore proofs before
-dropping retired ownership. The v5 gating, group-change, and hotness domains and
+transactions. Contract v9 validates historical v5, v6, v7 and v8 restore proofs
+before dropping retired ownership. The v5 gating, group-change, and hotness domains and
 their clocks are retired; v6 runtime `parity_report.json` files are verified in
 full before their paths are removed. The v7 optional runtime parity override
-file is also verified in full before retirement. Configuration parity remains supported. The
+file is also verified in full before retirement, as are the v8 ticketing files
+(`ownership_config_parity.json`, `ci_ownership.json` and the queue and Omni issue
+ledgers). Configuration parity remains supported. The
 current main inventory refresh uses an immutable source SHA and needs no
 Buildkite request. A routed degradation keeps fresh
 candidate bytes and publishes an explicit warning. A collector failure or hard
@@ -409,18 +387,6 @@ difference. Hardware-sensitive rules remain reviewed policy with exact
 execution evidence for renames, and the output contains only applicable
 rules. Tests cover both historical and renamed configurations.
 
-The area incident watcher uses all exact matrix definition rows, not the
-smaller reviewed runtime-target plan. Area attribution prefers commit-pinned
-definition-parity source files, then reviewed aliases/overrides. Ambiguous or
-unmapped rows remain unassigned and visible; they are never routed through a
-lossy category guess. A hard result confirms immediately, while the same soft
-result must recur on two distinct completed builds; pending soft evidence stays
-visible without opening an issue. Issue assignment walks each configured rank in
-ascending order, verifies repository assignability, and falls back to the CI lead.
-An open issue keeps its verified assignee across runs and never @-mentions
-owners, so the assignment is the only notification. The shared issue client
-rejects any repository other than the dashboard.
-
 `scripts/build_site.py --cache-bust-index` assembles `docs/` and `data/`
 into `_site/` using `config/public_data_manifest.json`; unlisted collector
 state and the compatibility monolith are not published. The canonical Pages
@@ -471,9 +437,10 @@ contributes at most one sample per nightly: maximum wall time of the complete
 parallel shard group, followed by the median across available nightly samples.
 Missing groups are unavailable; older nightlies never fill missing samples.
 
-The private `operations_v2.json.gz` build input produces bundle v4 with twelve
-allowlisted lazy sections. Readers still accept the v3 inventory, so a deployed
-v3 generation stays valid until the next publication replaces it. Canonical publication replaces the Pages tree,
+The private `operations_v2.json.gz` build input produces bundle v5 with eleven
+allowlisted lazy sections; v5 retires the `ownership` section. Readers still
+accept the v3 and v4 inventories, so a deployed older generation stays valid
+until the next publication replaces it. Canonical publication replaces the Pages tree,
 validates historical restore proofs, and purges retired artifacts. The removal
 inventory is tracked in [Dashboard Cleanup](dashboards/dashboard-cleanup.md).
 
@@ -500,14 +467,16 @@ hard failure, and `wall_mins` holding each passing final attempt's wall time).
 From that one cohort:
 
 - `ci_main_failure_watcher.py` confirms incidents (hard immediately, soft after
-  two builds), keeps `good_commit`/`bad_commit` bisect bounds, and now records
+  two builds), keeps `good_commit`/`bad_commit` bisect bounds, and records
   opened/resolved transitions in `timeline` inside its state file.
-- `ci_flakiness_watcher.py` lists groups at or above the flip or
-  retry-recovery thresholds in `config/ci_flakiness_thresholds.json` and closes
-  its issue when none remain.
 - `amd_duration_regression_watcher.py` lists test steps whose wall time rose
-  by a sustained step since a change (rules in `scripts/vllm/ci/README.md`);
-  its issue links the CI Analytics Slowdowns view.
+  by a sustained step since a change (rules in `scripts/vllm/ci/README.md`).
+- Flaky groups and retry hotspots use the thresholds in
+  `config/ci_flakiness_thresholds.json`.
+
+Both watchers need no GitHub token: every fresh run advances `last_run`, which
+`main_ci` publishes as `watcher_last_run`. The `issue` keys stay in `main_ci`
+as `null` and `suppressed` as `false`.
 - `operations_v2/main_ci.json` (bounded to 1.5 MiB) publishes per-build
   summaries, the watchers' incidents, timeline and slowdowns, flaky groups,
   retry hotspots and daily/hourly pass-rate series. `shell.sources.main_ci` carries the cohort's
@@ -518,10 +487,9 @@ From that one cohort:
   `core-data-stale`.
 
 These watchers run in the same Data Collection run that refreshed analytics,
-before the Operations snapshot is rebuilt, so a new hard failure opens or
-updates its issue and reaches `main_ci` in one generation. They skip, without
-touching issues, whenever the `ci_analytics` surface is degraded or the cohort
-is older than three hours. For example, from 2026-10-17 16:31 to 2026-10-19
+before the Operations snapshot is rebuilt, so a new hard failure reaches
+`main_ci` in one generation. They leave their state untouched whenever the
+`ci_analytics` surface is degraded or the cohort is older than three hours. For example, from 2026-10-17 16:31 to 2026-10-19
 00:34 UTC every analytics collection failed (`RuntimeSourceError`
 schema-drift), so no main alert could fire; the degraded publication was
 reported through the hourly validation incident (#568) instead.
@@ -550,27 +518,21 @@ spend is one request per admitted run, about 144 a day.
 
 An admitted run reads the published `open_ci_main_failure_issues.json` from
 `dashboard-state` and its own overlay from `main-pulse-data` (cursor, the
-strict groups whose watermark is newer than that state, the issue fields it
-changed, and its timeline events), lists builds finished since the cursor
-(clamped to three hours; a truncated page keeps the cursor), and opens or
-updates the issue in the same run. It reconciles the issue only while an
-incident is active and defers to its next run when GitHub disagrees with the
-published state, which lags the collection's own issue changes. Data
-Collection exports the overlay with its state commit before
-`ci_main_failure_watcher.py` runs: a group is taken only while the overlay's
-watermark is newer, and the issue fields only while the collection state has
-not reconciled the issue since the pulse read it, so the collection stays the
-authority. The pulse publishes its observations before it touches the issue;
-if the export failed or the state branch moved since, the collection leaves the
-issue open for its next run instead of closing it.
+strict groups whose watermark is newer than that state, and its timeline
+events), lists builds finished since the cursor (clamped to three hours; a
+truncated page keeps the cursor), and publishes the updated overlay. It needs
+no GitHub token; the overlay's `issue` is always `null`. Data Collection
+exports the overlay with its state commit before `ci_main_failure_watcher.py`
+runs: a group is taken only while the overlay's watermark is newer, so the
+collection stays the authority.
 
-Expected latency from a build finishing to its hard failure reaching the issue
+Expected latency from a build finishing to its hard failure reaching the overlay
 is the wait for the next admitted run plus about two minutes of job time:
 typically 5-20 minutes while the ten-minute cron fires, up to about 25 minutes
 on the 15-minute watchdog chain alone, and about 65 minutes at worst on the
 owner-hosted hourly tick alone.
 Soft failures still need a second build. Rehearse without tokens with
-`main_pulse.py run --dry-run --authority-state <state> --state-file <overlay>
+`main_pulse.py run --authority-state <state> --state-file <overlay>
 --recorded-builds <builds.json>`.
 
 ### Making the `buildkite_build_finished` webhook work

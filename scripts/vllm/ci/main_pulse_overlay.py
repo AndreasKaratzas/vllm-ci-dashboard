@@ -1,16 +1,11 @@
 """Newer-than-collection incident observations recorded by the main pulse.
 
 The full Data Collection watcher state stays authoritative. The pulse stores
-only the strict groups whose source-order watermark is newer than that state,
-plus the managed-issue fields it changed. Merging takes a group from the
-overlay only while its watermark is still newer, and the issue fields only
-while the collection state has not reconciled the issue since the pulse read
-it, so a later collection that saw the same builds always wins.
-
-The collection reads the overlay through an export record that names the
-state commit it saw. It may close the managed issue only when that record is
-present and the state branch has not moved since: otherwise the pulse may
-own an incident the collection cannot see.
+only the strict groups whose source-order watermark is newer than that state.
+Merging takes a group from the overlay only while its watermark is still
+newer, so a later collection that saw the same builds always wins. The issue
+fields are always empty now; older overlays that still carry them merge them
+only while the collection state has not changed them since the pulse read it.
 """
 
 from __future__ import annotations
@@ -19,12 +14,11 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 from vllm import amd_main_failure_watcher as watcher
 from vllm import queue_request_budget as ledger_git
-from vllm.ci.managed_issue import normalize_managed_state
+from vllm.ci.watcher_state import normalize_ledger_state
 
 
 OVERLAY_SCHEMA_VERSION = 1
@@ -58,7 +52,7 @@ OVERLAY_FIELDS = frozenset(
 
 
 def issue_block(state: dict) -> dict:
-    normalized = normalize_managed_state(state)
+    normalized = normalize_ledger_state(state)
     return {field: normalized.get(field) for field in ISSUE_FIELDS}
 
 
@@ -249,8 +243,3 @@ def load_export_file(path: Path) -> dict:
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"main pulse overlay export is not UTF-8 JSON: {exc}") from exc
     return normalize_export(value)
-
-
-def state_head(root: Path, remote: str, branch: str) -> str | None:
-    """The current commit of the pulse state branch (None when absent)."""
-    return ledger_git._remote_ref_sha(root, remote, SimpleNamespace(branch=branch))
