@@ -26,7 +26,11 @@ from vllm.publication_limits import (
     PUBLICATION_MAX_FILES,
     PUBLICATION_MAX_TREE_BYTES,
 )
-from vllm.publication_surfaces import PUBLICATION_SURFACE_LABELS
+from vllm.data_freshness_targets import surface_stale_minutes
+from vllm.publication_surfaces import (
+    MANIFEST_SOURCE_SURFACES,
+    PUBLICATION_SURFACE_LABELS,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -324,14 +328,18 @@ def _validated_public_timestamp(value: object) -> tuple[str | None, datetime | N
     return canonical, parsed
 
 
-def _safe_surface_labels(value: object) -> list[str]:
+def _safe_surface_ids(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return sorted({
-        PUBLICATION_SURFACE_LABELS[surface]
+        surface
         for surface in value
         if isinstance(surface, str) and surface in PUBLICATION_SURFACE_LABELS
     })
+
+
+def _safe_surface_labels(value: object) -> list[str]:
+    return sorted(PUBLICATION_SURFACE_LABELS[surface] for surface in _safe_surface_ids(value))
 
 
 def project_publication_status(publication_state: object) -> dict:
@@ -347,11 +355,16 @@ def project_publication_status(publication_state: object) -> dict:
     if mode not in PUBLICATION_MODES:
         raise ValueError(f"Unsupported publication mode: {mode!r}")
 
-    affected_labels = sorted(set(
-        _safe_surface_labels(publication_state.get("degraded_surfaces"))
-        + _safe_surface_labels(publication_state.get("fresh_degraded_surfaces"))
-        + _safe_surface_labels(publication_state.get("fallback_surfaces"))
+    affected_ids = sorted(set(
+        _safe_surface_ids(publication_state.get("degraded_surfaces"))
+        + _safe_surface_ids(publication_state.get("fresh_degraded_surfaces"))
+        + _safe_surface_ids(publication_state.get("fallback_surfaces"))
     ))
+    affected_labels = _safe_surface_labels(affected_ids)
+    pending_ids = sorted(
+        set(_safe_surface_ids(publication_state.get("pending_surfaces")))
+        - set(affected_ids)
+    )
     fallback_labels = _safe_surface_labels(publication_state.get("fallback_surfaces"))
     if mode == "fallback" and not fallback_labels:
         fallback_labels = affected_labels
@@ -400,6 +413,9 @@ def project_publication_status(publication_state: object) -> dict:
         "uses_fallback": mode in {"fallback", "mixed"},
         "publication_blocked": mode == "blocked",
         "affected_surfaces": affected_labels,
+        "surface_ids": affected_ids,
+        "pending_surface_ids": pending_ids,
+        "stale_minutes": surface_stale_minutes(MANIFEST_SOURCE_SURFACES),
         "affected_surface_count": len(affected_labels),
         "fallback_surface_count": len(fallback_labels),
         "fresh_degraded_surface_count": len(fresh_labels),

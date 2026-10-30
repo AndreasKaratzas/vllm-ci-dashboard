@@ -45,10 +45,7 @@ def load_thresholds(path: Path = THRESHOLDS_PATH) -> dict[str, int]:
     payload = json.loads(Path(path).read_text())
     if not isinstance(payload, dict) or payload.get("schema_version") != 1:
         raise ValueError("flakiness thresholds have an unsupported schema")
-    return {
-        key: _positive_int(payload, key)
-        for key in ("window_days", "min_outcome_flips", "min_failed_then_passed", "max_issue_rows")
-    }
+    return {key: _positive_int(payload, key) for key in ("window_days", "min_outcome_flips", "min_failed_then_passed")}
 
 
 def build_times(reliability: dict) -> dict[int, tuple[datetime, dict]]:

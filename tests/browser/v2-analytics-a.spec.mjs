@@ -302,7 +302,6 @@ test.describe('CI Analytics Slowdowns', () => {
     await page.goto('/#/analytics?view=slowdowns');
     await expect(page.getByTestId('kpi-slowdowns-active').locator('[data-slot=kpi-value]')).toHaveText(/^2\s*steps$/);
     await expect(page.getByTestId('kpi-slowdowns-largest')).toContainText('(MI300) Routed Alpha');
-    await expect(page.getByTestId('kpi-slowdowns-issue').getByRole('link')).toHaveAttribute('href', 'https://github.com/AndreasKaratzas/vllm-ci-dashboard/issues/553');
     const rows = page.getByTestId('slowdowns-active').locator('tbody tr');
     await expect(rows).toHaveCount(2);
     expect((await cellTexts(rows)).map((cells) => cells[0])).toEqual(['(MI300) Routed Alpha amd_mi300_1', '(MI300) Attention Kernels (2 shards) amd_mi300_1']);

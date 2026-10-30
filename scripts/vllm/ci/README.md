@@ -215,7 +215,7 @@ Eight workflows divide canonical publication from focused manual/event collector
 | `queue-lifecycle.yml` | 30-minute recovery checks + external tick, two-hour successful cadence + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
 | `docker-builds.yml` | 30-minute recovery checks + external tick, two-hour successful cadence + manual | Run time of the ROCm docker build jobs on `ci` and `amd-ci` for main and PR builds, published to `docker-builds-data` |
 | `dns-health.yml` | Hourly recovery opportunity + external tick + manual | Request-budgeted observed DNS sampling with an isolated durable state branch, a durable three-hour scan gate, and conditional canonical reconciliation |
-| `publication-watchdog.yml` | Data Collection, Pages deployment, Queue Lifecycle Monitor, DNS Health Monitor, and Site Health Check completions + every 15 minutes + external tick + manual | Validates the durable state identity against Pages and routes bounded collector, DNS, or deploy-only recovery |
+| `publication-watchdog.yml` | Data Collection, Pages deployment, Queue Lifecycle Monitor, DNS Health Monitor, and Site Health Check completions + every 15 minutes + external tick + manual | Validates the durable state identity against Pages and routes bounded collector, DNS, or deploy-only recovery; force-cancels runs stuck past their job timeouts plus 6 hours |
 
 All secrets are managed via GitHub Actions encrypted secrets (Settings > Secrets > Actions). The `BUILDKITE_TOKEN` is never exposed in logs — GitHub automatically masks secret values. Rotate credentials whenever exposure is suspected and periodically review that each workflow retains only its required read scopes.
 
@@ -456,7 +456,9 @@ creating a partial or unreadable replacement.
 Canonical publishers preserve previews without preserving stale canonical
 files: they server-prove the exact old Pages tree before fetching preview
 blobs, copy only whole `pr-preview/pr-N` cohorts into the newly assembled
-`_site`, prune older cohorts to a 112 MiB preview envelope, and recheck the
+`_site`, drop cohorts whose pull request is no longer open (listed from the
+GitHub API under the same writer lock; if that list fails only the byte limits
+apply), prune older cohorts to a 112 MiB preview envelope, and recheck the
 combined 256 MiB/10,000-file Pages envelope before an orphan replacement.
 Individual preview cohorts are also limited to 112 MiB and 2,000 files. The
 privileged preview build removes only its redundant

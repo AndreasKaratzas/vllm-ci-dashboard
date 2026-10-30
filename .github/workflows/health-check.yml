@@ -420,6 +420,7 @@ jobs:
             const validationCodeSha = validationEvidence.codeSha || '';
             const {
               closeHourlyIncident,
+              isExpiredSiteHealthEvidence,
               validateSiteHealthEvidence,
             } = require(
               `${process.env.GITHUB_WORKSPACE}/scripts/vllm/hourly_incident_recovery.js`,
@@ -427,11 +428,25 @@ jobs:
             // The probes ran before this job acquired the publication lease.
             // Their checkedAt, publication and durable-core clocks must still
             // authorize recovery now; matching identity alone cannot renew them.
-            validateSiteHealthEvidence(
-              validationEvidence,
-              validationStateSha,
-              validationCodeSha,
-            );
+            // Evidence that only aged out while waiting leaves the incident to
+            // the next proof instead of failing Site Health.
+            const endIfExpired = error => {
+              if (!isExpiredSiteHealthEvidence(error)) throw error;
+              core.notice(
+                'The Site Health recovery proof expired before it could be used; ' +
+                'the hourly incident stays open for the next proof.',
+              );
+            };
+            try {
+              validateSiteHealthEvidence(
+                validationEvidence,
+                validationStateSha,
+                validationCodeSha,
+              );
+            } catch (error) {
+              endIfExpired(error);
+              return;
+            }
 
             const sha40 = value => typeof value === 'string' &&
               /^[0-9a-f]{40}$/.test(value);
@@ -491,12 +506,18 @@ jobs:
                 projection.total_bytes < 1) {
               throw new Error('canonical publication generation is invalid');
             }
-            if (!exactKeys(status, [
+            const statusKeys = [
               'schema_version', 'status', 'mode', 'generated_at',
               'degraded_since', 'uses_fallback', 'publication_blocked',
               'affected_surfaces', 'affected_surface_count',
               'fallback_surface_count', 'fresh_degraded_surface_count',
-            ]) || status.schema_version !== 1 || status.status !== 'healthy' ||
+            ];
+            const surfaceIdKeys = ['surface_ids', 'pending_surface_ids', 'stale_minutes'];
+            if (!(exactKeys(status, statusKeys) ||
+                  exactKeys(status, [...statusKeys, ...surfaceIdKeys])) ||
+                ('surface_ids' in status &&
+                 (!Array.isArray(status.surface_ids) || status.surface_ids.length !== 0)) ||
+                status.schema_version !== 1 || status.status !== 'healthy' ||
                 status.mode !== 'current' || status.generated_at !== marker.generated_at ||
                 status.degraded_since !== null || status.uses_fallback !== false ||
                 status.publication_blocked !== false ||
@@ -526,17 +547,21 @@ jobs:
             }
             // Recheck after the canonical reads. The helper also checks the
             // wall clock immediately before every authorized issue mutation.
-            validateSiteHealthEvidence(
-              validationEvidence,
-              validationStateSha,
-              validationCodeSha,
-            );
-            await closeHourlyIncident({
-              github,
-              context,
-              core,
-              validationSource: 'site-health',
-              validationStateSha,
-              validationCodeSha,
-              validationEvidence,
-            });
+            try {
+              validateSiteHealthEvidence(
+                validationEvidence,
+                validationStateSha,
+                validationCodeSha,
+              );
+              await closeHourlyIncident({
+                github,
+                context,
+                core,
+                validationSource: 'site-health',
+                validationStateSha,
+                validationCodeSha,
+                validationEvidence,
+              });
+            } catch (error) {
+              endIfExpired(error);
+            }

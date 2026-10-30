@@ -345,3 +345,67 @@ def test_committed_seed_matches_the_writer() -> None:
 
     assert db.validate_public(payload) == []
     assert committed == db.serialize_public(payload)
+
+
+def _attempt(run_id: int, minutes_ago: int, *, source: str = "runtime") -> dict:
+    return {
+        "id": f"docker-{run_id}-1",
+        "reserved_at": (NOW - timedelta(minutes=minutes_ago)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "source": source,
+        "workflow_run_id": str(run_id),
+        "workflow_run_attempt": 1,
+        "succeeded_at": None,
+    }
+
+
+def _bootstrap(attempts, runs, *, branch=False):
+    from vllm import docker_builds_bootstrap
+
+    return docker_builds_bootstrap.classify(
+        data_branch_exists=branch,
+        attempts=attempts,
+        max_attempts=16,
+        retry_interval_minutes=30,
+        fetch_run=lambda run_id, _attempt: runs[run_id],
+        now=NOW,
+    )["state"]
+
+
+def test_bootstrap_is_pending_when_the_latest_completed_run_saved_progress():
+    attempts = [_attempt(0, 300, source="legacy_migration"), _attempt(1, 120), _attempt(2, 60), _attempt(3, 5)]
+    runs = {
+        "1": {"status": "completed", "conclusion": "failure"},
+        "2": {"status": "completed", "conclusion": "success"},
+        "3": {"status": "in_progress", "conclusion": None},
+    }
+    assert _bootstrap(attempts, runs) == "pending"
+
+
+def test_bootstrap_with_a_failed_latest_run_is_not_pending():
+    attempts = [_attempt(1, 120), _attempt(2, 60)]
+    runs = {
+        "1": {"status": "completed", "conclusion": "success"},
+        "2": {"status": "completed", "conclusion": "failure"},
+    }
+    assert _bootstrap(attempts, runs) == "failed"
+    assert _bootstrap([_attempt(3, 5)], {"3": {"status": "queued"}}) == "unknown"
+
+
+def test_bootstrap_escalates_once_unpublished_attempts_reach_the_budget():
+    attempts = [_attempt(run_id, 30 * run_id) for run_id in range(1, 17)]
+    runs = {str(run_id): {"status": "completed", "conclusion": "success"} for run_id in range(1, 17)}
+    assert _bootstrap(attempts[:15], runs) == "pending"
+    assert _bootstrap(attempts, runs) == "over-budget"
+
+
+def test_bootstrap_stays_over_budget_after_its_oldest_attempts_leave_the_window():
+    """The 25 h ledger drops old rows; a bootstrap retrying past 8 h must not read as pending again."""
+    runs = {str(run_id): {"status": "completed", "conclusion": "success"} for run_id in range(1, 17)}
+    assert _bootstrap([_attempt(1, 30), _attempt(2, 479)], runs) == "pending"
+    assert _bootstrap([_attempt(1, 30), _attempt(2, 480)], runs) == "over-budget"
+    assert _bootstrap([_attempt(run_id, 90 * run_id) for run_id in range(1, 16)], runs) == "over-budget"
+
+
+def test_bootstrap_ends_once_the_data_branch_exists():
+    runs = {"1": {"status": "completed", "conclusion": "success"}}
+    assert _bootstrap([_attempt(1, 60)], runs, branch=True) == "collected"

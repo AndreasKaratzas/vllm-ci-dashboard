@@ -16,6 +16,7 @@ on:
       - Deploy to GitHub Pages
       - Queue Lifecycle Monitor (2h)
       - DNS Health Monitor
+      - Docker Build Monitor (2h)
       - Site Health Check
     types: [completed]
     branches: [main]
@@ -780,3 +781,92 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
             --input -
+
+      # The hosted clock does not tick Docker Build Monitor, so the watchdog
+      # starts it whenever its attempt ledger would admit a run. The ledger
+      # still gates every run it starts. This is cadence, not publication
+      # recovery, so a failure warns instead of failing the job.
+      - name: Plan due Docker Build Monitor run
+        id: docker-builds-plan
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          OUTPUTS="$RUNNER_TEMP/docker-builds-attempt-observation.outputs"
+          : > "$OUTPUTS"
+          python scripts/vllm/request_bearing_attempt_budget.py \
+            --config config/docker_builds_attempt_budget.json observe \
+            --github-output "$OUTPUTS"
+          DOCKER_BUILDS_DUE=$(awk -F= '$1 == "required" {print $2}' "$OUTPUTS")
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/docker-builds.yml/runs?branch=main&per_page=100" \
+            --jq '{workflow_runs: [.workflow_runs[] | {id, head_branch, head_sha, status, created_at, run_started_at, updated_at, conclusion, display_title}]}' \
+            > "$RUNNER_TEMP/docker-builds-runs.json"
+          python scripts/vllm/plan_publication_watchdog.py \
+            --recovery-target docker-builds \
+            --docker-builds-due "$DOCKER_BUILDS_DUE" \
+            --workflow-runs "$RUNNER_TEMP/docker-builds-runs.json" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Dispatch due Docker Build Monitor
+        if: >-
+          !cancelled() &&
+          steps.docker-builds-plan.outputs.required == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/docker-builds.yml/dispatches" \
+            -f ref=main
+
+      # GitHub can leave a run queued or in progress after its jobs ended, and
+      # nothing else ever ends it. A janitor failure must not hide the recovery
+      # outcome above, so it warns instead of failing the job.
+      - name: Force-cancel stuck workflow runs
+        id: run-janitor
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          STUCK_RUNS="$RUNNER_TEMP/stuck-workflow-runs.txt"
+          LISTINGS=()
+          for run_status in queued in_progress waiting requested pending; do
+            listing="$RUNNER_TEMP/active-workflow-runs-$run_status.json"
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "repos/$GITHUB_REPOSITORY/actions/runs?status=$run_status&per_page=100" \
+              --jq '{workflow_runs: [.workflow_runs[] | {id, name, path, status, created_at, run_started_at}]}' \
+              > "$listing"
+            LISTINGS+=(--runs "$listing")
+          done
+          python scripts/vllm/plan_stuck_run_cancellation.py \
+            "${LISTINGS[@]}" \
+            --exclude-run-id "$GITHUB_RUN_ID" \
+            --output "$STUCK_RUNS"
+          cancelled=0
+          failed=0
+          while read -r run_id; do
+            if gh api --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/force-cancel" > /dev/null; then
+              cancelled=$((cancelled + 1))
+              echo "::notice::Force-cancelled stuck workflow run $run_id."
+            else
+              failed=$((failed + 1))
+              echo "::warning::Could not force-cancel stuck workflow run $run_id."
+            fi
+          done < "$STUCK_RUNS"
+          echo "cancelled=$cancelled" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Run janitor"
+            echo "Force-cancelled $cancelled stuck workflow run(s); $failed failed."
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$failed" -eq 0 ]

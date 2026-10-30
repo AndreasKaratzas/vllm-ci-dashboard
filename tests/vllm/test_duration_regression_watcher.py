@@ -321,6 +321,9 @@ def test_tokenless_run_writes_state_and_main_ci_publishes_it(monkeypatch, tmp_pa
     slowdowns = section["slowdowns"]
     assert slowdowns["available"] is True
     assert slowdowns["issue"] is None and slowdowns["suppressed"] is False
+    restored = {**state, "issue": {"number": 553}, "suppressed": True}
+    restored = main_ci_section.build_main_ci({"all_main_reliability": reliability}, {}, _ts(now), duration_state=restored)
+    assert (restored["slowdowns"]["issue"], restored["slowdowns"]["suppressed"]) == (None, False)
     assert slowdowns["rules"] == duration.RULES
     assert [row["signal_id"] for row in slowdowns["rows"]] == list(state["active"])
     assert section["summary"]["active_slowdowns"] == 1

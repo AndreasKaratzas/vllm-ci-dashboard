@@ -18,6 +18,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import re
 import subprocess
 import sys
@@ -43,6 +44,7 @@ from vllm.ci.docker_builds import (  # noqa: E402
     PUBLIC_PATH as DOCKER_BUILDS_DATA_PATH,
     validate_public as validate_docker_builds,
 )
+from vllm import docker_builds_bootstrap  # noqa: E402
 from vllm.publication_surfaces import (  # noqa: E402
     LEGACY_CI_SURFACE,
     LEGACY_CI_SURFACE_SPEC,
@@ -10332,11 +10334,26 @@ class DashboardAudit:
                     path,
                 )
             else:
-                self.degradation(
-                    "docker-builds-not-collected",
-                    "Docker build collection has not completed yet; durations are unavailable",
-                    path,
+                bootstrap = docker_builds_bootstrap.read_evidence(
+                    os.environ.get(docker_builds_bootstrap.EVIDENCE_ENV),
+                    now=datetime.now(timezone.utc),
                 )
+                if docker_builds_bootstrap.bootstrap_pending(bootstrap):
+                    self.warning(
+                        docker_builds_bootstrap.PENDING_CODE,
+                        "Docker build bootstrap saved resumable progress "
+                        f"({bootstrap['attempts']} of {bootstrap['max_attempts']} attempts); "
+                        "durations are unavailable",
+                        path,
+                    )
+                else:
+                    state = bootstrap["state"] if bootstrap else "unobserved"
+                    self.degradation(
+                        "docker-builds-not-collected",
+                        "Docker build collection has not completed yet "
+                        f"(bootstrap {state}); durations are unavailable",
+                        path,
+                    )
         else:
             generated_at = _parse_timestamp(payload["generated_at"])
             age_hours = (

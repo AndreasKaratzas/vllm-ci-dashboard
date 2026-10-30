@@ -29,7 +29,70 @@ def test_projection_health_proof_uses_exact_publication_ceiling() -> None:
 
 
 def test_publication_status_fields_match_the_live_recovery_consumer() -> None:
+    projected = build_site.project_publication_status({
+        "mode": "current",
+        "generated_at": health._iso_utc(NOW),
+    })
+
     assert frozenset(_publication()) == health.PUBLICATION_STATUS_FIELDS
+    assert frozenset(projected) == (
+        health.PUBLICATION_STATUS_FIELDS | health.PUBLICATION_STATUS_SURFACE_ID_FIELDS
+    )
+
+
+def test_projected_surface_ids_and_stale_limits_pass_site_health() -> None:
+    payload = build_site.project_publication_status({
+        "mode": "degraded",
+        "generated_at": health._iso_utc(NOW - timedelta(minutes=30)),
+        "degraded_since": {"queue": health._iso_utc(NOW - timedelta(hours=1))},
+        "degraded_surfaces": ["queue"],
+        "fresh_degraded_surfaces": ["queue"],
+        "pending_surfaces": ["docker_builds"],
+    })
+
+    report = health.check_site_health(now=NOW, fetch=Fetcher(payload))
+
+    assert payload["surface_ids"] == ["queue"]
+    assert payload["pending_surface_ids"] == ["docker_builds"]
+    assert report["healthy"] is True, report["reasons"]
+
+
+_SURFACE_ID_FIELDS = {
+    "surface_ids": ["queue"],
+    "pending_surface_ids": [],
+    "stale_minutes": {"queue": 60},
+}
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"surface_ids": ["queue"]},
+        {**_SURFACE_ID_FIELDS, "surface_ids": ["agent_health"]},
+        {**_SURFACE_ID_FIELDS, "surface_ids": ["private/path"]},
+        {**_SURFACE_ID_FIELDS, "pending_surface_ids": ["queue"]},
+        {**_SURFACE_ID_FIELDS, "stale_minutes": {"queue": "60"}},
+    ],
+    ids=["partial", "label-mismatch", "unknown-id", "pending-and-affected", "string-limit"],
+)
+def test_malformed_surface_ids_or_stale_limits_fail_closed(overrides):
+    report = health.check_site_health(
+        now=NOW,
+        fetch=Fetcher(
+            _publication(
+                mode="degraded",
+                status="degraded",
+                degraded_since=health._iso_utc(NOW - timedelta(hours=1)),
+                affected_surfaces=["Queue health"],
+                affected_surface_count=1,
+                fresh_degraded_surface_count=1,
+                **overrides,
+            )
+        ),
+    )
+
+    assert report["healthy"] is False
+    assert "publication-contract" in _codes(report)
 
 
 def _publication(**overrides):

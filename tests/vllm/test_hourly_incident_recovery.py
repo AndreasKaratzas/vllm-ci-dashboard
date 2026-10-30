@@ -40,6 +40,7 @@ EXPECTED_EXPORTS = {
     "ensureOwnerLabel",
     "findCanonicalIncident",
     "hasExactMarker",
+    "isExpiredSiteHealthEvidence",
     "isStrictLegacySurfaceOnlyIncident",
     "issueHasLabel",
     "parseRecoveryStreak",
@@ -111,7 +112,14 @@ def test_site_health_recovery_checks_source_clocks_and_expiry_boundaries() -> No
         {checkedAt: '2026-10-10T11:44:59.999Z'},
         {generatedAt: '2026-10-10T08:59:59.999Z'},
         {durableCoreSucceededAt: '2026-10-10T08:54:59.999Z'},
-      ]) assert.throws(() => validate({...evidence, ...patch}), /expired/);
+      ]) {
+        assert.throws(() => validate({...evidence, ...patch}), error =>
+          /expired/.test(error.message) && recovery.isExpiredSiteHealthEvidence(error));
+      }
+      for (const value of ['not-a-time', '2026-10-10T12:06:00Z']) {
+        assert.throws(() => validate({...evidence, checkedAt: value}), error =>
+          /freshness clocks/.test(error.message) && !recovery.isExpiredSiteHealthEvidence(error));
+      }
       assert.throws(() => validate(evidence, NaN), /freshness clocks/);
       // Date.parse normalizes February 30 to March 2. A malformed calendar
       // date must not masquerade as a fresh five-minute-old probe.
@@ -188,22 +196,38 @@ def test_site_health_cannot_mutate_after_reads_or_retries_exhaust_freshness() ->
     """)
 
 
-@pytest.mark.parametrize("read_delay_ms", [0, 120000])
-def test_serialized_health_workflow_rechecks_age_after_canonical_reads(read_delay_ms: int) -> None:
+@pytest.mark.parametrize("scenario, outcome", [
+    ("current", "closed"),
+    # Run 40997995386 waited about 24 minutes for the Pages lease.
+    ("expired-before-lease", "neutral"),
+    ("expired-during-reads", "neutral"),
+    ("expired-during-close", "neutral"),
+    ("future-clock", "rejected"),
+    ("close-failed", "rejected"),
+])
+def test_serialized_health_workflow_ends_neutral_only_on_expired_evidence(
+    scenario: str, outcome: str,
+) -> None:
     workflow = yaml.safe_load((ROOT / ".github/workflows/health-check.yml").read_text())
     steps = workflow["jobs"]["confirm-hourly-recovery"]["steps"]
     script = next(step["with"]["script"] for step in steps if "RECOVERY_EVIDENCE" in step.get("env", {}))
     proof = _site_health_evidence()
     proof["generatedAt"] = "2026-10-10T09:01:00Z"
+    if scenario == "expired-before-lease":
+        proof["checkedAt"] = "2026-10-10T11:36:00Z"
+    if scenario == "future-clock":
+        proof["checkedAt"] = "2026-10-10T12:06:00Z"
     prefix = (
         "const evidence = " + json.dumps(proof) + ";\n"
         + "const workflowSource = " + json.dumps(script) + ";\n"
-        + f"const readDelay = {read_delay_ms};\n"
+        + "const scenario = " + json.dumps(scenario) + ";\n"
+        + "const outcome = " + json.dumps(outcome) + ";\n"
     )
     _run_node(prefix + r"""
       const assert = require('node:assert/strict');
       const recovery = require(process.argv[1]);
       let now = Date.parse('2026-10-10T12:00:00Z'), closed = 0, reads = 0;
+      const notices = [];
       const originalNow = Date.now;
       Date.now = () => now;
       const marker = {schema_version: 2, generation_id: evidence.generationId,
@@ -220,20 +244,32 @@ def test_serialized_health_workflow_rechecks_age_after_canonical_reads(read_dela
         assert.equal(parameters.ref, 'gh-pages');
         reads++;
         const raw = Buffer.from(JSON.stringify(parameters.path === 'publication_generation.json' ? marker : status));
-        if (parameters.path !== 'publication_generation.json') now += readDelay;
+        if (scenario === 'expired-during-reads' && parameters.path !== 'publication_generation.json') {
+          now += 120000;
+        }
         return {data: {type: 'file', encoding: 'base64', size: raw.length, content: raw.toString('base64')}};
       }}}};
+      const closeHourlyIncident = async ({validationEvidence}) => {
+        if (scenario === 'expired-during-close') {
+          now += 11 * 60000;
+          recovery.validateSiteHealthEvidence(validationEvidence, evidence.stateSha, evidence.codeSha);
+        }
+        if (scenario === 'close-failed') throw new Error('issue update failed');
+        closed++;
+      };
       const execute = new (Object.getPrototypeOf(async function() {}).constructor)(
         'require', 'github', 'context', 'core', 'process', workflowSource,
       );
-      const promise = execute(() => ({...recovery, closeHourlyIncident: async () => {closed++;}}),
-        github, {repo: {owner: 'o', repo: 'r'}}, {info() {}},
+      const promise = execute(() => ({...recovery, closeHourlyIncident}),
+        github, {repo: {owner: 'o', repo: 'r'}}, {info() {}, notice: message => notices.push(message)},
         {env: {RECOVERY_EVIDENCE: Buffer.from(JSON.stringify(evidence)).toString('base64'), GITHUB_WORKSPACE: '/fixture'}});
       (async () => {
-        if (readDelay) await assert.rejects(promise, /expired/);
+        if (outcome === 'rejected') await assert.rejects(promise, /freshness clocks|issue update failed/);
         else await promise;
-        assert.equal(reads, 2);
-        assert.equal(closed, readDelay ? 0 : 1);
+        assert.equal(closed, outcome === 'closed' ? 1 : 0);
+        assert.equal(notices.length, outcome === 'neutral' ? 1 : 0);
+        if (outcome === 'neutral') assert.match(notices[0], /proof expired/);
+        assert.equal(reads, ['expired-before-lease', 'future-clock'].includes(scenario) ? 0 : 2);
       })().catch(error => {console.error(error); process.exitCode = 1;})
         .finally(() => {Date.now = originalNow;});
     """)
@@ -293,6 +329,7 @@ def test_node_parses_the_captured_streak_and_exports_the_declared_contract():
           'ensureOwnerLabel',
           'findCanonicalIncident',
           'hasExactMarker',
+          'isExpiredSiteHealthEvidence',
           'isStrictLegacySurfaceOnlyIncident',
           'issueHasLabel',
           'parseRecoveryStreak',

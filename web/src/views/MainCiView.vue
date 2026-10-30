@@ -25,7 +25,7 @@ import MainCiOverview from './main-ci/MainCiOverview.vue'
 type MainView = 'overview' | 'incidents' | 'flaky'
 const DESCRIPTION: Record<MainView, string> = {
   overview: 'Every completed AMD MI build on vLLM main: the source of truth for AMD CI health, with the nightly as one build a day within it.',
-  incidents: 'Confirmed AMD failures on main, the commits that bound them, and the issue the main-failure watcher keeps.',
+  incidents: 'Confirmed AMD failures on main and the commits that bound them.',
   flaky: 'AMD groups whose outcome flips between builds on main, and groups that pass only after Buildkite retries them.',
 }
 
@@ -55,7 +55,7 @@ watch(
     if (row) return sheets.open(mainBuildDetail(row, ctx.value))
     const all = [...incidents.value.active, ...incidents.value.pending]
     const match = incident ? all.find((i) => i.groupId === incident) : undefined
-    if (match) sheets.open(incidentDetail(match, ctx.value, incidents.value.issue, now.value))
+    if (match) sheets.open(incidentDetail(match, ctx.value, now.value))
   },
   { immediate: true },
 )
@@ -73,9 +73,6 @@ watch(sheets.stack, (stack) => {
         <MainCiAbout :record="ctx.record" />
       </template>
       <template #actions>
-        <Button v-if="incidents.issue" variant="outline" size="sm" class="h-8" as="a" :href="incidents.issue.url" target="_blank" rel="noopener" data-testid="main-issue-link">
-          Managed issue #{{ incidents.issue.number }} <ExternalLink />
-        </Button>
         <Button variant="outline" size="sm" class="h-8" as="a" href="https://buildkite.com/vllm/ci/builds?branch=main" target="_blank" rel="noopener">
           Main on Buildkite <ExternalLink />
         </Button>

@@ -289,6 +289,9 @@ def test_site_assembly_copies_allowlist_and_generated_sections(
         "uses_fallback": True,
         "publication_blocked": False,
         "affected_surfaces": ["CI health"],
+        "surface_ids": ["ci"],
+        "pending_surface_ids": [],
+        "stale_minutes": public_status["stale_minutes"],
         "affected_surface_count": 1,
         "fallback_surface_count": 1,
         "fresh_degraded_surface_count": 0,
@@ -511,11 +514,15 @@ def test_publication_status_projection_never_exposes_private_diagnostics() -> No
         "uses_fallback",
         "publication_blocked",
         "affected_surfaces",
+        "surface_ids",
+        "pending_surface_ids",
+        "stale_minutes",
         "affected_surface_count",
         "fallback_surface_count",
         "fresh_degraded_surface_count",
     }
     assert payload["affected_surfaces"] == ["CI health", "Queue health"]
+    assert payload["surface_ids"] == ["ci", "queue"]
     assert payload["affected_surface_count"] == 2
     assert payload["fallback_surface_count"] == 1
     assert payload["fresh_degraded_surface_count"] == 1
@@ -551,6 +558,47 @@ def test_publication_status_projection_names_unavailable_surfaces_only_when_pres
     assert unavailable["unavailable_surfaces"] == ["Agent health"]
     assert unavailable["unavailable_surface_count"] == 1
     assert "private" not in json.dumps(unavailable)
+
+
+def test_publication_status_projection_reports_a_pending_surface_as_healthy() -> None:
+    pending = BUILD_SITE.project_publication_status({
+        "mode": "current",
+        "generated_at": "2026-01-01T00:00:00Z",
+        "degraded_surfaces": [],
+        "pending_surfaces": ["docker_builds", "private/path"],
+    })
+    degraded = BUILD_SITE.project_publication_status({
+        "mode": "degraded",
+        "generated_at": "2026-01-01T00:00:00Z",
+        "degraded_surfaces": ["docker_builds"],
+        "fresh_degraded_surfaces": ["docker_builds"],
+        "pending_surfaces": ["docker_builds"],
+    })
+
+    assert pending["status"] == "healthy"
+    assert pending["affected_surfaces"] == pending["surface_ids"] == []
+    assert pending["pending_surface_ids"] == ["docker_builds"]
+    assert degraded["status"] == "degraded"
+    assert degraded["affected_surfaces"] == ["Docker builds"]
+    assert degraded["surface_ids"] == ["docker_builds"]
+    assert degraded["pending_surface_ids"] == []
+
+
+def test_publication_status_projection_publishes_each_surface_stale_limit() -> None:
+    payload = BUILD_SITE.project_publication_status({
+        "mode": "current",
+        "generated_at": "2026-01-01T00:00:00Z",
+    })
+
+    targets = json.loads((ROOT / "config/data_freshness_targets.json").read_text())
+    assert payload["stale_minutes"]["ci_analytics"] == targets["core"]["stale_minutes"]
+    assert payload["stale_minutes"]["queue"] == targets["queue"]["stale_minutes"]
+    assert payload["stale_minutes"]["agent_health"] == (
+        targets["default_collector_limit_minutes"]
+    )
+    assert payload["stale_minutes"]["perf_eval"] == (
+        targets["sources"]["perf_eval"]["stale_minutes"]
+    )
 
 
 def test_publication_status_projection_rejects_an_unknown_mode() -> None:

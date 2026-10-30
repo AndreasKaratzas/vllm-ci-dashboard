@@ -734,8 +734,44 @@ def _local_preview_digest(root: Path, files: Mapping[str, int]) -> str:
     ).hexdigest()
 
 
-def bound_pages_directory(root: Path, *, protected_preview: str | None = None) -> dict[str, int]:
-    """Prune whole old preview cohorts and enforce the final Pages envelope."""
+MAX_OPEN_PULL_REQUEST_PAGES = 10
+MAX_PULL_REQUEST_RESPONSE_BYTES = 8 * 1024 * 1024
+
+
+def list_open_pull_requests(repository: str, *, token: str) -> frozenset[int]:
+    """Return every open pull request number, or raise when the list is incomplete."""
+    numbers: set[int] = set()
+    for page in range(1, MAX_OPEN_PULL_REQUEST_PAGES + 1):
+        rows = _request_json(
+            repository,
+            f"pulls?state=open&per_page=100&page={page}",
+            token=token,
+            max_bytes=MAX_PULL_REQUEST_RESPONSE_BYTES,
+            label="open pull request list",
+        )
+        if not isinstance(rows, list):
+            raise AmbiguousProof("open pull request list is not a JSON array")
+        for row in rows:
+            number = row.get("number") if isinstance(row, dict) else None
+            if type(number) is not int or number <= 0 or row.get("state") != "open":
+                raise AmbiguousProof("open pull request list contains an invalid row")
+            numbers.add(number)
+        if len(rows) < 100:
+            return frozenset(numbers)
+    raise AmbiguousProof("open pull request list exceeded its page bound")
+
+
+def bound_pages_directory(
+    root: Path,
+    *,
+    protected_preview: str | None = None,
+    open_pull_requests: frozenset[int] | None = None,
+) -> dict[str, int]:
+    """Prune whole old preview cohorts and enforce the final Pages envelope.
+
+    With ``open_pull_requests``, previews of every other pull request (closed or
+    merged) are pruned as well; the protected preview is always kept.
+    """
     protected = None
     if protected_preview is not None:
         if PAGES_PREVIEW_RE.fullmatch(protected_preview) is None:
@@ -781,7 +817,15 @@ def bound_pages_directory(root: Path, *, protected_preview: str | None = None) -
         raise InvalidProof("canonical Pages tree alone exceeds the Pages envelope")
 
     valid_groups: dict[str, dict[str, int]] = {}
+    closed_previews = 0
     for name, rows in groups.items():
+        if (
+            open_pull_requests is not None
+            and name != protected
+            and int(name.removeprefix("pr-")) not in open_pull_requests
+        ):
+            closed_previews += 1
+            continue
         size = sum(rows.values())
         if size > MAX_SINGLE_PREVIEW_BYTES or len(rows) > MAX_SINGLE_PREVIEW_FILES:
             if name == protected:
@@ -831,6 +875,7 @@ def bound_pages_directory(root: Path, *, protected_preview: str | None = None) -
     if len(remaining) != total_files or sum(remaining.values()) != total_bytes:
         raise AmbiguousProof("Pages tree changed while preview bounds were applied")
     return {
+        "closed_previews_pruned": closed_previews,
         "file_count": total_files,
         "preview_bytes": preview_bytes,
         "preview_count": len(kept),
@@ -911,6 +956,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     bound_pages = subparsers.add_parser("bound-pages-directory")
     bound_pages.add_argument("--root", type=Path, required=True)
     bound_pages.add_argument("--protect-preview")
+    bound_pages.add_argument(
+        "--prune-closed-previews",
+        metavar="REPOSITORY",
+        help="Also prune previews whose pull request is not open in this repository",
+    )
     bound_pages.add_argument("--github-output", type=Path)
     return parser.parse_args(argv)
 
@@ -971,14 +1021,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return 0
         if args.command == "bound-pages-directory":
+            open_pull_requests = None
+            if args.prune_closed_previews is not None:
+                try:
+                    open_pull_requests = list_open_pull_requests(
+                        args.prune_closed_previews, token=token
+                    )
+                except ProofError as exc:
+                    # Closed-preview pruning only saves bytes; it never blocks a deploy.
+                    print(f"::warning::Keeping closed-PR previews: {exc}", file=sys.stderr)
             summary = bound_pages_directory(
                 args.root,
                 protected_preview=args.protect_preview,
+                open_pull_requests=open_pull_requests,
             )
             print(
                 "Bounded Pages tree: "
                 f"{summary['file_count']} files, {summary['total_bytes']} bytes; "
-                f"{summary['preview_count']} previews, {summary['preview_bytes']} bytes"
+                f"{summary['preview_count']} previews, {summary['preview_bytes']} bytes; "
+                f"{summary['closed_previews_pruned']} closed-PR previews pruned"
             )
             if args.github_output is not None:
                 with args.github_output.absolute().open("a", encoding="utf-8") as handle:

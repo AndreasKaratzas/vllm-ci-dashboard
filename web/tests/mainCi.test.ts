@@ -271,9 +271,11 @@ describe('incidents and events', () => {
     expect(rangeText('').short).toBe('Unknown')
   })
 
-  it('reads incidents with their good and bad builds and the managed issue', () => {
+  it('reads incidents with their good and bad builds and ignores a stale published issue', () => {
     const incidents = mainIncidents(record)
-    expect(incidents).toMatchObject({ available: true, issue: { number: 737 }, suppressed: false })
+    expect(incidents).toMatchObject({ available: true })
+    expect(incidents).not.toHaveProperty('issue')
+    expect(incidents).not.toHaveProperty('suppressed')
     expect(incidents.active[0]).toMatchObject({ severity: 'hard', pending: false, good: { build: 96039 }, bad: { build: 96045 }, latestBuild: 96045 })
     expect(incidents.pending[0]).toMatchObject({ severity: 'soft', pending: true, good: { commit: '', build: null } })
     expect(mainIncidents({}).available).toBe(false)
@@ -297,7 +299,7 @@ describe('incidents and events', () => {
 
 describe('flaky and retry groups', () => {
   const record = {
-    thresholds: { window_days: 7, min_outcome_flips: 3, min_failed_then_passed: 3, max_issue_rows: 50 },
+    thresholds: { window_days: 7, min_outcome_flips: 3, min_failed_then_passed: 3 },
     // One group in both lists: it alerts on recoveries, not on its single flip.
     top_flaky: [
       { group_id: 'g', name: 'Mixed', hardware: 'mi300', queue: 'q', trend: 'rising', alerting: false, flips_window: 1, flips_previous_window: 0, flips_30d: 2, runs_30d: 9, hard_30d: 1, soft_30d: 0, pass_rate_window: 83.3, pass_rate_30d: 88.9, last_failure: { build_number: 7, at: '2026-10-20T00:00:00Z', url: 'u7' } },

@@ -1484,6 +1484,52 @@ def test_forced_degraded_surface_restores_a_clean_candidate(
     assert audit_runs == [False, True, True]
 
 
+@pytest.mark.parametrize("degraded", [False, True], ids=["pending", "degraded"])
+def test_selector_records_pending_surfaces_that_nothing_degraded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    degraded: bool,
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "data").mkdir(parents=True)
+    (repo / "data/README").write_text("baseline\n")
+    _git(repo, "init")
+    _git(repo, "config", "user.email", "publication-test@example.com")
+    _git(repo, "config", "user.name", "Publication Test")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "validated baseline")
+    baseline = _git(repo, "rev-parse", "HEAD")
+    path = "data/vllm/ci/docker_builds.json"
+    pending = Finding("warning", surfaces_module.DOCKER_BUILDS_PENDING_CODE, "pending", path)
+    stalled = Finding("degradation", "docker-builds-not-collected", "stalled", path)
+
+    class BootstrapAudit:
+        def __init__(self, *args, **kwargs):
+            self.report = audit_module.AuditReport(
+                findings=[pending, stalled] if degraded else [pending]
+            )
+
+        def audit_publication_surface_files(self) -> None:
+            return None
+
+        def run(self):
+            return self.report
+
+    monkeypatch.setattr(selector_module, "DashboardAudit", BootstrapAudit)
+    monkeypatch.setattr(selector_module, "_rebuild_operations", lambda root: None)
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+
+    state = selector_module.select_publication(repo, baseline, repo / "publication-state.json")
+
+    if degraded:
+        assert state["mode"] == "degraded"
+        assert "pending_surfaces" not in state
+    else:
+        assert state["mode"] == "current"
+        assert state["degraded_surfaces"] == []
+        assert state["pending_surfaces"] == ["docker_builds"]
+
+
 def test_collector_failure_jsonl_is_typed_bounded_and_secret_safe(
     tmp_path: Path,
 ) -> None:

@@ -131,8 +131,6 @@ HEADLINES = (
     "[CI] Shard the distributed tests automatically (#61{:03d})",
     "[Model] Add tool-call parser for a new chat template (#61{:03d})",
 )
-WATCHER_ISSUE = 512
-DURATION_ISSUE = 553
 
 
 def main_commit(slot: int) -> str:
@@ -224,7 +222,7 @@ def watcher_state(reliability: dict, nightlies: list[dict], mains: list[dict]) -
         for event, build in (("opened", failed), ("resolved", every[every.index(failed) + 1]))
     ]
     return {
-        "hardware_scope": "amd_mi_gpu", "last_run": GENERATED_AT, "issue": {"number": WATCHER_ISSUE}, "suppressed": False,
+        "hardware_scope": "amd_mi_gpu", "last_run": GENERATED_AT, "issue": None, "suppressed": False,
         "active": {
             groups["Routed Beta"]["group_id"]: row("Routed Beta", "hard", "confirmed", before, first_nightly),
             groups["Broken Group"]["group_id"]: row("Broken Group", "hard", "confirmed", None, every[0]),
@@ -304,7 +302,7 @@ def duration_state(mains: list[dict]) -> dict:
     ]
     return {
         "schema_version": 1, "incident_state_version": 2, "hardware_scope": "amd_mi_gpu", "last_run": GENERATED_AT,
-        "issue": {"number": DURATION_ISSUE}, "suppressed": False,
+        "issue": None, "suppressed": False,
         "active": {row["signal_id"]: row for row in rows},
     }
 

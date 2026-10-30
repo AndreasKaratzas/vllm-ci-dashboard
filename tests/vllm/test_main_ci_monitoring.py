@@ -123,7 +123,7 @@ def _flaky_builds(start, count, *, outcome):
 def test_flakiness_window_counts_flips_recoveries_and_trend():
     builds = _flaky_builds(NOW - timedelta(days=6), 8, outcome=lambda i: "failed" if i % 2 else "passed")
     reliability = _reliability(builds)
-    thresholds = {"window_days": 7, "min_outcome_flips": 3, "min_failed_then_passed": 3, "max_issue_rows": 50}
+    thresholds = {"window_days": 7, "min_outcome_flips": 3, "min_failed_then_passed": 3}
 
     rows = {row["name"]: row for row in main_flakiness.alerting_rows(reliability, NOW, thresholds)}
 
@@ -142,7 +142,6 @@ def test_repository_flakiness_thresholds_are_explicit():
         "window_days": 7,
         "min_outcome_flips": 3,
         "min_failed_then_passed": 3,
-        "max_issue_rows": 50,
     }
 
 
@@ -734,4 +733,4 @@ def test_main_ci_timeline_includes_active_incidents_predating_the_recorded_timel
     assert event["event"] == "opened" and event["source"] == "state"
     assert event["build_url"] == "https://buildkite.com/vllm/ci/builds/1003"
     assert event["at"] == reliability["builds"][0]["created_at"]
-    assert section["incidents"]["issue"]["url"].endswith("/issues/729")
+    assert (section["incidents"]["issue"], section["incidents"]["suppressed"]) == (None, False)

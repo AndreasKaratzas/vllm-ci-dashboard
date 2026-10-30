@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "margin_minutes": 360,
+  "default_timeout_minutes": 360,
+  "max_cancellations": 20,
+  "workflow_timeout_minutes": {
+    ".github/workflows/ci-cache-diagnostics.yml": 15,
+    ".github/workflows/ci-collect.yml": 5,
+    ".github/workflows/ci.yml": 1465,
+    ".github/workflows/daily-update.yml": 5,
+    ".github/workflows/deploy-pages.yml": 40,
+    ".github/workflows/deployment-retention.yml": 25,
+    ".github/workflows/dns-health.yml": 39,
+    ".github/workflows/docker-builds.yml": 30,
+    ".github/workflows/health-check.yml": 50,
+    ".github/workflows/hourly-master.yml": 135,
+    ".github/workflows/pr-preview-validation.yml": 360,
+    ".github/workflows/pr-preview.yml": 360,
+    ".github/workflows/publication-watchdog.yml": 40,
+    ".github/workflows/queue-lifecycle.yml": 50,
+    ".github/workflows/queue-monitor.yml": 33,
+    ".github/workflows/repo-governance.yml": 360,
+    ".github/workflows/runtime-source-warmup.yml": 20,
+    ".github/workflows/scheduler-activity.yml": 5,
+    ".github/workflows/secrets-scan.yml": 360
+  }
+}

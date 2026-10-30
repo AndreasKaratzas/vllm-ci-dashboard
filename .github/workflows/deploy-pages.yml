@@ -18,6 +18,7 @@ concurrency:
 
 permissions:
   contents: write
+  pull-requests: read
 
 jobs:
   deploy:
@@ -1224,6 +1225,7 @@ jobs:
           "$CANDIDATE_PYTHON" \
             "$TRUSTED_DASHBOARD_VALIDATOR_DIR/github_git_proof.py" \
             bound-pages-directory --root "$GITHUB_WORKSPACE/_site" \
+            --prune-closed-previews "$GITHUB_REPOSITORY" \
             --github-output "$PREVIEW_BOUND_OUTPUT"
           EXPECTED_PREVIEW_DIGEST=$(awk -F= \
             '$1 == "pages_preview_digest" {print $2}' "$PREVIEW_BOUND_OUTPUT")

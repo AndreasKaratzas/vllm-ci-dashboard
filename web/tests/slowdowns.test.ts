@@ -38,7 +38,7 @@ describe('slowdowns', () => {
 
   it('splits active from settled, largest increase first', () => {
     expect(parsed.available).toBe(true)
-    expect(parsed.issue).toEqual({ number: 553, url: 'https://github.com/AndreasKaratzas/vllm-ci-dashboard/issues/553' })
+    expect(parsed).not.toHaveProperty('issue')
     expect(parsed.active.map((row) => [row.name, row.increaseMins])).toEqual([
       [':amd: (MI300) V1 Attention', 15.8],
       [':amd: (MI300) Distributed Compile', 3.4],

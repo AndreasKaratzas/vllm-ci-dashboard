@@ -201,7 +201,7 @@ export function incidentColumns(ctx: MainCiContext, rows: MainIncident[], now: n
 export const incidentSearch = (row: MainIncident) => [row.name, row.hardware, row.queue, row.severity, row.bad.build, row.good.build].join(' ')
 
 /** One main-failure incident: the good and bad builds that bound it, its bisect command, and its events. */
-export function incidentDetail(incident: MainIncident, ctx: MainCiContext, issue: { number: number; url: string } | null, now: number): Detail {
+export function incidentDetail(incident: MainIncident, ctx: MainCiContext, now: number): Detail {
   const events = mainTimeline(ctx.record).filter((event) => event.groupId === incident.groupId)
   const bounds = [findBuild(incident.good.build, ctx), findBuild(incident.bad.build, ctx)].filter((build): build is MainBuild => !!build)
   const buildField = (label: string, number: number | null): DetailField => ({ label, value: number ? `#${number}` : null, href: findBuild(number, ctx)?.url || undefined, mono: true })
@@ -227,7 +227,6 @@ export function incidentDetail(incident: MainIncident, ctx: MainCiContext, issue
     sources: [
       ...(incident.jobUrl ? [{ label: 'Open failing job', url: incident.jobUrl }] : []),
       ...(incident.compareUrl ? [{ label: 'Compare commits', url: incident.compareUrl }] : []),
-      ...(issue ? [{ label: `Managed issue #${issue.number}`, url: issue.url }] : []),
     ],
     tables: [
       ...(bounds.length
@@ -241,7 +240,7 @@ export function incidentDetail(incident: MainIncident, ctx: MainCiContext, issue
 }
 
 /** The incidents that share one commit range, likely broken by one commit in it. */
-export function suspectRangeDetail(range: SuspectRange, ctx: MainCiContext, issue: { number: number; url: string } | null, now: number): Detail {
+export function suspectRangeDetail(range: SuspectRange, ctx: MainCiContext, now: number): Detail {
   const bad = findBuild(range.bad.build, ctx)
   return {
     id: `main-range-${range.good.commit}-${range.bad.commit}`,
@@ -265,7 +264,7 @@ export function suspectRangeDetail(range: SuspectRange, ctx: MainCiContext, issu
         meta: counted(range.incidents.length, 'group'),
         columns: incidentColumns(ctx, range.incidents, now).filter((column) => !['since', 'range'].includes(column.id)),
         rows: range.incidents,
-        onRowClick: (row: MainIncident) => incidentDetail(row, ctx, issue, now),
+        onRowClick: (row: MainIncident) => incidentDetail(row, ctx, now),
         pageSize: false,
       },
     ],

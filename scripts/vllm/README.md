@@ -25,7 +25,9 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `request_bearing_attempt_budget.py` | Gates full Data Collection, Queue Lifecycle and Docker Builds through independent parentless 25-hour attempt ledgers, including start-to-start success cadence, bounded failure retry, migration overlap, and read-only webhook/watchdog observation | Before every possible full-collector token exposure, plus controlled one-time initialization |
 | `buildkite_request_guard.py` | Enforces the fixed per-attempt allowance across processes by charging every exact Buildkite `requests.Session.send` before transport and rejecting hidden adapter retries | Explicitly at every token-reading CLI/shared client ingress, with `scripts/sitecustomize.py` as process-start defense in depth |
 | `ci/backfill_checkpoint.py` | Integrity-validates complete per-nightly CI shards so cache-loss recovery makes monotonic progress across repeated 800-request caps without publishing partial data | Restored and saved even after collector failure by guarded Data Collection runs |
+| `docker_builds_bootstrap.py` | Classifies the docker builds first collection as pending, over budget, failed, unknown or collected from the data branch, the docker attempt ledger and the latest completed run, for the publication audit | `hourly-master.yml` before publication selection |
 | `plan_publication_watchdog.py` | Plans proactive canonical recovery and suppresses active/recent duplicates; durable full-collection due state comes from the separate attempt ledger rather than general publication timestamps | `publication-watchdog.yml` |
+| `plan_stuck_run_cancellation.py` | Selects workflow runs queued or in progress longer than their workflow's summed job timeouts plus 6 hours (`config/run_janitor.json`) for force-cancel | `publication-watchdog.yml` |
 | `dashboard_state.py` | Fully validates/materializes bounded parentless snapshots, provides OID-only metadata validation for watchdogs, creates tested root commits, writes the public marker, rotates refs, and atomically repairs a single valid slot | Canonical collection, deploy-only recovery, watchdog checks, and state rollback |
 | `public_projection.py` | Creates the state-bound SHA-256 manifest for every canonical public file and verifies local or remote Git trees without reading large deployed blobs | Before and after every canonical or deploy-only Pages publication, plus the watchdog |
 | `verify_published_operations_bundle.py` | Verifies that every deployed Operations shard exists and matches the public manifest byte contract | After every canonical or manual Pages deployment |
@@ -335,8 +337,18 @@ fallback surfaces. Only restored data has a 36-hour hard limit; a fresh
 degradation remains publishable and keeps its fingerprinted CI incident open.
 `build_site.py` emits a sanitized `publication_status.json` so the dashboard
 can identify fresh degradation, fallback, mixed, and blocked states without
-exposing private restore metadata. Repeated runs of the same incident do not
-post duplicate comments. Collector failures carry a bounded typed reason into
+exposing private restore metadata. Next to the `affected_surfaces` labels it
+publishes their machine `surface_ids`, the `pending_surface_ids` that are not
+yet collected but progressing within their bound, and each surface's
+`stale_minutes` from `config/data_freshness_targets.json`; schema version 1 is
+unchanged and Site Health accepts a status without these three fields. The
+docker builds seed is pending, not degraded, while `docker_builds_bootstrap.py`
+shows no `docker-builds-data` branch, a latest completed run that saved
+resumable progress, fewer unpublished attempts than the ledger's 16 per 25
+hours, and no unpublished attempt older than 16 retries at the 30-minute
+cadence (8 hours), so a bootstrap that never finishes stays degraded as its
+oldest rows leave the window; any other bootstrap state stays degraded. Repeated runs of the same
+incident do not post duplicate comments. Collector failures carry a bounded typed reason into
 the incident fingerprint; a first transient network/HTTP failure uses the
 validated baseline without opening a ticket, while deterministic failures and
 two consecutive transient failures alert. General incident recovery requires
@@ -476,8 +488,10 @@ From that one cohort:
   `config/ci_flakiness_thresholds.json`.
 
 Both watchers need no GitHub token: every fresh run advances `last_run`, which
-`main_ci` publishes as `watcher_last_run`. The `issue` keys stay in `main_ci`
-as `null` and `suppressed` as `false`.
+`main_ci` publishes as `watcher_last_run`. The retired `issue` and
+`suppressed` keys stay in `main_ci` as `null` and `false` whatever the watcher
+state holds, and the web app does not read them; the main pulse overlay keeps
+`issue`/`issue_basis` only as `null`/`""`.
 - `operations_v2/main_ci.json` (bounded to 1.5 MiB) publishes per-build
   summaries, the watchers' incidents, timeline and slowdowns, flaky groups,
   retry hotspots and daily/hourly pass-rate series. `shell.sources.main_ci` carries the cohort's
@@ -501,8 +515,11 @@ Without the main pulse below, worst case is roughly the 120-minute success
 interval in `config/data_collection_attempt_budget.json` plus one 15-35 minute
 collection.
 The publication watchdog checks every 15 minutes and dispatches Data
-Collection as soon as that ledger is due. A Buildkite webhook cannot start
-collection earlier: `cadence-preflight` observes the same ledger and drops
+Collection as soon as that ledger is due. It starts Docker Build Monitor the
+same way whenever the docker ledger is due and no run is active, and
+force-cancels any workflow run stuck past its timeout bound, reporting the count
+in its job summary. A Buildkite
+webhook cannot start collection earlier: `cadence-preflight` observes the same ledger and drops
 early dispatches. Lowering latency means lowering `success_interval_minutes`
 (and raising `max_request_bearing_attempts`, currently 16 per 25 hours with 800
 request starts each), which is a Buildkite API budget decision.
