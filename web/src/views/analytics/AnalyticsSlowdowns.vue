@@ -69,7 +69,7 @@ const minutesTick = (value: number) => (narrow.value ? `${plainNumber(value)}m` 
         </template>
       </EmptyState>
       <template v-else>
-        <StatGrid :cols="4" data-testid="slowdowns-kpis">
+        <StatGrid :cols="3" data-testid="slowdowns-kpis">
           <KpiCard
             label="Active slowdowns"
             :value="active.length"
@@ -92,20 +92,6 @@ const minutesTick = (value: number) => (narrow.value ? `${plainNumber(value)}m` 
             :footnote="data.rules ? `No further rise for ${data.rules.settleAfterDays} days; the new normal` : 'No further rise; the new normal'"
             :action="settled.length ? { label: showSettled ? 'Hide settled slowdowns' : 'Show settled slowdowns', onOpen: () => (showSettled = !showSettled) } : undefined"
             data-testid="kpi-slowdowns-settled"
-          />
-          <KpiCard
-            label="Tracking issue"
-            :value="data.issue ? `#${data.issue.number}` : null"
-            :status="data.suppressed ? { tone: 'neutral', label: 'Closed by hand' } : undefined"
-            :footnote="
-              data.issue
-                ? data.suppressed
-                  ? 'Stays closed until the set of slowdowns changes'
-                  : 'Lists every active slowdown'
-                : 'No issue is open'
-            "
-            :action="data.issue ? { label: `Open issue #${data.issue.number}`, href: data.issue.url } : undefined"
-            data-testid="kpi-slowdowns-issue"
           />
         </StatGrid>
 

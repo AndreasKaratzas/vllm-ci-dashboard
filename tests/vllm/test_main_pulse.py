@@ -309,6 +309,12 @@ def test_overlay_rejects_malformed_payloads(now):
     for mutate in (
         lambda value: value.update(extra=1),
         lambda value: value.update(issue_basis="x"),
+        lambda value: value.pop("issue"),
+        lambda value: value.update(
+            issue={key: None for key in ("issue", "suppressed", "suppressed_fingerprint", "last_fingerprint",
+                                         "last_content_fingerprint", "last_run")},
+            issue_basis="a" * 64,
+        ),
         lambda value: next(iter(value["groups"].values())).update(status="open"),
     ):
         broken = copy.deepcopy(overlay)

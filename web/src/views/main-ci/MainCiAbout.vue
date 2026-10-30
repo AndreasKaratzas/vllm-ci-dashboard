@@ -29,6 +29,6 @@ const thresholds = computed(() => flakinessThresholds(props.record))
   <p v-if="thresholds">
     <strong class="text-foreground">Flaky groups</strong> flip between pass and fail across builds and alert at {{ thresholds.minFlips }} flips within
     {{ thresholds.windowDays }} days. <strong class="text-foreground">Passes after a retry</strong> alert at {{ thresholds.minRecoveries }} passes after a
-    retried hard failure in the same window. The flakiness watcher's issue lists the groups that cross either threshold.
+    retried hard failure in the same window.
   </p>
 </template>

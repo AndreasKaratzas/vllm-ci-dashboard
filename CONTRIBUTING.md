@@ -23,6 +23,16 @@ and the Vue frontend.
 3. Sign off every commit (`git commit -s`) to certify the
    [Developer Certificate of Origin](https://developercertificate.org/).
 
+## Consumer contracts
+
+`config/consumer_contracts/` lists the published fields and values that
+downstream tools read; `heka_tickets_v1.json` is the heka ticket collectors'
+list. Changing, renaming or removing any of those fields, enum values,
+sections or surface labels requires updating the contract in the same pull
+request (raise `contract_version` when a reader must change).
+`tests/vllm/test_consumer_contract.py` checks the contract against the
+producers.
+
 ## Running the checks
 
 Python is pinned to 3.12.13 and installs use `constraints.txt`:

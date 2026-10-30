@@ -108,9 +108,9 @@ describe('main CI sheets', () => {
     expect(mainBuildDetail({ ...builds[1]!, amd: null }, ctx).notes![0]!.text).toContain('no AMD MI job counts')
   })
 
-  it('links an incident to its bounding builds, commits, job and managed issue', () => {
-    const detail = incidentDetail(incidents.active.find((row) => row.groupId === 'g1')!, ctx, incidents.issue, NOW)
-    expect(detail.sources!.map((source) => source.label)).toEqual(['Open failing job', 'Compare commits', 'Managed issue #737'])
+  it('links an incident to its bounding builds, commits and job, never to a stale published issue', () => {
+    const detail = incidentDetail(incidents.active.find((row) => row.groupId === 'g1')!, ctx, NOW)
+    expect(detail.sources!.map((source) => source.label)).toEqual(['Open failing job', 'Compare commits'])
     const fields = Object.fromEntries(detail.fields!.map((field) => [field.label, field]))
     expect(fields['Last good build']).toMatchObject({ value: '#2', href: 'https://buildkite.com/vllm/ci/builds/2' })
     expect(fields['First bad build']).toMatchObject({ value: '#3', href: 'https://buildkite.com/vllm/ci/builds/3' })
@@ -141,7 +141,7 @@ describe('main CI sheets', () => {
 
   it('opens the incidents that share a commit range', () => {
     const [range] = suspectRanges(incidents.active)
-    const detail = suspectRangeDetail(range!, ctx, incidents.issue, NOW)
+    const detail = suspectRangeDetail(range!, ctx, NOW)
     expect(detail.subtitle).toBe('2 incidents first failed at #3')
     expect(detail.sources!.map((source) => source.label)).toEqual(['Compare commits', 'Open build #3'])
     expect(detail.tables![0]!.columns.map((column) => column.id)).toEqual(['group', 'hardware', 'opened', 'observed'])

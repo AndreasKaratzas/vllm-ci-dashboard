@@ -76,9 +76,6 @@ export interface Slowdowns {
   /** Why the block is unavailable, e.g. `duration_watcher_state_stale` when the watcher did not evaluate this cohort. */
   reason: string | null
   watcherLastRun: string | null
-  issue: { number: number; url: string } | null
-  /** The issue was closed by hand and stays closed until the set of slowdowns changes. */
-  suppressed: boolean
   rules: SlowdownRules | null
   /** Largest increase first. */
   active: Slowdown[]
@@ -173,13 +170,10 @@ export function slowdowns(mainCi: Rec | null | undefined): Slowdowns {
   const available = block?.available === true
   const rows = available && Array.isArray(block!.rows) ? (block!.rows as unknown[]).filter(isRec) : []
   const parsed = rows.map(slowdown).filter((row): row is Slowdown => row !== null)
-  const issue = isRec(block?.issue) && num(block!.issue.number)! > 0 ? { number: block!.issue.number, url: str(block!.issue.url) } : null
   return {
     available,
     reason: available ? null : str(block?.reason) || 'slowdowns_unpublished',
     watcherLastRun: str(block?.watcher_last_run) || null,
-    issue,
-    suppressed: block?.suppressed === true,
     rules: rules(block?.rules),
     active: parsed.filter((row) => row.status === 'active').sort(byIncrease),
     settled: parsed.filter((row) => row.status === 'settled').sort(byIncrease),
@@ -269,6 +263,6 @@ export function rulesText(value: SlowdownRules): string[] {
     "Only builds with the step's current shard count are compared, so automatic shard re-layouts never count as slowdowns.",
     `A slowdown is a level at least ${minutes(value.alertMinMins)} and ${pct(value.alertMinFraction)} (or ${minutes(value.alertLargeMins)}) above the level before it and ${value.sigmas} standard errors, held by ${pct(value.consistency)} of its runs, without the step returning to the earlier level since.`,
     `It opens once the new level has ${value.minRecentRuns} runs over ${value.minLevelHours} hours and the slowdown is ${value.minSlowdownHours} hours old (the level before it needs ${value.minBaselineRuns} runs), so self-recovering infrastructure events stay out.`,
-    `An open slowdown resolves when its increase falls below ${pct(value.resolveScale)} of those thresholds or the step has not run for ${value.staleAfterHours} hours; ${value.settleAfterDays} days after its latest increase it is listed as settled and leaves the issue.`,
+    `An open slowdown resolves when its increase falls below ${pct(value.resolveScale)} of those thresholds or the step has not run for ${value.staleAfterHours} hours; ${value.settleAfterDays} days after its latest increase it is listed as settled.`,
   ]
 }

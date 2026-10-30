@@ -360,9 +360,7 @@ export function rangeText(status: string): { short: string; long: string } {
 
 export interface MainIncidents {
   available: boolean
-  issue: { number: number; url: string } | null
   watcherLastRun: string | null
-  suppressed: boolean
   active: MainIncident[]
   pending: MainIncident[]
 }
@@ -395,7 +393,6 @@ function incident(row: Rec, pending: boolean, openedAt: (groupId: string, bad: n
 /** Active incidents newest first, so a fresh breakage leads; pending soft failures as published. */
 export function mainIncidents(record: Rec | null | undefined): MainIncidents {
   const source: Rec = record?.incidents && typeof record.incidents === 'object' ? record.incidents : {}
-  const issue: Rec | null = source.issue && typeof source.issue === 'object' ? source.issue : null
   const timeline = mainTimeline(record)
   const created = new Map(mainBuilds(record).map((build) => [build.number, build.createdAt]))
   const openedAt = (groupId: string, bad: number | null) => {
@@ -406,9 +403,7 @@ export function mainIncidents(record: Rec | null | undefined): MainIncidents {
   active.sort((a: MainIncident, b: MainIncident) => b.openedAt.localeCompare(a.openedAt) || a.name.localeCompare(b.name))
   return {
     available: source.available === true,
-    issue: issue && buildNumber(issue.number) && str(issue.url) ? { number: issue.number, url: issue.url } : null,
     watcherLastRun: str(source.watcher_last_run) || null,
-    suppressed: source.suppressed === true,
     active,
     pending: (Array.isArray(source.pending_soft) ? source.pending_soft : []).map((row: Rec) => incident(row, true, openedAt)),
   }

@@ -6,7 +6,7 @@ import { collectErrors } from './support/quality.mjs';
 
 // Fixture facts (tests/browser/build_fixture_site.py): 33 main builds, the newest #31027 passed;
 // #31026 failed Routed Beta and Broken Group hard and soft-failed Attention Kernels Shard 1;
-// two hard incidents tracked in issue #512, one pending soft failure; Attention Kernels Shard 2
+// two hard incidents, one pending soft failure; Attention Kernels Shard 2
 // flips and Basic Models passes only after a retry.
 
 /** Rewrites the manifest (and optionally serves a main_ci section body with its digest). */
@@ -85,9 +85,8 @@ test.describe('Main CI', () => {
     await expect(page).toHaveURL(/#\/main$/);
   });
 
-  test('lists incidents with their commits and the managed issue', async ({ page }) => {
+  test('lists incidents with their commits', async ({ page }) => {
     await page.goto('/#/main?view=incidents');
-    await expect(page.getByTestId('main-issue-link')).toHaveAttribute('href', 'https://github.com/AndreasKaratzas/vllm-ci-dashboard/issues/512');
     const rows = page.getByTestId('main-incidents').locator('tbody tr');
     await expect(rows).toHaveCount(2);
     await expect(page.getByTestId('main-pending')).toContainText('Attention Kernels Shard 1');
@@ -95,7 +94,6 @@ test.describe('Main CI', () => {
     const sheet = page.getByRole('dialog');
     await expect(sheet).toContainText('Hard fail incident on main');
     await expect(sheet.getByRole('link', { name: 'Compare commits' })).toHaveAttribute('href', /^https:\/\/github\.com\/vllm-project\/vllm\/compare\//);
-    await expect(sheet.getByRole('link', { name: 'Managed issue #512' })).toBeVisible();
     await expect(sheet).toContainText('git bisect start');
     await expect(page).toHaveURL(/view=incidents/);
   });

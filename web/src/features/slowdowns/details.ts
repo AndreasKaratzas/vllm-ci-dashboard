@@ -69,7 +69,7 @@ const buildField = (label: string, ref: BuildRef | null): DetailField => ({
 })
 
 /** One slowdown: the level before and since, every sampled build, the builds around the onset and the commit range. */
-export function slowdownDetail(row: Slowdown, data: Pick<Slowdowns, 'issue' | 'rules'>, nowMs: number): Detail {
+export function slowdownDetail(row: Slowdown, data: Pick<Slowdowns, 'rules'>, nowMs: number): Detail {
   const before = row.samples.filter((sample) => !sample.slow).length
   return {
     id: `slowdown:${row.id}`,
@@ -104,10 +104,9 @@ export function slowdownDetail(row: Slowdown, data: Pick<Slowdowns, 'issue' | 'r
     sources: [
       { label: 'First slow build', url: row.onset.url },
       { label: 'Compare vLLM commits', url: row.compareUrl },
-      { label: `Issue #${data.issue?.number ?? ''}`, url: row.status === 'active' ? (data.issue?.url ?? '') : '' },
     ],
     footnote: data.rules
-      ? `A slowdown settles ${integer(data.rules.settleAfterDays)} days after its latest rise and then leaves the issue; it resolves earlier if the step returns to its earlier level.`
+      ? `A slowdown settles ${integer(data.rules.settleAfterDays)} days after its latest rise; it resolves earlier if the step returns to its earlier level.`
       : undefined,
     width: 'lg',
   }

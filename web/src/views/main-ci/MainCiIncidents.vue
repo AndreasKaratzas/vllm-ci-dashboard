@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ExternalLink } from '@lucide/vue'
 import { computed } from 'vue'
 import ProportionBar from '@/components/charts/ProportionBar.vue'
 import Callout from '@/components/feedback/Callout.vue'
@@ -19,7 +18,7 @@ const now = useClock()
 const ctx = computed(() => props.mainCi.ctx.value)
 const incidents = computed(() => props.mainCi.incidents.value)
 const timeline = computed(() => mainTimeline(ctx.value.record))
-const open = (row: MainIncident) => props.sheets.open(incidentDetail(row, ctx.value, incidents.value.issue, now.value))
+const open = (row: MainIncident) => props.sheets.open(incidentDetail(row, ctx.value, now.value))
 const fresh = computed(() => incidents.value.active.filter((row) => isNewIncident(row, now.value)).length)
 
 // Incidents that share a last-good..first-bad range point at one culprit commit.
@@ -42,7 +41,7 @@ const rangeColumns: ColumnSpec<SuspectRange>[] = [
   },
   { id: 'opened', label: 'Opened', value: (row) => row.openedAt, cell: (row) => ({ text: row.openedAt ? age(row.openedAt, now.value) : '—', nowrap: true }), class: 'hidden whitespace-nowrap sm:table-cell' },
 ]
-const openRange = (row: SuspectRange) => props.sheets.open(suspectRangeDetail(row, ctx.value, incidents.value.issue, now.value))
+const openRange = (row: SuspectRange) => props.sheets.open(suspectRangeDetail(row, ctx.value, now.value))
 
 const severitySegments = computed(() => [
   { key: 'hard', label: 'Hard', count: incidents.value.active.filter((row) => row.severity === 'hard').length, color: statusVar('hard') },
@@ -90,13 +89,6 @@ const openEvent = (row: TimelineEvent) => {
       </CardTitle>
       <CardDescription>
         <template v-if="incidents.watcherLastRun">Watcher last ran {{ age(incidents.watcherLastRun, now) }}</template>
-        <template v-if="incidents.issue">
-          · tracked in
-          <a :href="incidents.issue.url" target="_blank" rel="noopener" class="inline-flex items-center gap-1 font-medium text-foreground underline-offset-4 hover:underline">
-            issue #{{ incidents.issue.number }} <ExternalLink class="size-3" aria-hidden="true" />
-          </a>
-        </template>
-        <template v-if="incidents.suppressed"> · issue updates are suppressed</template>
       </CardDescription>
     </CardHeader>
     <CardContent class="grid grid-cols-1 gap-5 px-4 sm:px-6 @3xl/main:grid-cols-2">

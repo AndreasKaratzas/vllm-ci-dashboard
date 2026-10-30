@@ -20,7 +20,6 @@ from vllm.ci.reliability_history import observation_job_url, validate_all_main_r
 
 
 PIPELINE = "ci"
-DASHBOARD_REPO_URL = "https://github.com/AndreasKaratzas/vllm-ci-dashboard"
 DAILY_SERIES_DAYS = 30
 HOURLY_SERIES_HOURS = 7 * 24
 TOP_FLAKY_LIMIT = 50
@@ -305,8 +304,6 @@ def _incidents(state: dict, scoped: dict) -> tuple[dict, list[dict]]:
 
     active.sort(key=order)
     pending.sort(key=order)
-    issue = state.get("issue") if isinstance(state.get("issue"), dict) else None
-    number = (issue or {}).get("number")
     catalog = {build_number: build for build_number, (_, build) in main_flakiness.build_times(scoped).items()}
     timeline = [dict(row) for row in state.get("timeline") or [] if isinstance(row, dict)]
     opened = {(row.get("group_id"), row.get("build_number")) for row in timeline if row.get("event") == "opened"}
@@ -335,12 +332,8 @@ def _incidents(state: dict, scoped: dict) -> tuple[dict, list[dict]]:
     return {
         "available": True,
         "watcher_last_run": str(state.get("last_run") or ""),
-        "issue": (
-            {"number": number, "url": f"{DASHBOARD_REPO_URL}/issues/{number}"}
-            if isinstance(number, int) and number > 0
-            else None
-        ),
-        "suppressed": state.get("suppressed") is True,
+        "issue": None,
+        "suppressed": False,
         "active": active,
         "pending_soft": pending,
     }, timeline
@@ -368,7 +361,7 @@ def _flakiness(scoped: dict, now: datetime, thresholds: dict[str, int]) -> tuple
             "queue": row["queue"],
             "trend": row["trend"],
         }
-        # Each list alerts on its own criterion; the watcher's issue lists groups crossing either.
+        # Each list alerts on its own criterion.
         if month_stats["flips"]:
             flaky.append(
                 {
@@ -426,17 +419,11 @@ def _slowdowns(state: dict, now: datetime) -> dict:
             str(row.get("name") or "").lower(),
         ),
     )
-    issue = state.get("issue") if isinstance(state.get("issue"), dict) else None
-    number = (issue or {}).get("number")
     return {
         "available": True,
         "watcher_last_run": str(state.get("last_run") or ""),
-        "issue": (
-            {"number": number, "url": f"{DASHBOARD_REPO_URL}/issues/{number}"}
-            if isinstance(number, int) and number > 0
-            else None
-        ),
-        "suppressed": state.get("suppressed") is True,
+        "issue": None,
+        "suppressed": False,
         "rules": dict(RULES),
         "rows": rows,
     }

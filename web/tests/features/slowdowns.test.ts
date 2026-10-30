@@ -32,7 +32,7 @@ describe('slowdown table and sheet', () => {
     expect(full.every((column) => column.id === 'step' || column.id === 'increase' || column.class?.startsWith('hidden'))).toBe(true)
   })
 
-  it('opens a sheet with both levels, the sampled builds, the onset range and the issue while active', () => {
+  it('opens a sheet with both levels, the sampled builds and the onset range, never a stale published issue', () => {
     const detail = slowdownDetail(single!, data, NOW)
     expect(detail.stats!.map((stat) => [stat.label, stat.value])).toEqual([
       ['Before', '7.6m'],
@@ -43,9 +43,9 @@ describe('slowdown table and sheet', () => {
     expect(detail.stats![2]).toMatchObject({ tone: 'soft', tint: true })
     expect(detail.sections![0]!.props).toEqual({ row: single })
     expect(detail.sections![0]!.meta).toBe('6 sampled runs before, 6 since')
-    expect(detail.sources!.map((source) => source.label)).toEqual(['First slow build', 'Compare vLLM commits', 'Issue #553'])
+    expect(detail.sources!.map((source) => source.label)).toEqual(['First slow build', 'Compare vLLM commits'])
     expect(detail.fields!.find((field) => field.label === 'Last fast build')).toMatchObject({ href: single!.lastGood!.url })
-    expect(slowdownDetail(data.settled[0]!, data, NOW).sources!.at(-1)!.url).toBe('')
+    expect(data).not.toHaveProperty('issue')
   })
 
   it('names the commits around the onset by SHA, and the latest rise only when it differs from the onset', () => {

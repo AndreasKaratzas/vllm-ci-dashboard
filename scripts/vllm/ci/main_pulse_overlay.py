@@ -3,38 +3,25 @@
 The full Data Collection watcher state stays authoritative. The pulse stores
 only the strict groups whose source-order watermark is newer than that state.
 Merging takes a group from the overlay only while its watermark is still
-newer, so a later collection that saw the same builds always wins. The issue
-fields are always empty now; older overlays that still carry them merge them
-only while the collection state has not changed them since the pulse read it.
+newer, so a later collection that saw the same builds always wins. The retired
+``issue``/``issue_basis`` keys stay in the schema and must be ``null``/``""``.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
-import re
 from pathlib import Path
 from typing import Any
 
 from vllm import amd_main_failure_watcher as watcher
 from vllm import queue_request_budget as ledger_git
-from vllm.ci.watcher_state import normalize_ledger_state
 
 
 OVERLAY_SCHEMA_VERSION = 1
-ISSUE_FIELDS = (
-    "issue",
-    "suppressed",
-    "suppressed_fingerprint",
-    "last_fingerprint",
-    "last_content_fingerprint",
-    "last_run",
-)
 GROUP_STATUSES = frozenset({"active", "pending_soft", "clear"})
 MAX_OVERLAY_GROUPS = 4096
 MAX_PROCESSED_BUILDS = 512
 MAX_TIMELINE_EVENTS = watcher.TIMELINE_MAX_EVENTS
-SHA256_RE = re.compile(r"[0-9a-f]{64}")
 EXPORT_FIELDS = frozenset({"schema_version", "branch", "state_sha", "overlay"})
 OVERLAY_FIELDS = frozenset(
     {
@@ -49,16 +36,6 @@ OVERLAY_FIELDS = frozenset(
         "last_run",
     }
 )
-
-
-def issue_block(state: dict) -> dict:
-    normalized = normalize_ledger_state(state)
-    return {field: normalized.get(field) for field in ISSUE_FIELDS}
-
-
-def issue_basis(state: dict) -> str:
-    encoded = json.dumps(issue_block(state), sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(encoded.encode()).hexdigest()
 
 
 def group_status(state: dict, group_id: str) -> tuple[str, dict | None]:
@@ -96,8 +73,6 @@ def merge_overlay(state: dict, overlay: dict | None) -> dict:
         elif row["status"] == "pending_soft":
             pending_soft[group_id] = dict(row["entry"])
     merged.update(active=active, pending_soft=pending_soft, group_watermarks=watermarks)
-    if overlay["issue"] is not None and overlay["issue_basis"] == issue_basis(state):
-        merged.update(overlay["issue"])
     if isinstance(state.get("timeline"), list) and overlay["timeline"]:
         seen = {_event_key(event) for event in state["timeline"] if isinstance(event, dict)}
         merged["timeline"] = list(state["timeline"]) + [
@@ -153,15 +128,7 @@ def normalize_overlay(value: Any) -> dict:
                 isinstance(row["entry"], dict) and isinstance(row["entry"].get("transition"), dict),
                 f"group {group_id!r} has no transition",
             )
-    issue = value["issue"]
-    if issue is not None:
-        _require(isinstance(issue, dict) and set(issue) == set(ISSUE_FIELDS), "issue fields are malformed")
-        _require(
-            isinstance(value["issue_basis"], str) and SHA256_RE.fullmatch(value["issue_basis"]),
-            "issue basis is malformed",
-        )
-    else:
-        _require(value["issue_basis"] == "", "issue basis without issue fields")
+    _require(value["issue"] is None and value["issue_basis"] == "", "carries retired issue fields")
     timeline = value["timeline"]
     _require(
         isinstance(timeline, list)

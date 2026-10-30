@@ -51,7 +51,7 @@ const windowDays = computed(() => thresholds.value?.windowDays ?? null)
 const openBuild = (build: MainBuild) => props.sheets.open(mainBuildDetail(build, ctx.value))
 const openPoint = (point: TrendPoint, label: string) => props.sheets.open(trendPointDetail(point, buildsBetween(builds.value, point.from, point.to), label, ctx.value))
 const lastDay = computed(() => lastDayPoint(summary.value))
-const openIncident = (row: MainIncident) => props.sheets.open(incidentDetail(row, ctx.value, incidents.value.issue, now.value))
+const openIncident = (row: MainIncident) => props.sheets.open(incidentDetail(row, ctx.value, now.value))
 const fresh = computed(() => incidents.value.active.filter((row) => isNewIncident(row, now.value)).length)
 const sharedRanges = computed(() => suspectRanges(incidents.value.active))
 const incidentNote = computed(() => {

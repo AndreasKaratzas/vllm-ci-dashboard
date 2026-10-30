@@ -476,8 +476,10 @@ From that one cohort:
   `config/ci_flakiness_thresholds.json`.
 
 Both watchers need no GitHub token: every fresh run advances `last_run`, which
-`main_ci` publishes as `watcher_last_run`. The `issue` keys stay in `main_ci`
-as `null` and `suppressed` as `false`.
+`main_ci` publishes as `watcher_last_run`. The retired `issue` and
+`suppressed` keys stay in `main_ci` as `null` and `false` whatever the watcher
+state holds, and the web app does not read them; the main pulse overlay keeps
+`issue`/`issue_basis` only as `null`/`""`.
 - `operations_v2/main_ci.json` (bounded to 1.5 MiB) publishes per-build
   summaries, the watchers' incidents, timeline and slowdowns, flaky groups,
   retry hotspots and daily/hourly pass-rate series. `shell.sources.main_ci` carries the cohort's
