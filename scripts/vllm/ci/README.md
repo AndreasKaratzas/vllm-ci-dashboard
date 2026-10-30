@@ -204,7 +204,7 @@ Quarantined tests are still collected and tracked, but excluded from failure cou
 
 ## GitHub Actions Integration
 
-Seven workflows divide canonical publication from focused manual/event collectors:
+Eight workflows divide canonical publication from focused manual/event collectors:
 
 | Workflow | Schedule | Purpose |
 |----------|----------|---------|
@@ -213,6 +213,7 @@ Seven workflows divide canonical publication from focused manual/event collector
 | `ci-collect.yml` | Manual | Tokenless compatibility dispatch into the canonical guarded collector; it cannot run an independent Buildkite refresh |
 | `queue-monitor.yml` | Ten-minute recovery checks + external tick + queue webhooks + manual | Queue snapshots and bounded queue issue automation; canonical publication follows via `hourly-master.yml` |
 | `queue-lifecycle.yml` | 30-minute recovery checks + external tick, two-hour successful cadence + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
+| `docker-builds.yml` | 30-minute recovery checks + external tick, two-hour successful cadence + manual | Run time of the ROCm docker build jobs on `ci` and `amd-ci` for main and PR builds, published to `docker-builds-data` |
 | `dns-health.yml` | Hourly recovery opportunity + external tick + manual | Request-budgeted observed DNS sampling with an isolated durable state branch, a durable three-hour scan gate, and conditional canonical reconciliation |
 | `publication-watchdog.yml` | Data Collection, Pages deployment, Queue Lifecycle Monitor, DNS Health Monitor, and Site Health Check completions + every 15 minutes + external tick + manual | Validates the durable state identity against Pages and routes bounded collector, DNS, or deploy-only recovery |
 
@@ -362,6 +363,27 @@ age out; it never weakens the post-cutover 16-attempt bound. Do not store or
 initialize from the illustrative rows above—rebuild the inventory immediately
 before rollout and validate the resulting parentless refs before enabling the
 workflows.
+
+#### Bootstrapping the docker-builds attempt ledger
+
+`docker-builds.yml` is a new producer with no legacy runs, but `initialize`
+refuses an empty seed and `reserve` fails closed until the branch exists. The
+owner initializes `docker-builds-attempt-budget` once with a single synthetic
+failed row whose `reserved_at` lies between 30 minutes and 25 hours in the past:
+
+```bash
+SEED=/secure/path/docker-builds-seeds.json
+RESERVED_AT=$(date -u -d '-1 hour' +%Y-%m-%dT%H:%M:%SZ)
+printf '[{"workflow_run_id": "0", "workflow_run_attempt": 1, "event_name": "workflow_dispatch", "reserved_at": "%s", "request_start_bound_proven": false, "succeeded_at": null, "durable_ref": null, "actual_request_starts": null}]\n' \
+  "$RESERVED_AT" > "$SEED"
+python scripts/vllm/request_bearing_attempt_budget.py \
+  --config config/docker_builds_attempt_budget.json initialize \
+  --seed-file "$SEED"
+```
+
+The row holds one of the 16 attempt slots, but no request starts, until it ages
+out after 25 hours. A seed reserved less than 30 minutes earlier makes the
+first scheduled run `retry_gated`.
 
 ### Bounded dashboard-state snapshots
 

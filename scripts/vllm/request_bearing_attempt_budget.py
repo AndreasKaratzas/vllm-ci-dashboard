@@ -44,6 +44,7 @@ SAFE_EVENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}")
 RUNTIME_ALLOWANCE_CEILINGS = {
     "data_collection": 800,
     "queue_lifecycle": 100,
+    "docker_builds": 30,
 }
 
 

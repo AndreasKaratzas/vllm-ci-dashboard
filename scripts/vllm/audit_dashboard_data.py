@@ -37,6 +37,12 @@ from vllm.ci.dns_failures import (  # noqa: E402
     PUBLICATION_RETENTION_KEYS as DNS_PUBLICATION_RETENTION_KEYS,
     PUBLICATION_RETENTION_POLICY as DNS_PUBLICATION_RETENTION_POLICY,
 )
+from vllm.ci.docker_builds import (  # noqa: E402
+    MAX_FRESH_AGE_HOURS as DOCKER_BUILDS_MAX_FRESH_AGE_HOURS,
+    PUBLIC_OUTPUT_MAX_BYTES as DOCKER_BUILDS_MAX_BYTES,
+    PUBLIC_PATH as DOCKER_BUILDS_DATA_PATH,
+    validate_public as validate_docker_builds,
+)
 from vllm.publication_surfaces import (  # noqa: E402
     LEGACY_CI_SURFACE,
     LEGACY_CI_SURFACE_SPEC,
@@ -620,6 +626,13 @@ DATA_SPECS: tuple[DataSpec, ...] = (
         "Observed DNS resolver signatures by AMD queue and physical node",
     ),
     DataSpec(
+        DOCKER_BUILDS_DATA_PATH,
+        ("scripts/vllm/collect_docker_builds.py",),
+        ("web/src/data/sources.ts",),
+        ("schema_version", "generated_at", "window", "coverage", "dims", "jobs"),
+        "Observed ROCm docker build jobs on Buildkite main and PR builds",
+    ),
+    DataSpec(
         "data/vllm/ci/ownership_config_parity.json",
         ("scripts/vllm/collect_ownership_parity.py",),
         ("scripts/vllm/ci_area_regression_watcher.py",),
@@ -904,6 +917,7 @@ class DashboardAudit:
         self.audit_queue_data(validate_derived=True, require_current_scope=True)
         self.audit_queue_lifecycle()
         self.audit_dns_failures()
+        self.audit_docker_builds()
         self.audit_frontend_contracts()
         self.audit_workflows()
         self.accept_unavailable_surfaces()
@@ -10274,6 +10288,86 @@ class DashboardAudit:
             "evidence_shown": shown,
         }
 
+    def audit_docker_builds(self, source_path: Path | None = None) -> None:
+        """Validate the public ROCm docker build job dataset."""
+        path_obj = source_path or (self.root / DOCKER_BUILDS_DATA_PATH)
+        path = self.rel(path_obj)
+        if not path_obj.is_file() or path_obj.is_symlink():
+            self.error(
+                "docker-builds-missing",
+                "docker_builds.json must be a regular file",
+                path,
+            )
+            return
+        try:
+            raw = path_obj.read_text()
+            payload = json.loads(raw, parse_constant=_reject_nonfinite_json_constant)
+        except (OSError, ValueError) as exc:
+            self.error("docker-builds-json", f"Docker builds data is unreadable: {exc}", path)
+            return
+
+        size = len(raw.encode("utf-8"))
+        if size > DOCKER_BUILDS_MAX_BYTES:
+            self.error(
+                "docker-builds-payload-budget",
+                f"docker_builds.json is {size} bytes; limit is {DOCKER_BUILDS_MAX_BYTES}",
+                path,
+            )
+        if DNS_SECRET_OR_URL_RE.search(raw):
+            self.error(
+                "docker-builds-secret-or-url",
+                "Docker builds data contains a URL or secret marker",
+                path,
+            )
+        problems = validate_docker_builds(payload)
+        for problem in problems[:20]:
+            self.error("docker-builds-schema", problem, path)
+        if problems:
+            return
+
+        coverage_status = payload["coverage"]["status"]
+        if coverage_status == "not_collected":
+            if payload["jobs"]["n"]:
+                self.error(
+                    "docker-builds-schema",
+                    "not_collected structural seed must contain no jobs",
+                    path,
+                )
+            else:
+                self.degradation(
+                    "docker-builds-not-collected",
+                    "Docker build collection has not completed yet; durations are unavailable",
+                    path,
+                )
+        else:
+            generated_at = _parse_timestamp(payload["generated_at"])
+            age_hours = (
+                (datetime.now(timezone.utc) - generated_at).total_seconds() / 3600
+                if generated_at is not None
+                else math.inf
+            )
+            if age_hours > DOCKER_BUILDS_MAX_FRESH_AGE_HOURS:
+                if "docker_builds" in self.fallback_surfaces():
+                    self.warning(
+                        "docker-builds-stale-fallback",
+                        f"Docker builds fallback is {age_hours:.1f}h old",
+                        path,
+                    )
+                else:
+                    self.degradation(
+                        "docker-builds-stale",
+                        f"Docker builds source is {age_hours:.1f}h old; "
+                        f"maximum is {DOCKER_BUILDS_MAX_FRESH_AGE_HOURS}h",
+                        path,
+                    )
+
+        self.report.metrics["docker_builds"] = {
+            "bytes": size,
+            "generated_at": payload["generated_at"],
+            "coverage_status": coverage_status,
+            "jobs": payload["jobs"]["n"],
+        }
+
     def audit_frontend_contracts(self) -> None:
         active = (
             "docs/assets/js/utils.js",
@@ -10936,6 +11030,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Validate only the retained queue lifecycle aggregate",
     )
     focused.add_argument(
+        "--docker-builds-only",
+        action="store_true",
+        help="Validate only the ROCm docker builds aggregate",
+    )
+    focused.add_argument(
         "--queue-only",
         action="store_true",
         help="Validate only the live queue history and job evidence",
@@ -10959,6 +11058,14 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--docker-builds-path",
+        type=Path,
+        help=(
+            "docker builds aggregate path for --docker-builds-only "
+            "(defaults to the repository dataset)"
+        ),
+    )
+    parser.add_argument(
         "--strict-warnings",
         action="store_true",
         help="Return nonzero when warnings are present",
@@ -10969,6 +11076,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--dns-path requires --dns-only")
     if args.queue_lifecycle_path is not None and not args.queue_lifecycle_only:
         parser.error("--queue-lifecycle-path requires --queue-lifecycle-only")
+    if args.docker_builds_path is not None and not args.docker_builds_only:
+        parser.error("--docker-builds-path requires --docker-builds-only")
     if args.dns_dependency_smoke:
         report = audit_dns_dependency_smoke()
     elif args.dns_only:
@@ -10984,6 +11093,12 @@ def main(argv: list[str] | None = None) -> int:
             args.queue_lifecycle_path,
             require_current_scope=True,
         )
+        report = audit.report
+    elif args.docker_builds_only:
+        audit = DashboardAudit(
+            ROOT, allow_publication_fallback=args.docker_builds_path is None
+        )
+        audit.audit_docker_builds(args.docker_builds_path)
         report = audit.report
     elif args.queue_only:
         audit = DashboardAudit(ROOT)
@@ -11004,6 +11119,11 @@ def main(argv: list[str] | None = None) -> int:
         report.errors
         or (args.strict_warnings and report.warnings)
         or (args.dns_only and args.dns_path is not None and report.degradations)
+        or (
+            args.docker_builds_only
+            and args.docker_builds_path is not None
+            and report.degradations
+        )
     ):
         return 1
     return 0

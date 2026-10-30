@@ -246,6 +246,7 @@ class TestWorkflowYAML:
         expected = {
             "health-check.yml": ["site_health_tick"],
             "queue-lifecycle.yml": ["queue_lifecycle_tick"],
+            "docker-builds.yml": ["docker_builds_tick"],
         }
         for workflow_name, event_types in expected.items():
             workflow = _load_workflow(workflow_name)
@@ -2303,6 +2304,7 @@ class TestHourlyMasterWorkflow:
             "Capture immutable main code",
             "Restore validated dashboard state",
             "Restore authored dashboard documentation from immutable code",
+            "Restore docker builds seed when the state predates it",
             "Sync validated DNS health aggregate",
             "Validate targeted DNS candidate generation",
             "Validate targeted queue candidate generation",
@@ -3138,6 +3140,7 @@ class TestHourlyMasterWorkflow:
             ("dns-health.yml", "Publish durable DNS evidence"),
             ("queue-monitor.yml", "Publish durable live queue evidence"),
             ("queue-lifecycle.yml", "Publish durable lifecycle evidence"),
+            ("docker-builds.yml", "Publish durable docker builds evidence"),
         ):
             workflow = _load_workflow(workflow_name)
             steps = next(iter(workflow["jobs"].values())).get("steps", [])
@@ -3407,6 +3410,7 @@ class TestNoOrphanedCronSchedules:
             "dns-health.yml",
             "queue-monitor.yml",
             "queue-lifecycle.yml",
+            "docker-builds.yml",
             "publication-watchdog.yml",
             "scheduler-activity.yml",
             "deployment-retention.yml",

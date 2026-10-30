@@ -49,6 +49,7 @@ LIVE_DATA_TEST_SURFACES: dict[str, frozenset[str]] = {
     "test_data_schemas.py::TestConfigParity": frozenset({"ci_core"}),
     "test_data_schemas.py::TestDnsFailures": frozenset({"dns_health"}),
     "test_data_schemas.py::TestDnsFailures::test_public_payload_has_no_log_or_url_fields": frozenset(),
+    "test_data_schemas.py::TestDockerBuilds": frozenset({"docker_builds"}),
     "test_data_schemas.py::TestFailureTrends": frozenset({"ci_core"}),
     "test_data_schemas.py::TestFlakyTests": frozenset({"ci_core"}),
     "test_data_schemas.py::TestOpenQueueIssues": frozenset({"queue"}),

@@ -54,6 +54,7 @@ collection gates:
 | Publication Watchdog | Ten minutes |
 | Queue Monitor | Ten minutes |
 | Queue Lifecycle Monitor | Thirty minutes |
+| Docker Build Monitor | Thirty minutes |
 | DNS Health Monitor | One hour |
 | Site Health Check | One hour |
 | Deployment Record Retention | One day, applying normal retention |
@@ -64,7 +65,7 @@ only these allowlisted workflows on `main`; it never contacts Buildkite or
 changes budget records. Each workflow decides whether work is due using its
 normal gates. The watchdog deduplicates active recovery, and the canonical
 collector still reserves its normal allowance and enforces every existing quota
-and validation gate. Lifecycle and DNS need their own wakeups: full collection
+and validation gate. Lifecycle, docker builds and DNS need their own wakeups: full collection
 imports their durable observations but cannot advance their source clocks.
 
 Use a repository-scoped GitHub token with **Actions: write** for
@@ -88,7 +89,7 @@ Set `GH_TOKEN=...` in that private environment file. Then activate and inspect:
 
 ```sh
 sudo systemctl daemon-reload
-for workflow in publication-watchdog queue-monitor queue-lifecycle dns-health health-check deployment-retention scheduler-activity; do
+for workflow in publication-watchdog queue-monitor queue-lifecycle docker-builds dns-health health-check deployment-retention scheduler-activity; do
   sudo systemctl enable --now "vllm-dashboard-recovery@$workflow.timer"
 done
 sudo systemctl start vllm-dashboard-recovery@publication-watchdog.service

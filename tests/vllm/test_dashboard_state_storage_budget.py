@@ -22,7 +22,7 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
 
     assert budget.allocated_bytes + budget.required_headroom_bytes <= budget.max_tree_bytes
     assert budget.required_headroom_bytes >= 16 * 1024 * 1024
-    assert budget.allocated_bytes == 227 * 1024 * 1024 + 256 * 1024
+    assert budget.allocated_bytes == 231 * 1024 * 1024 + 256 * 1024
 
     groups = budget.groups
     writers = budget.writer_limits
@@ -54,6 +54,8 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
     assert writers["workload_mapping"].max_bytes == groups["workload_mapping"].max_bytes
     assert groups["dns_failures"].max_bytes == 6 * 1024 * 1024
     assert writers["dns_failures"].max_bytes == groups["dns_failures"].max_bytes
+    assert groups["docker_builds"].max_bytes == 4 * 1024 * 1024
+    assert writers["docker_builds"].max_bytes == groups["docker_builds"].max_bytes
     assert writers["queue_details"].max_bytes == groups["queue_details"].max_bytes
     assert (
         writers["queue_lifecycle_summary"].max_bytes
@@ -190,7 +192,7 @@ def test_runtime_writer_caps_match_the_shared_allocation() -> None:
         select_publication_surfaces,
         write_last_collected_at,
     )
-    from vllm.ci import dns_failures, perf_eval_webhook, reporter
+    from vllm.ci import docker_builds, dns_failures, perf_eval_webhook, reporter
     from vllm.constants import QUEUE_HISTORY_MAX_BYTES
     from vllm.operations_bundle_contract import OPERATIONS_MANIFEST_MAX_BYTES
 
@@ -248,6 +250,7 @@ def test_runtime_writer_caps_match_the_shared_allocation() -> None:
         == writers["test_group_parity"].max_bytes
     )
     assert dns_failures.PUBLIC_OUTPUT_MAX_BYTES == writers["dns_failures"].max_bytes
+    assert docker_builds.PUBLIC_OUTPUT_MAX_BYTES == writers["docker_builds"].max_bytes
     assert (
         collect_queue_snapshot.QUEUE_DETAILS_MAX_BYTES
         == writers["queue_details"].max_bytes

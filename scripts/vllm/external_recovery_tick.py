@@ -31,6 +31,7 @@ WORKFLOW_INTERVALS = {
     WORKFLOW: 600,
     "queue-monitor.yml": 600,
     "queue-lifecycle.yml": 1800,
+    "docker-builds.yml": 1800,
     "dns-health.yml": 3600,
     "health-check.yml": 3600,
     "deployment-retention.yml": 86400,

@@ -931,6 +931,17 @@ jobs:
             --source="$PUBLICATION_CODE_SHA" --worktree -- \
             dashboards/dashboard-audit.md dashboards/dashboard-cleanup.md
 
+      - name: Restore docker builds seed when the state predates it
+        run: |
+          set -euo pipefail
+          [[ "$PUBLICATION_CODE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          # A state captured before the docker builds producer existed has no
+          # payload; start from the committed not-collected seed instead.
+          if [ ! -f data/vllm/ci/docker_builds.json ]; then
+            GIT_NO_LAZY_FETCH=1 git restore \
+              --source="$PUBLICATION_CODE_SHA" --worktree -- data/vllm/ci/docker_builds.json
+          fi
+
       - name: Resolve immutable vLLM config snapshot
         if: inputs.dns_generation == '' && inputs.queue_generation == ''
         env:
@@ -1303,6 +1314,44 @@ jobs:
             echo "DNS health aggregate sync check completed."
           else
             echo "::warning::DNS health live aggregate is unavailable; retaining the existing safe candidate."
+          fi
+
+      - name: Sync validated docker builds aggregate
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
+        run: |
+          sync_docker_builds() {
+            LIVE_DOCKER_BUILDS="$RUNNER_TEMP/docker_builds.json"
+            git fetch origin \
+              +refs/heads/docker-builds-data:refs/remotes/origin/docker-builds-data \
+              --depth=1 || return $?
+            git show origin/docker-builds-data:data/vllm/ci/docker_builds.json \
+              > "$LIVE_DOCKER_BUILDS" || return $?
+            python -m json.tool "$LIVE_DOCKER_BUILDS" >/dev/null || return $?
+            python scripts/vllm/audit_dashboard_data.py \
+              --docker-builds-only --docker-builds-path "$LIVE_DOCKER_BUILDS" || return $?
+            read -r REMOTE_DOCKER_STATUS REMOTE_DOCKER_GENERATED < <(
+              python -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["coverage"]["status"], d["generated_at"])' \
+                "$LIVE_DOCKER_BUILDS"
+            ) || return $?
+            read -r LOCAL_DOCKER_STATUS LOCAL_DOCKER_GENERATED < <(
+              python -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d["coverage"]["status"], d["generated_at"])' \
+                data/vllm/ci/docker_builds.json
+            ) || return $?
+            if [ "$REMOTE_DOCKER_STATUS" != "complete" ]; then
+              echo "::warning::Durable docker builds branch has not completed an initial collection."
+              return 0
+            fi
+            if [[ "$REMOTE_DOCKER_GENERATED" < "$LOCAL_DOCKER_GENERATED" ]]; then
+              echo "Keeping newer local docker builds aggregate from $LOCAL_DOCKER_GENERATED."
+              return 0
+            fi
+            install -m 0644 "$LIVE_DOCKER_BUILDS" \
+              data/vllm/ci/docker_builds.json || return $?
+          }
+          if sync_docker_builds; then
+            echo "Docker builds aggregate sync check completed."
+          else
+            echo "::warning::Docker builds live aggregate is unavailable; retaining the existing safe candidate."
           fi
 
       - name: Validate targeted DNS candidate generation
@@ -2339,6 +2388,7 @@ jobs:
                   "queue-data",
                   "queue-lifecycle-data",
                   "dns-health-data",
+                  "docker-builds-data",
               )
           for branch in candidate_branches:
               result = subprocess.run(

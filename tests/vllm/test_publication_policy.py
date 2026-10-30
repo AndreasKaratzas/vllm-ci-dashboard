@@ -657,7 +657,10 @@ def test_missing_required_public_file_fails_closed(tmp_path: Path) -> None:
         BUILD_SITE.copy_public_data(tmp_path / "data", tmp_path / "site", manifest)
 
 
-@pytest.mark.parametrize("missing", ["vllm/ci/ci_health.json", "vllm/ci/dns_failures.json"])
+@pytest.mark.parametrize(
+    "missing",
+    ["vllm/ci/ci_health.json", "vllm/ci/dns_failures.json", "vllm/ci/docker_builds.json"],
+)
 def test_retirement_preview_compatibility_keeps_current_sources_required(
     tmp_path: Path, missing: str,
 ) -> None:
@@ -800,6 +803,7 @@ def test_production_manifest_matches_active_assets_and_operation_sections() -> N
         "site/projects.json",
         "vllm/ci/amd_test_matrix.json",
         "vllm/ci/dns_failures.json",
+        "vllm/ci/docker_builds.json",
         "vllm/ci/omni_surge_heuristic.json",
         "vllm/ci/queue_lifecycle.json",
         "vllm/ci/queue_timeseries.jsonl",

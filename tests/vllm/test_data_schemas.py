@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from vllm.ci import dns_failures as dns_backend
+from vllm.ci import docker_builds as docker_backend
 from vllm.ci.ownership import load_ownership_config
 from vllm.constants import amd_gpu_hardware
 
@@ -1560,6 +1561,24 @@ class TestDnsFailures:
                     "signature_ids",
                     "target_categories",
                 }
+
+
+class TestDockerBuilds:
+    def test_committed_payload_matches_public_contract(self):
+        d = _load_json_or_skip("docker_builds.json")
+        assert docker_backend.validate_public(d) == []
+        assert (DATA / "docker_builds.json").stat().st_size <= (
+            docker_backend.PUBLIC_OUTPUT_MAX_BYTES
+        )
+        if d["coverage"]["status"] == "not_collected":
+            assert d["jobs"]["n"] == 0
+
+    def test_rows_decode_inside_the_window(self):
+        d = _load_json_or_skip("docker_builds.json")
+        window_from = _parse_utc(d["window"]["from"])
+        window_to = _parse_utc(d["window"]["to"])
+        for row in docker_backend.decode_public(d):
+            assert window_from <= row.created_at <= window_to + timedelta(minutes=5)
 
 
 class TestAllJsonIsValid:

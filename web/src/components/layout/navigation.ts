@@ -47,6 +47,7 @@ export const SUB_VIEWS: Record<SubViewPage, SubViews> = {
       { value: 'nightlies', label: 'AMD nightlies' },
       { value: 'dns', label: 'DNS health' },
       { value: 'agent-health', label: 'CI agent health' },
+      { value: 'docker', label: 'Docker builds' },
     ],
   },
   perf: {

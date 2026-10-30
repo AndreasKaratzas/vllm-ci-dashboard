@@ -757,6 +757,53 @@ def test_hourly_restores_authored_docs_from_captured_code_after_state(
     ).state_sha == snapshot.state_sha
 
 
+@pytest.mark.parametrize("state_has_payload", [False, True])
+def test_hourly_restores_docker_builds_seed_only_when_state_predates_it(
+    tmp_path: Path,
+    policy: state.StatePolicy,
+    state_has_payload: bool,
+) -> None:
+    """A state from before the producer must not drop its required seed."""
+    workflow = yaml.safe_load(
+        (state.ROOT / ".github/workflows/hourly-master.yml").read_text()
+    )
+    steps = workflow["jobs"]["collect-and-deploy"]["steps"]
+    names = [step.get("name") for step in steps]
+    seed_position = names.index("Restore docker builds seed when the state predates it")
+    assert seed_position == names.index("Restore validated dashboard state") + 2
+    assert seed_position < names.index("Collect CI data")
+
+    payload = tmp_path / "data/vllm/ci/docker_builds.json"
+    code_sha = init_repo(tmp_path)
+    if state_has_payload:
+        payload.write_text('{"collected": true}\n')
+        git(tmp_path, "add", "data")
+        git(tmp_path, "commit", "-m", "collected payload")
+        code_sha = git(tmp_path, "rev-parse", "HEAD")
+    snapshot = make_state(tmp_path, policy, code_sha, generation="run-103.1", value=2)
+    payload.write_text('{"seed": true}\n')
+    git(tmp_path, "add", "data")
+    git(tmp_path, "commit", "-m", "producer seed")
+    seed_code = git(tmp_path, "rev-parse", "HEAD")
+    state.materialize_generated_roots(
+        tmp_path, snapshot.state_sha, policy, expected_code_sha=code_sha,
+    )
+    assert payload.exists() == state_has_payload
+
+    result = subprocess.run(
+        ["bash", "-c", steps[seed_position]["run"]],
+        cwd=tmp_path,
+        env={**os.environ, "PUBLICATION_CODE_SHA": seed_code},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    expected = '{"collected": true}\n' if state_has_payload else '{"seed": true}\n'
+    assert payload.read_text() == expected
+    assert json.loads((tmp_path / "data/vllm/ci/current.json").read_text()) == {"value": 2}
+
+
 def test_materialization_failure_restores_every_old_root(
     tmp_path: Path,
     policy: state.StatePolicy,

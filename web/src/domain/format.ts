@@ -38,6 +38,18 @@ export function duration(minutes: unknown): string {
   return m.toFixed(m < 10 ? 1 : 0) + 'm'
 }
 
+/** A run time in seconds: "42s", "1m 24s", "14m", "4h 12m", "1d 3h"; a dash when missing. */
+export function seconds(value: unknown): string {
+  if (value === null || value === undefined || value === '' || !Number.isFinite(Number(value))) return '-'
+  const s = Math.max(0, Math.round(Number(value)))
+  if (s < 60) return `${s}s`
+  if (s < 3600) return s % 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s / 60}m`
+  const m = Math.round(s / 60)
+  if (m < 1440) return m % 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m / 60}h`
+  const h = Math.round(m / 60)
+  return h % 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${h / 24}d`
+}
+
 export function shortDate(ts: unknown): string {
   if (!ts) return '-'
   const d = new Date(String(ts))
