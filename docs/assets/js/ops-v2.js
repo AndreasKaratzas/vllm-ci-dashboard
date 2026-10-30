@@ -3290,6 +3290,12 @@
     });
   }
 
+  function boundedRowsNote(host, retention, label) {
+    if ((retention || {}).complete_relative_to_source === false) {
+      host.append(n('div', 'ops-evidence-note is-warning', label + ' is bounded; totals exact, rows partial.'));
+    }
+  }
+
   async function renderHealth(host, ops) {
     const amd = latestAmd(ops);
     const build = (amd.builds || [])[0] || {};
