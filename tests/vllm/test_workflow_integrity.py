@@ -3411,10 +3411,12 @@ class TestSchedulerActivityKeepalive:
         workflow = _load_workflow("scheduler-activity.yml")
         triggers = workflow.get(True, workflow.get("on", {}))
         assert triggers["schedule"] == [{"cron": "24 4 * * 3"}]
-        assert workflow["permissions"] == {"contents": "write"}
+        assert workflow["permissions"] == {"contents": "read"}
         job = workflow["jobs"]["keep-active"]
         assert job["timeout-minutes"] == 5
         steps = job["steps"]
+        checkout = steps[0]["with"]
+        assert checkout["ssh-key"] == "${{ secrets.SCHEDULER_ACTIVITY_DEPLOY_KEY }}"
         script = steps[-1]["run"]
         assert "THRESHOLD_SECONDS=$((30 * 24 * 60 * 60))" in script
         assert "refs/heads/main:refs/remotes/origin/main" in script
