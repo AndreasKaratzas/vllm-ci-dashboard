@@ -206,6 +206,7 @@ function setRecoveryProgress(body, stateSha, codeSha) {
 const SITE_HEALTH_EVIDENCE_MAX_AGE_MS = 15 * 60 * 1000;
 const PUBLICATION_MAX_AGE_MS = 3 * 60 * 60 * 1000;
 const FUTURE_SKEW_MS = 5 * 60 * 1000;
+const SITE_HEALTH_EVIDENCE_EXPIRED = 'site-health-evidence-expired';
 
 function canonicalUtcTimestamp(value) {
   if (typeof value !== 'string' ||
@@ -263,14 +264,23 @@ function validateSiteHealthEvidence(evidence, stateSha, codeSha, nowMs = Date.no
   const coreSucceededAt = canonicalUtcTimestamp(row.durableCoreSucceededAt);
   if (!Number.isFinite(nowMs) ||
       ![checkedAt, generatedAt, coreSucceededAt].every(Number.isFinite) ||
-      [checkedAt, generatedAt, coreSucceededAt].some(time => time > nowMs + FUTURE_SKEW_MS) ||
-      nowMs - checkedAt > SITE_HEALTH_EVIDENCE_MAX_AGE_MS ||
+      [checkedAt, generatedAt, coreSucceededAt].some(time => time > nowMs + FUTURE_SKEW_MS)) {
+    throw new Error('site-health recovery evidence has invalid freshness clocks');
+  }
+  if (nowMs - checkedAt > SITE_HEALTH_EVIDENCE_MAX_AGE_MS ||
       nowMs - generatedAt > PUBLICATION_MAX_AGE_MS ||
       // Match the normalizer's existing five-minute durable-core skew grace.
       nowMs - coreSucceededAt > PUBLICATION_MAX_AGE_MS + FUTURE_SKEW_MS) {
-    throw new Error('site-health recovery evidence is expired or has invalid freshness clocks');
+    throw Object.assign(new Error('site-health recovery evidence is expired'), {
+      code: SITE_HEALTH_EVIDENCE_EXPIRED,
+    });
   }
   return true;
+}
+
+/** True for valid evidence that only aged out, e.g. while waiting for the Pages lease. */
+function isExpiredSiteHealthEvidence(error) {
+  return Boolean(error) && error.code === SITE_HEALTH_EVIDENCE_EXPIRED;
 }
 
 function advanceRecoveryStreak(body, stateSha, codeSha = '') {
@@ -842,6 +852,7 @@ module.exports = Object.freeze({
   ensureOwnerLabel,
   findCanonicalIncident,
   hasExactMarker,
+  isExpiredSiteHealthEvidence,
   isStrictLegacySurfaceOnlyIncident,
   issueHasLabel,
   parseRecoveryStreak,

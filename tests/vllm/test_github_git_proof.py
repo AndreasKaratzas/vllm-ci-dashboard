@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from vllm import github_git_proof as proof
 
@@ -388,6 +389,124 @@ def test_pages_bounds_drop_retired_sections_from_preserved_previews(tmp_path) ->
     assert summary["preview_files"] == 1
     assert not (preview / retired).exists()
     assert (preview / kept).is_file()
+
+
+def _previews(root: Path, *numbers: int) -> None:
+    (root / "index.html").write_text("root\n")
+    for number in numbers:
+        preview = root / f"pr-preview/pr-{number}"
+        preview.mkdir(parents=True)
+        (preview / "index.html").write_text(f"preview {number}\n")
+
+
+def test_pages_bounds_prune_previews_of_closed_pull_requests(tmp_path) -> None:
+    """Merged previews held 106 MB of the 112 MiB preview cap on 2026-10-30."""
+    _previews(tmp_path, 763, 788, 790, 791)
+
+    summary = proof.bound_pages_directory(
+        tmp_path, protected_preview="pr-791", open_pull_requests=frozenset({790})
+    )
+
+    assert summary["closed_previews_pruned"] == 2
+    assert summary["preview_count"] == 2
+    assert sorted(path.name for path in (tmp_path / "pr-preview").iterdir()) == ["pr-790", "pr-791"]
+    assert (tmp_path / "index.html").is_file()
+
+
+def test_pages_bounds_keep_every_preview_without_an_open_pull_request_list(tmp_path) -> None:
+    _previews(tmp_path, 763, 788)
+
+    summary = proof.bound_pages_directory(tmp_path)
+
+    assert summary["closed_previews_pruned"] == 0
+    assert summary["preview_count"] == 2
+
+
+def _pull_pages(monkeypatch, pages: list[object]) -> list[str]:
+    endpoints: list[str] = []
+
+    def fake_request(repository, endpoint, *, token, max_bytes, label):
+        assert (repository, token) == ("owner/repo", "token")
+        endpoints.append(endpoint)
+        page = pages[len(endpoints) - 1]
+        if isinstance(page, Exception):
+            raise page
+        return page
+
+    monkeypatch.setattr(proof, "_request_json", fake_request)
+    return endpoints
+
+
+def test_open_pull_request_list_reads_every_page(monkeypatch) -> None:
+    first = [{"number": number, "state": "open"} for number in range(1, 101)]
+    endpoints = _pull_pages(monkeypatch, [first, [{"number": 790, "state": "open"}]])
+
+    numbers = proof.list_open_pull_requests("owner/repo", token="token")
+
+    assert numbers == frozenset([*range(1, 101), 790])
+    assert endpoints == [
+        "pulls?state=open&per_page=100&page=1",
+        "pulls?state=open&per_page=100&page=2",
+    ]
+
+
+@pytest.mark.parametrize("page", [
+    {"number": 1}, [{"number": "1", "state": "open"}], [{"number": 1, "state": "closed"}], [None],
+])
+def test_open_pull_request_list_rejects_a_malformed_page(monkeypatch, page) -> None:
+    _pull_pages(monkeypatch, [page])
+
+    with pytest.raises(proof.AmbiguousProof):
+        proof.list_open_pull_requests("owner/repo", token="token")
+
+
+def test_open_pull_request_list_rejects_an_unbounded_listing(monkeypatch) -> None:
+    full = [{"number": 1, "state": "open"}] * 100
+    _pull_pages(monkeypatch, [full] * proof.MAX_OPEN_PULL_REQUEST_PAGES)
+
+    with pytest.raises(proof.AmbiguousProof, match="page bound"):
+        proof.list_open_pull_requests("owner/repo", token="token")
+
+
+@pytest.mark.parametrize("listing_fails", [False, True])
+def test_bound_pages_cli_prunes_closed_previews_and_never_fails_on_the_list(
+    monkeypatch, tmp_path, capsys, listing_fails
+) -> None:
+    _previews(tmp_path, 763, 790)
+    monkeypatch.setenv("GH_TOKEN", "token")
+    _pull_pages(monkeypatch, [
+        proof.AmbiguousProof("open pull request list returned HTTP 502") if listing_fails
+        else [{"number": 790, "state": "open"}],
+    ])
+
+    status = proof.main([
+        "bound-pages-directory", "--root", str(tmp_path), "--prune-closed-previews", "owner/repo",
+    ])
+
+    assert status == 0
+    assert (tmp_path / "pr-preview/pr-790").is_dir()
+    assert (tmp_path / "pr-preview/pr-763").is_dir() is listing_fails
+    assert ("Keeping closed-PR previews" in capsys.readouterr().err) is listing_fails
+
+
+@pytest.mark.parametrize("workflow", ["hourly-master.yml", "deploy-pages.yml"])
+def test_canonical_pages_writers_prune_closed_previews_under_the_pages_lock(workflow) -> None:
+    root = Path(__file__).resolve().parents[2]
+    document = yaml.safe_load((root / ".github/workflows" / workflow).read_text())
+    assert document["permissions"]["pull-requests"] == "read"
+    lock = {"group": "gh-pages-deploy", "queue": "max", "cancel-in-progress": False}
+    callers = [
+        (name, job)
+        for name, job in document["jobs"].items()
+        for step in job["steps"]
+        if "bound-pages-directory" in step.get("run", "")
+    ]
+    assert len(callers) == 1
+    name, job = callers[0]
+    assert (job.get("concurrency") or document["concurrency"]) == lock
+    step = next(step for step in job["steps"] if "bound-pages-directory" in step.get("run", ""))
+    assert '--prune-closed-previews "$GITHUB_REPOSITORY"' in step["run"]
+    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
 
 
 def test_compare_ancestor_is_strict_and_stream_cap_is_explicit(monkeypatch) -> None:

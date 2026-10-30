@@ -27,6 +27,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `ci/backfill_checkpoint.py` | Integrity-validates complete per-nightly CI shards so cache-loss recovery makes monotonic progress across repeated 800-request caps without publishing partial data | Restored and saved even after collector failure by guarded Data Collection runs |
 | `docker_builds_bootstrap.py` | Classifies the docker builds first collection as pending, over budget, failed, unknown or collected from the data branch, the docker attempt ledger and the latest completed run, for the publication audit | `hourly-master.yml` before publication selection |
 | `plan_publication_watchdog.py` | Plans proactive canonical recovery and suppresses active/recent duplicates; durable full-collection due state comes from the separate attempt ledger rather than general publication timestamps | `publication-watchdog.yml` |
+| `plan_stuck_run_cancellation.py` | Selects workflow runs queued or in progress longer than their workflow's summed job timeouts plus 6 hours (`config/run_janitor.json`) for force-cancel | `publication-watchdog.yml` |
 | `dashboard_state.py` | Fully validates/materializes bounded parentless snapshots, provides OID-only metadata validation for watchdogs, creates tested root commits, writes the public marker, rotates refs, and atomically repairs a single valid slot | Canonical collection, deploy-only recovery, watchdog checks, and state rollback |
 | `public_projection.py` | Creates the state-bound SHA-256 manifest for every canonical public file and verifies local or remote Git trees without reading large deployed blobs | Before and after every canonical or deploy-only Pages publication, plus the watchdog |
 | `verify_published_operations_bundle.py` | Verifies that every deployed Operations shard exists and matches the public manifest byte contract | After every canonical or manual Pages deployment |
@@ -513,7 +514,9 @@ interval in `config/data_collection_attempt_budget.json` plus one 15-35 minute
 collection.
 The publication watchdog checks every 15 minutes and dispatches Data
 Collection as soon as that ledger is due. It starts Docker Build Monitor the
-same way whenever the docker ledger is due and no run is active. A Buildkite
+same way whenever the docker ledger is due and no run is active, and
+force-cancels any workflow run stuck past its timeout bound, reporting the count
+in its job summary. A Buildkite
 webhook cannot start collection earlier: `cadence-preflight` observes the same ledger and drops
 early dispatches. Lowering latency means lowering `success_interval_minutes`
 (and raising `max_request_bearing_attempts`, currently 16 per 25 hours with 800

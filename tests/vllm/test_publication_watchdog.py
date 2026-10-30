@@ -13,6 +13,7 @@ import pytest
 import yaml
 
 from vllm import plan_publication_watchdog as watchdog
+from vllm import plan_stuck_run_cancellation as janitor
 
 
 NOW = datetime(2026, 8, 30, 5, tzinfo=timezone.utc)
@@ -1062,3 +1063,150 @@ def test_workflow_run_state_is_projected_to_the_fields_the_parser_reads(workflow
     projected = {field.strip() for field in projection.group(1).split(",")}
     parser_source = inspect.getsource(watchdog.parse_workflow_runs)
     assert projected == set(re.findall(r'row\.get\("([a-z_]+)"\)', parser_source))
+
+
+JANITOR_NOW = datetime(2026, 10, 30, 8, 0, tzinfo=timezone.utc)
+HOURLY = ".github/workflows/hourly-master.yml"
+
+
+def _active(run_id, *, hours, status="in_progress", path=HOURLY, started_hours=None):
+    created = JANITOR_NOW - timedelta(hours=hours)
+    started = created if started_hours is None else JANITOR_NOW - timedelta(hours=started_hours)
+    return {"id": run_id, "name": "Data Collection", "path": path, "status": status,
+            "created_at": created.isoformat(), "run_started_at": started.isoformat()}
+
+
+def _stuck(*rows, exclude=None):
+    selected = janitor.select_stuck_runs(
+        [{"workflow_runs": list(rows)}], janitor.load_policy(), now=JANITOR_NOW,
+        exclude_run_id=exclude,
+    )
+    return [run.run_id for run in selected]
+
+
+def test_run_janitor_bounds_are_each_workflows_job_timeouts_plus_six_hours() -> None:
+    """A stale bound would cancel a run that is still within its own timeouts."""
+    root = Path(__file__).resolve().parents[2]
+    policy = janitor.load_policy()
+    expected = {}
+    for path in sorted((root / ".github/workflows").glob("*.yml")):
+        jobs = yaml.safe_load(path.read_text())["jobs"].values()
+        expected[f".github/workflows/{path.name}"] = sum(
+            int(job.get("timeout-minutes", policy.default_timeout_minutes)) for job in jobs
+        )
+    assert policy.workflow_timeout_minutes == expected
+    assert policy.margin_minutes == 360
+    assert policy.limit(HOURLY) == timedelta(minutes=135 + 360)
+
+
+def test_run_janitor_cancels_only_runs_past_their_bound() -> None:
+    bound = (135 + 360) / 60
+    assert _stuck(_active(1, hours=bound)) == []
+    assert _stuck(_active(1, hours=bound + 0.01)) == [1]
+    assert _stuck(_active(1, hours=bound + 1, status="queued")) == [1]
+    # A re-run attempt restarts the clock.
+    assert _stuck(_active(1, hours=48, started_hours=1)) == []
+    # Unknown workflows (e.g. GitHub's dynamic Pages build) get the 6 h default job bound.
+    assert _stuck(_active(1, hours=11.9, path="dynamic/pages/pages-build-deployment")) == []
+    assert _stuck(_active(1, hours=12.1, path="dynamic/pages/pages-build-deployment")) == [1]
+    assert _stuck(_active(7, hours=240), exclude=7) == []
+
+
+def test_run_janitor_takes_the_oldest_runs_up_to_its_cap(monkeypatch) -> None:
+    policy = janitor.load_policy()
+    monkeypatch.setattr(janitor, "load_policy", lambda: janitor.JanitorPolicy(
+        policy.margin_minutes, policy.default_timeout_minutes, 2, policy.workflow_timeout_minutes,
+    ))
+    assert _stuck(_active(1, hours=20), _active(2, hours=90), _active(3, hours=50)) == [2, 3]
+
+
+@pytest.mark.parametrize("patch", [
+    {"id": "1"}, {"id": 0}, {"status": "completed"}, {"path": None},
+    {"created_at": "yesterday"}, {"run_started_at": "soon"},
+    {"created_at": (JANITOR_NOW + timedelta(hours=1)).isoformat()},
+])
+def test_run_janitor_cancels_nothing_on_an_unreadable_listing(patch) -> None:
+    with pytest.raises(ValueError, match="invalid row"):
+        _stuck(_active(1, hours=240), {**_active(2, hours=240), **patch})
+
+
+def _run_janitor_step(tmp_path, listings, *, failing_id=None):
+    root = Path(__file__).resolve().parents[2]
+    workflow = yaml.safe_load((root / ".github/workflows/publication-watchdog.yml").read_text())
+    step = next(s for s in workflow["jobs"]["recover"]["steps"] if s.get("id") == "run-janitor")
+    assert step["if"] == "${{ !cancelled() }}"
+    assert workflow["jobs"]["recover"]["permissions"]["actions"] == "write"
+    for status, rows in listings.items():
+        (tmp_path / f"fixture-{status}.json").write_text(json.dumps({"workflow_runs": rows}))
+    calls = tmp_path / "calls"
+    # The fake gh serves the projected listings and records every POST; nothing
+    # reaches GitHub.
+    fake = r'''
+      gh() {
+        local url=""
+        for arg in "$@"; do case "$arg" in repos/*) url="$arg" ;; esac; done
+        if [[ " $* " == *" --method POST "* ]]; then
+          echo "POST $url" >> "$TEST_CALLS"
+          [[ "$url" != */"$TEST_FAILING_ID"/force-cancel ]]
+          return
+        fi
+        local status="${url##*status=}"
+        status="${status%%&*}"
+        cat "$TEST_FIXTURES/fixture-$status.json" 2>/dev/null || echo '{"workflow_runs": []}'
+      }
+      python() { "$TEST_PYTHON" "$@" --now "$TEST_NOW"; }
+    '''
+    env = dict(os.environ, RUNNER_TEMP=str(tmp_path), GITHUB_OUTPUT=str(tmp_path / "out"),
+               GITHUB_STEP_SUMMARY=str(tmp_path / "summary"), GITHUB_REPOSITORY="o/r",
+               GITHUB_RUN_ID="41030000000", TEST_CALLS=str(calls), TEST_FIXTURES=str(tmp_path),
+               TEST_FAILING_ID=str(failing_id or "none"), TEST_PYTHON=sys.executable,
+               TEST_NOW=JANITOR_NOW.isoformat())
+    result = subprocess.run(["bash", "-c", fake + step["run"]], cwd=root, env=env,
+                            capture_output=True, text=True)
+    posts = calls.read_text().splitlines() if calls.exists() else []
+    return result, posts
+
+
+def test_watchdog_force_cancels_the_stuck_runs_seen_live(tmp_path) -> None:
+    """Live on 2026-10-30: 37655509945 queued since 10-07, 39462175700 in progress since 10-20."""
+    listings = {
+        "queued": [_active(37655509945, hours=543, status="queued",
+                           path=".github/workflows/publication-watchdog.yml")],
+        "in_progress": [_active(41023173701, hours=0.1), _active(39462175700, hours=231),
+                        _active(41030000000, hours=999,
+                                path=".github/workflows/publication-watchdog.yml")],
+    }
+    result, posts = _run_janitor_step(tmp_path, listings)
+
+    assert result.returncode == 0, result.stderr
+    assert posts == [
+        "POST repos/o/r/actions/runs/37655509945/force-cancel",
+        "POST repos/o/r/actions/runs/39462175700/force-cancel",
+    ]
+    assert (tmp_path / "out").read_text() == "cancelled=2\n"
+    assert "Force-cancelled 2 stuck workflow run(s); 0 failed." in (tmp_path / "summary").read_text()
+
+
+def test_watchdog_janitor_reports_a_failed_cancel(tmp_path) -> None:
+    listings = {"in_progress": [_active(1, hours=100), _active(2, hours=90)]}
+    result, posts = _run_janitor_step(tmp_path, listings, failing_id=1)
+
+    assert result.returncode != 0
+    assert "Could not force-cancel stuck workflow run 1" in result.stdout
+    assert len(posts) == 2
+    assert (tmp_path / "out").read_text() == "cancelled=1\n"
+    assert "Force-cancelled 1 stuck workflow run(s); 1 failed." in (tmp_path / "summary").read_text()
+
+
+def test_janitor_listing_projects_the_fields_the_planner_reads() -> None:
+    root = Path(__file__).resolve().parents[2]
+    text = (root / ".github/workflows/publication-watchdog.yml").read_text()
+    projection = re.search(
+        r"actions/runs\?status=\$run_status&per_page=100\" \\\n\s+--jq "
+        r"'\{workflow_runs: \[\.workflow_runs\[\] \| \{([a-z_, ]+)\}\]\}'",
+        text,
+    )
+    assert projection
+    projected = {field.strip() for field in projection.group(1).split(",")}
+    source = inspect.getsource(janitor.select_stuck_runs)
+    assert projected == set(re.findall(r'row\.get\("([a-z_]+)"\)', source))

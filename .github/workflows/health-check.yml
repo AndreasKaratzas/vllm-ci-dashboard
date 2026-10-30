@@ -420,6 +420,7 @@ jobs:
             const validationCodeSha = validationEvidence.codeSha || '';
             const {
               closeHourlyIncident,
+              isExpiredSiteHealthEvidence,
               validateSiteHealthEvidence,
             } = require(
               `${process.env.GITHUB_WORKSPACE}/scripts/vllm/hourly_incident_recovery.js`,
@@ -427,11 +428,25 @@ jobs:
             // The probes ran before this job acquired the publication lease.
             // Their checkedAt, publication and durable-core clocks must still
             // authorize recovery now; matching identity alone cannot renew them.
-            validateSiteHealthEvidence(
-              validationEvidence,
-              validationStateSha,
-              validationCodeSha,
-            );
+            // Evidence that only aged out while waiting leaves the incident to
+            // the next proof instead of failing Site Health.
+            const endIfExpired = error => {
+              if (!isExpiredSiteHealthEvidence(error)) throw error;
+              core.notice(
+                'The Site Health recovery proof expired before it could be used; ' +
+                'the hourly incident stays open for the next proof.',
+              );
+            };
+            try {
+              validateSiteHealthEvidence(
+                validationEvidence,
+                validationStateSha,
+                validationCodeSha,
+              );
+            } catch (error) {
+              endIfExpired(error);
+              return;
+            }
 
             const sha40 = value => typeof value === 'string' &&
               /^[0-9a-f]{40}$/.test(value);
@@ -532,17 +547,21 @@ jobs:
             }
             // Recheck after the canonical reads. The helper also checks the
             // wall clock immediately before every authorized issue mutation.
-            validateSiteHealthEvidence(
-              validationEvidence,
-              validationStateSha,
-              validationCodeSha,
-            );
-            await closeHourlyIncident({
-              github,
-              context,
-              core,
-              validationSource: 'site-health',
-              validationStateSha,
-              validationCodeSha,
-              validationEvidence,
-            });
+            try {
+              validateSiteHealthEvidence(
+                validationEvidence,
+                validationStateSha,
+                validationCodeSha,
+              );
+              await closeHourlyIncident({
+                github,
+                context,
+                core,
+                validationSource: 'site-health',
+                validationStateSha,
+                validationCodeSha,
+                validationEvidence,
+              });
+            } catch (error) {
+              endIfExpired(error);
+            }

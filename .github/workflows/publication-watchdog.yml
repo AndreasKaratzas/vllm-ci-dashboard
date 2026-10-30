@@ -821,3 +821,49 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "repos/$GITHUB_REPOSITORY/actions/workflows/docker-builds.yml/dispatches" \
             -f ref=main
+
+      # GitHub can leave a run queued or in progress after its jobs ended, and
+      # nothing else ever ends it. A janitor failure must not hide the recovery
+      # outcome above, so it warns instead of failing the job.
+      - name: Force-cancel stuck workflow runs
+        id: run-janitor
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          STUCK_RUNS="$RUNNER_TEMP/stuck-workflow-runs.txt"
+          LISTINGS=()
+          for run_status in queued in_progress waiting requested pending; do
+            listing="$RUNNER_TEMP/active-workflow-runs-$run_status.json"
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "repos/$GITHUB_REPOSITORY/actions/runs?status=$run_status&per_page=100" \
+              --jq '{workflow_runs: [.workflow_runs[] | {id, name, path, status, created_at, run_started_at}]}' \
+              > "$listing"
+            LISTINGS+=(--runs "$listing")
+          done
+          python scripts/vllm/plan_stuck_run_cancellation.py \
+            "${LISTINGS[@]}" \
+            --exclude-run-id "$GITHUB_RUN_ID" \
+            --output "$STUCK_RUNS"
+          cancelled=0
+          failed=0
+          while read -r run_id; do
+            if gh api --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/force-cancel" > /dev/null; then
+              cancelled=$((cancelled + 1))
+              echo "::notice::Force-cancelled stuck workflow run $run_id."
+            else
+              failed=$((failed + 1))
+              echo "::warning::Could not force-cancel stuck workflow run $run_id."
+            fi
+          done < "$STUCK_RUNS"
+          echo "cancelled=$cancelled" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Run janitor"
+            echo "Force-cancelled $cancelled stuck workflow run(s); $failed failed."
+          } >> "$GITHUB_STEP_SUMMARY"
+          [ "$failed" -eq 0 ]
