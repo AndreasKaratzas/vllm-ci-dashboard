@@ -4096,7 +4096,10 @@ class TestSiteHealthWorkflow:
         assert "MAX_CONFIRMATION_ELAPSED_SECONDS" in normalizer
         assert "and core_observation_valid" in normalizer
         assert 'projection.get("operations_canaries")' in normalizer
-        assert "for name in OPERATIONS_CANARY_SECTIONS" in normalizer
+        assert (
+            "for name in operations_section_names_for_bundle_version(bundle_version)"
+            in normalizer
+        )
         assert "for name in OPERATIONS_STREAMED_LARGE_SECTIONS" in normalizer
         assert 'f"data/vllm/ci/operations_v2/{name}.json"' in normalizer
         assert "_legacy_bootstrap_allowed" in normalizer
