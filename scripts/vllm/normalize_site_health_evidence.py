@@ -45,12 +45,15 @@ def normalize_health_evidence() -> None:
         MAX_CONFIRMATION_ELAPSED_SECONDS,
         MAX_CONFIRMATION_REQUESTS,
         MAX_CONFIRMATION_TRANSPORT_SECONDS,
-        OPERATIONS_CANARY_SECTIONS,
         OPERATIONS_MANIFEST_PATH,
         OPERATIONS_STREAMED_LARGE_SECTIONS,
         OPERATIONS_STREAMED_MAX_BYTES,
         PUBLICATION_STATUS_PATH,
         SITE_MIN_BYTES,
+    )
+    from vllm.operations_bundle_contract import (
+        OPERATIONS_SUPPORTED_BUNDLE_VERSIONS,
+        operations_section_names_for_bundle_version,
     )
 
     max_report_bytes = 64 * 1024
@@ -61,25 +64,33 @@ def normalize_health_evidence() -> None:
     confirmation_strategy = (
         f"{CONFIRMATION_QUORUM}-of-{CONFIRMATION_ATTEMPTS}-quorum"
     )
-    expected_operations_canaries = [
-        {
-            "name": name,
-            "path": f"data/vllm/ci/operations_v2/{name}.json",
-            "http_status": 200,
-        }
-        for name in OPERATIONS_CANARY_SECTIONS
-    ]
-    expected_verified_files = [
-        "index.html",
-        PUBLICATION_STATUS_PATH,
-        *CRITICAL_ASSET_PATHS,
-        OPERATIONS_MANIFEST_PATH,
-        *[row["path"] for row in expected_operations_canaries],
-        *[
-            f"data/vllm/ci/operations_v2/{name}.json"
-            for name in OPERATIONS_STREAMED_LARGE_SECTIONS
-        ],
-    ]
+    # The checker verifies whichever supported bundle version the site serves,
+    # which trails a bundle upgrade until the next publication.
+    expected_projection_proofs = []
+    for bundle_version in sorted(OPERATIONS_SUPPORTED_BUNDLE_VERSIONS):
+        expected_operations_canaries = [
+            {
+                "name": name,
+                "path": f"data/vllm/ci/operations_v2/{name}.json",
+                "http_status": 200,
+            }
+            for name in operations_section_names_for_bundle_version(bundle_version)
+            if name not in OPERATIONS_STREAMED_LARGE_SECTIONS
+        ]
+        expected_verified_files = [
+            "index.html",
+            PUBLICATION_STATUS_PATH,
+            *CRITICAL_ASSET_PATHS,
+            OPERATIONS_MANIFEST_PATH,
+            *[row["path"] for row in expected_operations_canaries],
+            *[
+                f"data/vllm/ci/operations_v2/{name}.json"
+                for name in OPERATIONS_STREAMED_LARGE_SECTIONS
+            ],
+        ]
+        expected_projection_proofs.append(
+            (expected_operations_canaries, expected_verified_files)
+        )
     report_path = Path(os.environ["REPORT_PATH"])
     effective_report_path = Path(
         os.environ.get("EFFECTIVE_REPORT_PATH", os.environ["REPORT_PATH"])
@@ -657,9 +668,11 @@ def normalize_health_evidence() -> None:
                     or any(char not in "0123456789abcdef" for char in projection["manifest_sha256"])
                     or not is_nonnegative_int(projection.get("file_count"))
                     or not is_nonnegative_int(projection.get("total_bytes"))
-                    or projection.get("verified_files") != expected_verified_files
-                    or projection.get("operations_canaries")
-                    != expected_operations_canaries
+                    or (
+                        projection.get("operations_canaries"),
+                        projection.get("verified_files"),
+                    )
+                    not in expected_projection_proofs
                     or not streamed_proof_valid
                 ):
                     contract_errors.append("healthy report lacked exact projection proof")

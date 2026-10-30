@@ -12,32 +12,48 @@ import pytest
 
 from vllm import check_site_health as health
 from vllm import normalize_site_health_evidence as normalizer
+from vllm.operations_bundle_contract import (
+    OPERATIONS_BUNDLE_VERSION,
+    operations_section_names_for_bundle_version,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
 NORMALIZER = ROOT / "scripts/vllm/normalize_site_health_evidence.py"
-VERIFIED_FILES = [
-    "index.html",
-    health.PUBLICATION_STATUS_PATH,
-    *health.CRITICAL_ASSET_PATHS,
-    health.OPERATIONS_MANIFEST_PATH,
-    *[
-        f"data/vllm/ci/operations_v2/{name}.json"
-        for name in health.OPERATIONS_CANARY_SECTIONS
-    ],
-    *[
-        f"data/vllm/ci/operations_v2/{name}.json"
-        for name in health.OPERATIONS_STREAMED_LARGE_SECTIONS
-    ],
-]
-OPERATIONS_CANARIES = [
-    {
-        "name": name,
-        "path": f"data/vllm/ci/operations_v2/{name}.json",
-        "http_status": 200,
-    }
-    for name in health.OPERATIONS_CANARY_SECTIONS
-]
+def _operations_canaries(sections: tuple[str, ...]) -> list[dict]:
+    return [
+        {
+            "name": name,
+            "path": f"data/vllm/ci/operations_v2/{name}.json",
+            "http_status": 200,
+        }
+        for name in sections
+    ]
+
+
+def _verified_files(sections: tuple[str, ...]) -> list[str]:
+    return [
+        "index.html",
+        health.PUBLICATION_STATUS_PATH,
+        *health.CRITICAL_ASSET_PATHS,
+        health.OPERATIONS_MANIFEST_PATH,
+        *[row["path"] for row in _operations_canaries(sections)],
+        *[
+            f"data/vllm/ci/operations_v2/{name}.json"
+            for name in health.OPERATIONS_STREAMED_LARGE_SECTIONS
+        ],
+    ]
+
+
+def _with_canary_sections(report: dict, sections: tuple[str, ...]) -> None:
+    projection = report["projection"]
+    projection["operations_canaries"] = _operations_canaries(sections)
+    projection["verified_files"] = _verified_files(sections)
+    projection["file_count"] = len(projection["verified_files"])
+
+
+VERIFIED_FILES = _verified_files(health.OPERATIONS_CANARY_SECTIONS)
+OPERATIONS_CANARIES = _operations_canaries(health.OPERATIONS_CANARY_SECTIONS)
 
 
 def _iso_utc(value: datetime) -> str:
@@ -388,6 +404,31 @@ def test_standalone_normalizer_accepts_healthy_report_with_current_core(
     )
 
 
+def test_normalizer_accepts_the_previous_bundle_version_still_being_served(
+    tmp_path: Path,
+) -> None:
+    """A bundle upgrade deploys the checker before the site republishes."""
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    report = _healthy_report(now)
+    previous_sections = tuple(
+        name
+        for name in operations_section_names_for_bundle_version(
+            OPERATIONS_BUNDLE_VERSION - 1
+        )
+        if name not in health.OPERATIONS_STREAMED_LARGE_SECTIONS
+    )
+    assert previous_sections != health.OPERATIONS_CANARY_SECTIONS
+    _with_canary_sections(report, previous_sections)
+    environment = _normalizer_environment(tmp_path, report, now)
+
+    completed = _run_normalizer(environment)
+
+    assert completed.returncode == 0, completed.stderr
+    outputs = _github_output(environment)
+    assert outputs["healthy"] == "true"
+    assert outputs["report_valid"] == "true"
+
+
 @pytest.mark.parametrize("invalid_clock", ["missing", "without-timezone", "future", "expired"])
 def test_normalizer_cannot_renew_expired_or_invalid_probe_evidence(
     tmp_path: Path, invalid_clock: str,
@@ -556,12 +597,16 @@ def test_normalizer_accepts_a_full_proof_repeated_after_a_canary_transport_failu
         lambda report: report["publication"].__setitem__(
             "fallback_surface_count", 1
         ),
+        lambda report: _with_canary_sections(
+            report, health.OPERATIONS_CANARY_SECTIONS[1:]
+        ),
     ],
     ids=(
         "uppercase-state-sha",
         "short-code-sha",
         "current-mode-affected-surface",
         "current-mode-fallback-surface",
+        "canary-inventory-of-no-bundle-version",
     ),
 )
 def test_normalizer_rejects_identity_or_surface_evidence_that_cannot_close_recovery(
