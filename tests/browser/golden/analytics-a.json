@@ -1,0 +1,350 @@
+{
+  "groups": {
+    "strip": [
+      [
+        "LATEST AMD NIGHTLY",
+        "#30005",
+        "Oct 8, 09:00 AM"
+      ],
+      [
+        "LATEST AMD TEST GROUPS",
+        "3 / 4 passing",
+        "2 pass on every route · 1 pass on some hardware only · 1 non-passing everywhere"
+      ],
+      [
+        "LATEST JOB VARIANTS",
+        "6",
+        "4 passing - 2 non-passing exact jobs"
+      ],
+      [
+        "FAILURE OBSERVATIONS",
+        "2",
+        "0 soft - 2 hard"
+      ]
+    ],
+    "clusters": [
+      [
+        "Needs attention",
+        "2",
+        "Soft, hard, or unresolved result in the latest nightly",
+        "0 soft - 2 hard - 0 retained unresolved"
+      ],
+      [
+        "Passing now",
+        "4",
+        "Latest exact AMD job result passed",
+        "66.7% of latest job variants"
+      ],
+      [
+        "Mixed history",
+        "0",
+        "Both passing and non-passing nightlies retained",
+        "5 source nightlies; retained catalog only"
+      ],
+      [
+        "Historical only",
+        "0",
+        "Older job names not present in the latest nightly",
+        "Not classified as current failures"
+      ]
+    ],
+    "browseAll": "Browse all 6 retained variants",
+    "priority": [
+      [
+        "Broken Group mi355_1 - amd_mi355_1",
+        "amd_mi355_1",
+        "0.0%",
+        "Hard fail",
+        "0 / 0 / 5",
+        "#30005"
+      ],
+      [
+        "Routed Beta mi355_1 - amd_mi355_1",
+        "amd_mi355_1",
+        "0.0%",
+        "Hard fail",
+        "0 / 0 / 5",
+        "#30005"
+      ]
+    ],
+    "priorityMeta": "2 highest-priority raw results shown; every row opens exact nightly evidence",
+    "attentionRows": [
+      [
+        "Broken Group mi355_1 - amd_mi355_1",
+        "Hard fail",
+        "0.0%",
+        "5",
+        "0",
+        "mi355_1",
+        "amd_mi355_1",
+        "Latest AMD job"
+      ],
+      [
+        "Routed Beta mi355_1 - amd_mi355_1",
+        "Hard fail",
+        "0.0%",
+        "5",
+        "0",
+        "mi355_1",
+        "amd_mi355_1",
+        "Latest AMD job"
+      ]
+    ],
+    "attentionCaption": "1-2 of 2 matching AMD job variants",
+    "searchedRows": [
+      [
+        "Routed Alpha mi300_1 - amd_mi300_1",
+        "Passing",
+        "100.0%",
+        "5",
+        "5",
+        "mi300_1",
+        "amd_mi300_1",
+        "Latest AMD job"
+      ],
+      [
+        "Routed Beta mi355_1 - amd_mi355_1",
+        "Hard fail",
+        "0.0%",
+        "5",
+        "0",
+        "mi355_1",
+        "amd_mi355_1",
+        "Latest AMD job"
+      ]
+    ],
+    "hardwareEvidence": [
+      [
+        "MI355_1",
+        "-",
+        "0 passing - 0 soft - 2 hard - 0 not in latest",
+        "Inspect"
+      ],
+      [
+        "MI300_1",
+        "-",
+        "4 passing - 0 soft - 0 hard - 0 not in latest",
+        "Inspect"
+      ]
+    ],
+    "logicalCount": "4 of 4 rows"
+  },
+  "latency": {
+    "cohort": "#30005 · #30004 · #30003 · #30002 · #30001",
+    "strip": [
+      [
+        "MAIN CI NIGHTLIES",
+        "5 / 5",
+        "Oct 4, 09:00 AM – Oct 8, 09:00 AM"
+      ],
+      [
+        "AMD GROUPS TIMED",
+        "5",
+        "0 not observed in this cohort"
+      ]
+    ],
+    "meta": "5 current main CI groups · fixed latest-five-nightly cohort",
+    "rows": [
+      [
+        "routed beta",
+        "37m",
+        "5 / 5"
+      ],
+      [
+        "routed alpha",
+        "27m",
+        "5 / 5"
+      ],
+      [
+        "basic models (other)",
+        "22m",
+        "5 / 5"
+      ],
+      [
+        "broken group",
+        "20m",
+        "5 / 5"
+      ],
+      [
+        "attention kernels",
+        "17m",
+        "5 / 5"
+      ]
+    ],
+    "evidenceStrip": [
+      [
+        "AMD MI MEDIAN WALL TIME",
+        "37m",
+        "5 / 5 recent nightlies observed"
+      ]
+    ],
+    "evidenceRows": [
+      [
+        "#30005",
+        "Oct 8, 09:00 AM",
+        "35m",
+        "amd_mi355_1 · 35m"
+      ],
+      [
+        "#30004",
+        "Oct 7, 09:00 AM",
+        "36m",
+        "amd_mi355_1 · 36m"
+      ],
+      [
+        "#30003",
+        "Oct 6, 09:00 AM",
+        "37m",
+        "amd_mi355_1 · 37m"
+      ],
+      [
+        "#30002",
+        "Oct 5, 09:00 AM",
+        "38m",
+        "amd_mi355_1 · 38m"
+      ],
+      [
+        "#30001",
+        "Oct 4, 09:00 AM",
+        "39m",
+        "amd_mi355_1 · 39m"
+      ]
+    ],
+    "chartRows": [
+      [
+        "attention kernels",
+        "-",
+        "17m AMD MI",
+        "Inspect"
+      ],
+      [
+        "broken group",
+        "-",
+        "20m AMD MI",
+        "Inspect"
+      ],
+      [
+        "basic models (other)",
+        "-",
+        "22m AMD MI",
+        "Inspect"
+      ],
+      [
+        "routed alpha",
+        "-",
+        "27m AMD MI",
+        "Inspect"
+      ],
+      [
+        "routed beta",
+        "-",
+        "37m AMD MI",
+        "Inspect"
+      ]
+    ]
+  },
+  "nightlies": {
+    "strip": [
+      [
+        "LATEST AMD MI MAIN CI NIGHTLY",
+        "#30005",
+        "Oct 8, 09:00 AM"
+      ],
+      [
+        "JOB VARIANTS OBSERVED",
+        "6",
+        "exact jobs in the latest completed nightly"
+      ],
+      [
+        "NEW FAILURES",
+        "0",
+        "not failing in the preceding observed nightly"
+      ],
+      [
+        "RECURRING FAILURES",
+        "2",
+        "failed in the preceding observed nightly too"
+      ],
+      [
+        "FIXED",
+        "0",
+        "failed previously and passed now"
+      ]
+    ],
+    "note": "Main CI AMD MI job history. Every current hard or soft failure is counted once as new or recurring. A previous failure that passes is fixed. Missing or skipped jobs are omitted.",
+    "rows": [
+      [
+        "#30005",
+        "failed",
+        "6",
+        "0",
+        "2",
+        "0",
+        "Oct 8, 09:00 AM"
+      ],
+      [
+        "#30004",
+        "failed",
+        "6",
+        "0",
+        "2",
+        "0",
+        "Oct 7, 09:00 AM"
+      ],
+      [
+        "#30003",
+        "failed",
+        "6",
+        "0",
+        "2",
+        "0",
+        "Oct 6, 09:00 AM"
+      ],
+      [
+        "#30002",
+        "failed",
+        "6",
+        "0",
+        "2",
+        "0",
+        "Oct 5, 09:00 AM"
+      ],
+      [
+        "#30001",
+        "failed",
+        "6",
+        "-",
+        "-",
+        "-",
+        "Oct 4, 09:00 AM"
+      ]
+    ],
+    "chartRows": [
+      [
+        "#30005",
+        "Oct 8, 09:00 AM",
+        "0 new - 2 recurring - 0 fixed",
+        "Open source"
+      ],
+      [
+        "#30004",
+        "Oct 7, 09:00 AM",
+        "0 new - 2 recurring - 0 fixed",
+        "Open source"
+      ],
+      [
+        "#30003",
+        "Oct 6, 09:00 AM",
+        "0 new - 2 recurring - 0 fixed",
+        "Open source"
+      ],
+      [
+        "#30002",
+        "Oct 5, 09:00 AM",
+        "0 new - 2 recurring - 0 fixed",
+        "Open source"
+      ]
+    ],
+    "buildTitle": "AMD MI main CI build #30005"
+  }
+}

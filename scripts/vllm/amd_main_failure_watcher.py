@@ -1,0 +1,1059 @@
+#!/usr/bin/env python3
+"""Track unresolved AMD test-group failures on main for the dashboard.
+
+The source is ci.all_main_reliability from analytics.json: an exhaustive
+Buildkite branch=main cohort of completed passed/failed builds with exact
+terminal job evidence. A strict group is identified by label, step key,
+hardware, and queue. Within one build the latest attempt wins, so a successful
+retry does not create an incident.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import sys
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from vllm.ci import main_flakiness  # noqa: E402
+from vllm.ci.incident_transitions import advance_incident  # noqa: E402
+from vllm.ci.reliability_history import (  # noqa: E402
+    hydrate_reliability_observations,
+    validate_all_main_reliability,
+)
+from vllm.ci.watcher_state import normalize_ledger_state, write_watcher_state  # noqa: E402
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger(__name__)
+
+ROOT = Path(__file__).resolve().parent.parent.parent
+ANALYTICS = ROOT / "data" / "vllm" / "ci" / "analytics.json"
+STATE = ROOT / "data" / "vllm" / "ci" / "open_ci_main_failure_issues.json"
+
+PIPELINE = "ci"
+MAX_DATA_AGE = timedelta(hours=3)
+UPSTREAM_REPO_URL = "https://github.com/vllm-project/vllm"
+TIMELINE_MAX_EVENTS = 300
+TIMELINE_MAX_AGE = timedelta(days=30)
+COMMIT_RE = re.compile(r"[0-9a-f]{40}", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class WatcherConfig:
+    pipeline: str
+    state: Path
+    track_commit_range: bool = False
+    initialize_from_history: bool = False
+    job_scope: str = ""
+
+
+
+
+def _parse_ts(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _default_state() -> dict:
+    return {
+        "schema_version": 2,
+        "initialized": False,
+        "processed_build_numbers": [],
+        "processed_through": {},
+        "group_watermarks": {},
+        "active": {},
+        "pending_soft": {},
+        "issue": None,
+        "suppressed": False,
+        "last_fingerprint": "",
+        "last_content_fingerprint": "",
+        "signal_fingerprint_version": 2,
+        "last_run": "",
+    }
+
+
+def _nonnegative_int(value: Any) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _legacy_transition(row: dict, *, pending: bool = False) -> dict:
+    """Translate schema-v1 evidence into the shared transition state."""
+    build_id = str(row.get("build_number") or "legacy")
+    incident_start_build_id = str(row.get("bad_build_number") or build_id)
+    severity = "hard" if row.get("result") == "failed" else "soft"
+    if pending:
+        return {
+            "status": "pending_soft",
+            "severity": "soft",
+            "peak_severity": "soft",
+            "soft_streak": max(1, _nonnegative_int(row.get("soft_streak"))),
+            "last_eligible_build_id": build_id,
+            "incident_start_build_id": incident_start_build_id,
+            "confirmed_build_id": None,
+        }
+    return {
+        "status": "confirmed",
+        "severity": severity,
+        "peak_severity": severity,
+        "soft_streak": max(2, _nonnegative_int(row.get("soft_streak")))
+        if severity == "soft"
+        else 0,
+        "last_eligible_build_id": build_id,
+        "incident_start_build_id": incident_start_build_id,
+        "confirmed_build_id": build_id,
+    }
+
+
+def _normalize_entry(row: dict, *, pending: bool = False) -> dict:
+    entry = dict(row)
+    transition = entry.get("transition")
+    if not isinstance(transition, dict):
+        transition = _legacy_transition(entry, pending=pending)
+    entry["transition"] = dict(transition)
+    return entry
+
+
+def _read_state(path: Path = STATE) -> dict:
+    if not path.exists():
+        return _default_state()
+    try:
+        raw = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return _default_state()
+    state = normalize_ledger_state(raw)
+    source_schema_version = raw.get("schema_version")
+    if not isinstance(source_schema_version, int) or isinstance(source_schema_version, bool):
+        source_schema_version = 1
+    state["schema_version"] = 2
+    signal_fingerprint_version = raw.get("signal_fingerprint_version")
+    state["signal_fingerprint_version"] = (
+        int(signal_fingerprint_version)
+        if isinstance(signal_fingerprint_version, int)
+        and not isinstance(signal_fingerprint_version, bool)
+        else (2 if source_schema_version >= 2 else 1)
+    )
+    state["initialized"] = bool(raw.get("initialized"))
+    state["processed_build_numbers"] = [
+        int(number)
+        for number in raw.get("processed_build_numbers") or []
+        if isinstance(number, int) and not isinstance(number, bool) and number > 0
+    ]
+    raw_processed_through = raw.get("processed_through")
+    state["processed_through"] = (
+        dict(raw_processed_through)
+        if isinstance(raw_processed_through, dict)
+        else {}
+    )
+    state["active"] = {
+        str(group_id): _normalize_entry(row)
+        for group_id, row in (raw.get("active") or {}).items()
+        if isinstance(row, dict)
+    }
+    state["pending_soft"] = {
+        str(group_id): _normalize_entry(row, pending=True)
+        for group_id, row in (raw.get("pending_soft") or {}).items()
+        if isinstance(row, dict)
+    }
+    state["group_watermarks"] = {
+        str(group_id): dict(row)
+        for group_id, row in (raw.get("group_watermarks") or {}).items()
+        if isinstance(row, dict)
+    }
+    return state
+
+
+def _write_state(
+    state: dict,
+    path: Path = STATE,
+    *,
+    state_filename: str = "open_ci_main_failure_issues.json",
+) -> None:
+    write_watcher_state(path, state, state_filename=state_filename)
+
+
+def _read_reliability(pipeline: str = PIPELINE) -> dict | None:
+    if not ANALYTICS.exists():
+        return None
+    try:
+        analytics = json.loads(ANALYTICS.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    block = analytics.get(pipeline) if isinstance(analytics, dict) else None
+    reliability = block.get("all_main_reliability") if isinstance(block, dict) else None
+    return reliability if isinstance(reliability, dict) else None
+
+
+def _is_fresh(reliability: dict, now: datetime) -> bool:
+    generated = _parse_ts(reliability.get("generated_at"))
+    if generated is None:
+        return False
+    age = now - generated
+    return -timedelta(minutes=15) <= age <= MAX_DATA_AGE
+
+
+def _observation_rank(row: dict) -> tuple[str, str, str]:
+    return (
+        str(row.get("observed_at") or ""),
+        str(row.get("finished_at") or ""),
+        str(row.get("started_at") or ""),
+    )
+
+
+def _identity(group: dict) -> dict:
+    return {
+        "group_id": str(group.get("group_id") or ""),
+        "name": str(group.get("name") or group.get("raw_name") or "unknown"),
+        "raw_name": str(group.get("raw_name") or group.get("name") or "unknown"),
+        "step_key": str(group.get("step_key") or ""),
+        "hardware": str(group.get("hardware") or "unknown"),
+        "queue": str(group.get("queue") or ""),
+    }
+
+
+def _observations_by_build(reliability: dict) -> dict[int, dict[str, dict]]:
+    pipeline_slug = str((reliability.get("cohort") or {}).get("pipeline") or "")
+    candidates: dict[int, dict[str, list[dict]]] = {}
+    for group in reliability.get("groups") or []:
+        if not isinstance(group, dict):
+            continue
+        group_id = str(group.get("group_id") or "")
+        if not group_id:
+            continue
+        observations = [
+            row
+            for row in group.get("observations") or []
+            if isinstance(row, dict)
+        ]
+        if reliability.get("schema_version") == 2:
+            observations = hydrate_reliability_observations(
+                reliability,
+                observations,
+                pipeline_slug=pipeline_slug,
+            )
+        for observation in observations:
+            result = str(observation.get("result") or "")
+            number = observation.get("build_number")
+            if (
+                not isinstance(number, int)
+                or isinstance(number, bool)
+                or result not in {"passed", "failed", "soft_fail"}
+                or observation.get("eligible_for_reliability") is not True
+            ):
+                continue
+            row = {
+                **_identity(group),
+                "result": result,
+                "build_number": number,
+                "build_url": str(observation.get("build_url") or ""),
+                "build_commit": str(observation.get("build_commit") or "").lower(),
+                "build_message": str(observation.get("build_message") or ""),
+                "job_id": str(observation.get("job_id") or ""),
+                "job_url": str(observation.get("job_url") or ""),
+                "observed_at": str(observation.get("observed_at") or ""),
+                "started_at": str(observation.get("started_at") or ""),
+                "finished_at": str(observation.get("finished_at") or ""),
+                "retry_evidence": dict(observation.get("retry_evidence") or {}),
+            }
+            candidates.setdefault(number, {}).setdefault(group_id, []).append(row)
+
+    by_build: dict[int, dict[str, dict]] = {}
+    for number, groups in candidates.items():
+        for group_id, rows in groups.items():
+            predecessor = {
+                str((row.get("retry_evidence") or {}).get("retried_in_job_id") or ""): row["job_id"]
+                for row in rows
+                if (row.get("retry_evidence") or {}).get("retried_in_job_id")
+            }
+
+            def retry_depth(row: dict) -> int:
+                depth = 0
+                job_id = row.get("job_id") or ""
+                seen = set()
+                while job_id in predecessor and job_id not in seen:
+                    seen.add(job_id)
+                    depth += 1
+                    job_id = predecessor[job_id]
+                return depth
+
+            final = max(
+                rows,
+                key=lambda row: (
+                    retry_depth(row),
+                    _observation_rank(row),
+                    row.get("result") == "passed",
+                    str(row.get("job_id") or ""),
+                ),
+            )
+            by_build.setdefault(number, {})[group_id] = final
+    return by_build
+
+
+def _build_source_rank(build: dict) -> tuple[str, int, str]:
+    """Order one pipeline's main builds by creation sequence for commit ranges."""
+    number = build.get("number")
+    return (
+        str(build.get("created_at") or build.get("finished_at") or ""),
+        int(number) if isinstance(number, int) and not isinstance(number, bool) else 0,
+        str(build.get("finished_at") or ""),
+    )
+
+
+def _readable_state_copy(state: dict) -> dict:
+    normalized = normalize_ledger_state(state)
+    if state.get("hardware_scope") == "amd_mi_gpu":
+        normalized["hardware_scope"] = "amd_mi_gpu"
+    source_schema_version = state.get("schema_version")
+    if not isinstance(source_schema_version, int) or isinstance(source_schema_version, bool):
+        source_schema_version = 1
+    normalized["schema_version"] = 2
+    signal_fingerprint_version = state.get("signal_fingerprint_version")
+    normalized["signal_fingerprint_version"] = (
+        int(signal_fingerprint_version)
+        if isinstance(signal_fingerprint_version, int)
+        and not isinstance(signal_fingerprint_version, bool)
+        else (2 if source_schema_version >= 2 else 1)
+    )
+    normalized["initialized"] = bool(state.get("initialized"))
+    normalized["processed_build_numbers"] = list(state.get("processed_build_numbers") or [])
+    normalized["processed_through"] = dict(state.get("processed_through") or {})
+    normalized["active"] = {
+        str(group_id): _normalize_entry(row)
+        for group_id, row in (state.get("active") or {}).items()
+        if isinstance(row, dict)
+    }
+    normalized["pending_soft"] = {
+        str(group_id): _normalize_entry(row, pending=True)
+        for group_id, row in (state.get("pending_soft") or {}).items()
+        if isinstance(row, dict)
+    }
+    normalized["group_watermarks"] = {
+        str(group_id): dict(row)
+        for group_id, row in (state.get("group_watermarks") or {}).items()
+        if isinstance(row, dict)
+    }
+    return normalized
+
+
+def _commit(value: Any) -> str:
+    candidate = str(value or "").strip().lower()
+    return candidate if COMMIT_RE.fullmatch(candidate) else ""
+
+
+def _commit_range(
+    group_id: str,
+    number: int,
+    row: dict,
+    existing: dict,
+    ordered_numbers: list[int],
+    observations: dict[int, dict[str, dict]],
+    catalog_by_number: dict[int, dict],
+) -> dict:
+    """Retain the last known pass and first bad commit for later bisection."""
+    bad_commit = _commit(existing.get("bad_commit"))
+    bad_build_number = int(existing.get("bad_build_number") or 0)
+    if not bad_commit:
+        bad_commit = _commit(row.get("build_commit")) or _commit(
+            catalog_by_number[number].get("commit")
+        )
+        bad_build_number = number
+
+    good_commit = _commit(existing.get("good_commit"))
+    good_build_number = int(existing.get("good_build_number") or 0)
+    if not good_commit:
+        origin = str(existing.get("carried_from") or group_id)
+        try:
+            position = ordered_numbers.index(bad_build_number)
+        except ValueError:
+            position = 0
+        for prior_number in reversed(ordered_numbers[:position]):
+            prior = observations.get(prior_number, {}).get(origin)
+            if not prior or prior.get("result") != "passed":
+                continue
+            candidate = _commit(prior.get("build_commit")) or _commit(
+                catalog_by_number[prior_number].get("commit")
+            )
+            if candidate:
+                good_commit = candidate
+                good_build_number = prior_number
+                break
+
+    latest_bad_commit = _commit(row.get("build_commit")) or _commit(
+        catalog_by_number[number].get("commit")
+    )
+    if not bad_commit:
+        status = "missing_bad"
+    elif not good_commit:
+        status = "missing_good"
+    elif good_commit == bad_commit:
+        status = "same_commit"
+    else:
+        status = "candidate"
+
+    compare_url = (
+        f"{UPSTREAM_REPO_URL}/compare/{good_commit}...{bad_commit}" if status == "candidate" else ""
+    )
+    bisect_command = f"git bisect start {bad_commit} {good_commit}" if status == "candidate" else ""
+    return {
+        "good_commit": good_commit,
+        "good_build_number": good_build_number or None,
+        "bad_commit": bad_commit,
+        "bad_build_number": bad_build_number or None,
+        "latest_bad_commit": latest_bad_commit,
+        "latest_bad_build_number": number,
+        "commit_range_status": status,
+        "compare_url": compare_url,
+        "bisect_command": bisect_command,
+    }
+
+
+def _watermark(build: dict, row: dict) -> dict:
+    created_at = str(build.get("created_at") or build.get("finished_at") or "")
+    finished_at = str(build.get("finished_at") or created_at)
+    return {
+        "build_number": int(build.get("number") or 0),
+        "order_at": created_at,
+        "created_at": created_at,
+        "finished_at": finished_at,
+        "result": str(row.get("result") or ""),
+        "commit": _commit(row.get("build_commit")) or _commit(build.get("commit")),
+    }
+
+
+def _watermark_rank(row: dict) -> tuple[str, int, str]:
+    number = row.get("build_number")
+    return (
+        str(row.get("order_at") or row.get("created_at") or row.get("finished_at") or ""),
+        int(number) if isinstance(number, int) and not isinstance(number, bool) else 0,
+        str(row.get("finished_at") or ""),
+    )
+
+
+def _entry_transition(row: dict | None) -> dict | None:
+    transition = (row or {}).get("transition")
+    return dict(transition) if isinstance(transition, dict) else None
+
+
+def _advance_entry(previous: dict | None, row: dict, number: int) -> tuple[str, dict]:
+    decision = advance_incident(
+        _entry_transition(previous),
+        row.get("result"),
+        str(number),
+    )
+    evidence = dict(previous or {})
+    evidence.update(row)
+    evidence["transition"] = dict(decision["state"])
+    return str(decision["state"]["status"]), evidence
+
+
+def _timeline_event(
+    kind: str,
+    group_id: str,
+    incident: dict,
+    build: dict,
+) -> dict:
+    """One confirmed-incident transition, keyed to the source build."""
+    event = {
+        "event": kind,
+        "group_id": group_id,
+        "name": str(incident.get("name") or ""),
+        "hardware": str(incident.get("hardware") or ""),
+        "queue": str(incident.get("queue") or ""),
+        "build_number": int(build.get("number") or 0),
+        "build_url": str(build.get("url") or incident.get("build_url") or ""),
+        "at": str(build.get("created_at") or build.get("finished_at") or ""),
+        "severity": _peak_severity(incident),
+    }
+    if kind == "opened":
+        event.update(
+            {
+                key: incident.get(key)
+                for key in ("job_url", "good_commit", "bad_commit", "compare_url")
+                if incident.get(key)
+            }
+        )
+    return event
+
+
+def _retire_renamed(
+    number: int,
+    build: dict,
+    runs: dict[tuple, dict[int, dict[str, str]]],
+    last_run: Callable[[str, dict], tuple[tuple, list[str]] | None],
+    identities: dict[str, dict],
+    active: dict[str, dict],
+    pending_soft: dict[str, dict],
+    watermarks: dict[str, dict],
+    events: list[dict] | None,
+) -> None:
+    """Retire incidents of groups whose step ran this build only under new labels.
+
+    Renaming or resharding a step starts new strict groups, so no pass can
+    reach the old ones. When a step runs none of the labels it ran in a held
+    group's last run, the incident resolves if every new label passed, and
+    otherwise moves to each failing new label without a newer pass. A label
+    keeps the confirmed, then earliest-starting, of the incidents it gets. A
+    group dropped from a step that keeps another of its labels stays held.
+    """
+    fence = _watermark(build, {"result": "renamed"})
+    candidates: dict[str, list[tuple[tuple, str, dict]]] = {}
+    retired: dict[str, bool] = {}
+
+    def claim(group_id: str, incident: dict) -> tuple:
+        start = str((incident.get("transition") or {}).get("incident_start_build_id") or "")
+        return group_id not in active, int(start) if start.isdigit() else -1, group_id
+
+    for group_id in sorted({*active, *pending_soft}):
+        incident = active.get(group_id) or pending_soft[group_id]
+        previous = last_run(group_id, incident)
+        if not previous:
+            continue
+        step, before = previous
+        labels = runs.get(step, {}).get(number)
+        if (
+            not labels
+            or set(before) & set(labels)
+            or _watermark_rank(watermarks.get(group_id) or {}) >= _watermark_rank(fence)
+        ):
+            continue
+        failing = [
+            label
+            for label, code in sorted(labels.items())
+            if code not in main_flakiness.PASS_CODES
+            and not (
+                (watermarks.get(label) or {}).get("result") == "passed"
+                and _watermark_rank(watermarks[label]) > _watermark_rank(fence)
+            )
+        ]
+        for label in failing:
+            candidates.setdefault(label, []).append((claim(group_id, incident), group_id, incident))
+        retired[group_id] = bool(failing)
+
+    moves: dict[str, tuple[bool, dict]] = {}
+    carried_to: dict[str, list[str]] = {}
+    for label, claims in sorted(candidates.items()):
+        held = active.get(label) or pending_soft.get(label)
+        if held:
+            claims.append((claim(label, held), label, held))
+        (pending, _, _), winner, incident = min(claims)
+        if winner != label:
+            moves[label] = pending, {"carried_from": winner, **incident, **identities[label]}
+            carried_to.setdefault(winner, []).append(label)
+
+    for group_id, failing in retired.items():
+        if group_id in active and events is not None:
+            event = _timeline_event("renamed" if failing else "resolved", group_id, active[group_id], build)
+            event["reason"] = "renamed"
+            if carried_to.get(group_id):
+                event["carried_to"] = carried_to[group_id][0]
+            events.append(event)
+        watermarks[group_id] = fence
+        active.pop(group_id, None)
+        pending_soft.pop(group_id, None)
+    for label, (pending, carried) in moves.items():
+        if pending:
+            pending_soft[label] = carried
+            active.pop(label, None)
+            continue
+        if label not in active and events is not None:
+            events.append(_timeline_event("opened", label, carried, build))
+        active[label] = carried
+        pending_soft.pop(label, None)
+
+
+def advance_incidents(
+    reliability: dict,
+    state: dict,
+    *,
+    track_commit_range: bool = False,
+    initialize_from_history: bool = False,
+    events: list[dict] | None = None,
+    partial_cohort: bool = False,
+) -> dict:
+    """Apply newly completed builds to unresolved strict-group incidents.
+
+    ``events`` optionally receives one opened/resolved row for every confirmed
+    incident transition applied by this call.
+
+    ``partial_cohort`` applies a slice of recently finished builds on top of
+    initialized state (main_pulse.py): processed builds, ordering fences and
+    the processed-through fence outside the slice are kept, and a new
+    incident's good commit falls back to the group's last observed pass.
+    """
+    updated = _readable_state_copy(state)
+    if partial_cohort and not updated.get("initialized"):
+        raise ValueError("a partial cohort needs initialized watcher state")
+    catalog = [
+        build
+        for build in reliability.get("builds") or []
+        if isinstance(build, dict)
+        and isinstance(build.get("number"), int)
+        and not isinstance(build.get("number"), bool)
+    ]
+    catalog_by_number = {int(build["number"]): build for build in catalog}
+    cohort_numbers = set(catalog_by_number)
+    observations = _observations_by_build(reliability)
+    # Creation order is the source-code chronology for both pipelines. A slow
+    # older build that completes later must not override a newer commit's result.
+    build_rank = _build_source_rank
+    ordered_numbers = sorted(
+        cohort_numbers,
+        key=lambda number: build_rank(catalog_by_number[number]),
+    )
+    processed = set(updated.get("processed_build_numbers") or [])
+    already_processed = set(processed)
+    processed_through = dict(updated.get("processed_through") or {})
+    processed_through_rank = (
+        _build_source_rank(processed_through)
+        if processed_through.get("number")
+        else None
+    )
+    active = dict(updated.get("active") or {})
+    pending_soft = dict(updated.get("pending_soft") or {})
+    watermarks = dict(updated.get("group_watermarks") or {})
+    initializing = not updated.get("initialized")
+
+    if processed and not watermarks:
+        # Schema-v1 AMD state did not persist per-group ordering fences. Seed
+        # them only from builds already processed by that state, so a late
+        # older build cannot overwrite a newer result during migration.
+        for number in ordered_numbers:
+            if number not in processed:
+                continue
+            for group_id, row in observations.get(number, {}).items():
+                incoming_watermark = _watermark(catalog_by_number[number], row)
+                current_watermark = watermarks.get(group_id) or {}
+                if not current_watermark or _watermark_rank(incoming_watermark) > _watermark_rank(
+                    current_watermark
+                ):
+                    watermarks[group_id] = incoming_watermark
+
+    if initializing:
+        if initialize_from_history:
+            to_process = ordered_numbers
+        else:
+            newest = max(catalog, key=build_rank, default=None)
+            to_process = [int(newest["number"])] if newest else []
+        processed = set(cohort_numbers)
+        updated["initialized"] = True
+        historical_only: set[int] = set()
+    else:
+        historical_only = {
+            number
+            for number in cohort_numbers - processed
+            if processed_through_rank is not None
+            and build_rank(catalog_by_number[number]) <= processed_through_rank
+        }
+        to_process = sorted(
+            cohort_numbers - processed,
+            key=lambda number: build_rank(catalog_by_number[number]),
+        )
+        processed |= cohort_numbers
+
+    runs = main_flakiness.step_runs(reliability)
+    group_step = {group_id: step for step, builds in runs.items() for codes in builds.values() for group_id in codes}
+    position = {number: index for index, number in enumerate(ordered_numbers)}
+    identities = {
+        str(group["group_id"]): _identity(group)
+        for group in reliability.get("groups") or []
+        if isinstance(group, dict) and group.get("group_id")
+    }
+
+    def last_run_before(number: int, recorded: bool) -> Callable[[str, dict], tuple[tuple, list[str]] | None]:
+        # The recorded run is the one a main-pulse slice can see; incidents
+        # without one fall back to the catalog's outcome history.
+        def last_run(group_id: str, incident: dict) -> tuple[tuple, list[str]] | None:
+            record = incident.get("step_run")
+            if recorded and isinstance(record, dict) and record.get("step") and isinstance(record.get("labels"), list):
+                return tuple(record["step"]), record["labels"]
+            if partial_cohort or group_id not in group_step:
+                return None
+            step = group_step[group_id]
+            before = [
+                ran
+                for ran, codes in runs[step].items()
+                if group_id in codes and position.get(ran, len(position)) < position[number]
+            ]
+            return (step, list(runs[step][max(before, key=position.__getitem__)])) if before else None
+
+        return last_run
+
+    def retire_renamed(number: int, step_runs: dict, last_run: Callable) -> None:
+        _retire_renamed(
+            number,
+            catalog_by_number[number],
+            step_runs,
+            last_run,
+            identities,
+            active,
+            pending_soft,
+            watermarks,
+            events,
+        )
+
+    def record_runs(number: int) -> None:
+        for held in (active, pending_soft):
+            for group_id, incident in held.items():
+                labels = runs.get(group_step.get(group_id), {}).get(number)
+                if labels and group_id in labels:
+                    record = {"step": list(group_step[group_id]), "labels": sorted(labels)}
+                    if incident.get("step_run") != record:
+                        held[group_id] = {**incident, "step_run": record}
+
+    if not partial_cohort:
+        # Incidents held past an already processed rename (state written
+        # before renames were retired) catch up at each step's newest
+        # processed run; for any other state this is a no-op check.
+        newest_processed: dict[int, list[tuple]] = {}
+        for step, builds in runs.items():
+            done = [number for number in builds if number in position and number in already_processed]
+            if done:
+                newest_processed.setdefault(max(done, key=position.__getitem__), []).append(step)
+        for number in sorted(newest_processed, key=position.__getitem__):
+            retire_renamed(
+                number, {step: runs[step] for step in newest_processed[number]}, last_run_before(number, False)
+            )
+
+    for number in to_process:
+        if number not in historical_only:
+            retire_renamed(number, runs, last_run_before(number, True))
+        for group_id, row in observations.get(number, {}).items():
+            if number in historical_only:
+                if track_commit_range:
+                    incident = active.get(group_id) or pending_soft.get(group_id) or {}
+                    bad_number = int(incident.get("bad_build_number") or 0)
+                    bad_row = observations.get(bad_number, {}).get(group_id)
+                    if (
+                        row.get("result") == "passed"
+                        and incident
+                        and not incident.get("good_commit")
+                        and bad_row
+                        and bad_number in catalog_by_number
+                    ):
+                        incident.update(
+                            _commit_range(
+                                group_id,
+                                bad_number,
+                                bad_row,
+                                incident,
+                                ordered_numbers,
+                                observations,
+                                catalog_by_number,
+                            )
+                        )
+                        if group_id in active:
+                            active[group_id] = incident
+                        else:
+                            pending_soft[group_id] = incident
+                continue
+            incoming_watermark = _watermark(catalog_by_number[number], row)
+            current_watermark = watermarks.get(group_id) or {}
+            if current_watermark and _watermark_rank(incoming_watermark) <= _watermark_rank(
+                current_watermark
+            ):
+                if track_commit_range:
+                    incident = active.get(group_id) or pending_soft.get(group_id) or {}
+                    bad_number = int(incident.get("bad_build_number") or 0)
+                    bad_row = observations.get(bad_number, {}).get(incident.get("carried_from") or group_id)
+                    if (
+                        incident
+                        and not incident.get("good_commit")
+                        and bad_row
+                        and bad_number in catalog_by_number
+                    ):
+                        incident.update(
+                            _commit_range(
+                                group_id,
+                                bad_number,
+                                bad_row,
+                                incident,
+                                ordered_numbers,
+                                observations,
+                                catalog_by_number,
+                            )
+                        )
+                        if group_id in active:
+                            active[group_id] = incident
+                        else:
+                            pending_soft[group_id] = incident
+                continue
+            watermarks[group_id] = incoming_watermark
+
+            previous = active.get(group_id) or pending_soft.get(group_id)
+            was_confirmed = group_id in active
+            status, incident = _advance_entry(previous, row, number)
+            if status == "clear":
+                if was_confirmed and events is not None:
+                    events.append(
+                        _timeline_event(
+                            "resolved", group_id, active[group_id], catalog_by_number[number]
+                        )
+                    )
+                active.pop(group_id, None)
+                pending_soft.pop(group_id, None)
+                continue
+
+            if track_commit_range and row["result"] != "passed":
+                existing = previous or {}
+                if partial_cohort and not previous and current_watermark.get("result") == "passed":
+                    existing = {
+                        "good_commit": current_watermark.get("commit"),
+                        "good_build_number": current_watermark.get("build_number"),
+                    }
+                incident.update(
+                    _commit_range(
+                        group_id,
+                        number,
+                        row,
+                        existing,
+                        ordered_numbers,
+                        observations,
+                        catalog_by_number,
+                    )
+                )
+            if status == "confirmed":
+                if not was_confirmed and events is not None:
+                    events.append(
+                        _timeline_event(
+                            "opened", group_id, incident, catalog_by_number[number]
+                        )
+                    )
+                active[group_id] = incident
+                pending_soft.pop(group_id, None)
+            else:
+                pending_soft[group_id] = incident
+                active.pop(group_id, None)
+        if number not in historical_only:
+            record_runs(number)
+
+    if initializing:
+        # Seed one latest source-order outcome per strict group without opening
+        # historical incidents. This prevents an older, slow-finishing build
+        # from overriding a newer result after the watcher is first enabled.
+        for number in ordered_numbers:
+            for group_id, row in observations.get(number, {}).items():
+                incoming_watermark = _watermark(catalog_by_number[number], row)
+                current_watermark = watermarks.get(group_id) or {}
+                if not current_watermark or _watermark_rank(incoming_watermark) > _watermark_rank(
+                    current_watermark
+                ):
+                    watermarks[group_id] = incoming_watermark
+
+    # Ordering fences older than the bounded reliability catalog cannot guard
+    # any build this watcher can still observe. Retaining them forever made a
+    # renamed test group a permanent state-tree row. Active incidents remain
+    # protected even if their source build has just aged out.
+    minimum_catalog_rank = min(
+        (build_rank(build) for build in catalog),
+        default=None,
+    )
+    protected_groups = set(active) | set(pending_soft)
+    if not partial_cohort:
+        watermarks = {
+            group_id: row
+            for group_id, row in watermarks.items()
+            if group_id in protected_groups
+            or minimum_catalog_rank is None
+            or _watermark_rank(row) >= minimum_catalog_rank
+        }
+
+    updated["active"] = active
+    updated["pending_soft"] = pending_soft
+    updated["group_watermarks"] = watermarks
+    if partial_cohort:
+        updated["processed_build_numbers"] = sorted(processed)
+        updated["processed_through"] = processed_through
+        return updated
+    updated["processed_build_numbers"] = sorted(processed & cohort_numbers)
+    newest_processed = max(catalog, key=build_rank, default=None)
+    if newest_processed is not None and (
+        processed_through_rank is None
+        or build_rank(newest_processed) > processed_through_rank
+    ):
+        updated["processed_through"] = {
+            "number": int(newest_processed["number"]),
+            "created_at": str(
+                newest_processed.get("created_at")
+                or newest_processed.get("finished_at")
+                or ""
+            ),
+            "finished_at": str(newest_processed.get("finished_at") or ""),
+        }
+    else:
+        updated["processed_through"] = processed_through
+    return updated
+
+
+def _peak_severity(row: dict) -> str:
+    transition = _entry_transition(row) or _legacy_transition(row)
+    return str(transition.get("peak_severity") or "soft")
+
+
+def bounded_timeline(events: list[dict], now: datetime) -> list[dict]:
+    """Newest-first, de-duplicated transitions retained for the dashboard."""
+    cutoff = now - TIMELINE_MAX_AGE
+    unique: dict[tuple, dict] = {}
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        at = _parse_ts(event.get("at"))
+        if at is None or at < cutoff:
+            continue
+        key = (event.get("event"), event.get("group_id"), event.get("build_number"))
+        unique[key] = event
+    ordered = sorted(
+        unique.values(),
+        key=lambda row: (str(row.get("at") or ""), int(row.get("build_number") or 0)),
+        reverse=True,
+    )
+    return ordered[:TIMELINE_MAX_EVENTS]
+
+
+def _timeline_for_run(
+    restored_state: dict,
+    reliability: dict,
+    events: list[dict],
+    config: WatcherConfig,
+    now: datetime,
+) -> list[dict]:
+    """Append this run's transitions; seed once from a replay of the window."""
+    if isinstance(restored_state.get("timeline"), list):
+        prior = [
+            row for row in restored_state["timeline"] if isinstance(row, dict)
+        ]
+        return bounded_timeline(prior + [{**row, "source": "watcher"} for row in events], now)
+    replayed: list[dict] = []
+    advance_incidents(
+        reliability,
+        _default_state(),
+        track_commit_range=config.track_commit_range,
+        initialize_from_history=True,
+        events=replayed,
+    )
+    return bounded_timeline([{**row, "source": "replay"} for row in replayed], now)
+
+
+def mi_scoped_reliability(reliability: dict) -> dict:
+    """Select exact MI route identities before replaying incident history."""
+    from vllm.pipelines import is_amd_ci_job
+    return {**reliability, "groups": [
+        group for group in reliability.get("groups") or []
+        if isinstance(group, dict) and is_amd_ci_job(group)
+    ]}
+
+
+def mi_scoped_state(state: dict, reliability: dict) -> dict:
+    """Purge non-MI incidents and their ordering fences."""
+    from vllm.pipelines import is_amd_ci_job
+    updated = _readable_state_copy(state)
+    source_groups = mi_scoped_reliability(reliability)["groups"]
+    proven_groups = {str(group.get("group_id")) for group in source_groups}
+    migrating = state.get("hardware_scope") != "amd_mi_gpu"
+    retained = set()
+    for key in ("active", "pending_soft"):
+        updated[key] = {
+            identity: row for identity, row in (updated.get(key) or {}).items()
+            if is_amd_ci_job(row) and (not migrating or identity in proven_groups) and "/vllm/ci/builds/" in str(
+                row.get("job_url") or row.get("build_url") or row.get("latest_job_url") or row.get("latest_build_url") or ""
+            )
+        }
+        retained.update(updated[key])
+    retained.update(proven_groups)
+    updated["group_watermarks"] = {
+        identity: row for identity, row in (updated.get("group_watermarks") or {}).items()
+        if identity in retained
+    }
+    updated["hardware_scope"] = "amd_mi_gpu"
+    return updated
+
+
+def _merge_main_pulse(state: dict) -> dict:
+    """Adopt newer main-pulse observations named by ``MAIN_PULSE_STATE_FILE``."""
+    path = os.getenv("MAIN_PULSE_STATE_FILE")
+    if not path:
+        return state
+    from vllm.ci.main_pulse_overlay import load_export_file, merge_overlay
+
+    try:
+        export = load_export_file(Path(path))
+    except (OSError, ValueError) as error:
+        log.warning("::warning::Main pulse overlay is unavailable: %s", error)
+        return state
+    overlay = export["overlay"]
+    if overlay is None:
+        return state
+    log.info("Merged the main pulse overlay of %d groups", len(overlay["groups"]))
+    return merge_overlay(state, overlay)
+
+
+def run_watcher(config: WatcherConfig) -> int:
+    reliability = _read_reliability(config.pipeline)
+    if not reliability or not validate_all_main_reliability(reliability, config.pipeline):
+        log.error(
+            "Strict exhaustive %s main reliability is unavailable; leaving state untouched",
+            config.pipeline,
+        )
+        return 0
+    now = datetime.now(timezone.utc)
+    if not _is_fresh(reliability, now):
+        log.error(
+            "%s main reliability is stale or future-dated; leaving state untouched",
+            config.pipeline,
+        )
+        return 0
+
+    if config.job_scope == "amd_gpu":
+        if reliability.get("hardware_scope") != "amd_mi_gpu":
+            log.error("MI-only reliability is unavailable; leaving state untouched")
+            return 0
+        reliability = mi_scoped_reliability(reliability)
+
+    restored_state = _read_state(config.state)
+    if config.job_scope == "amd_gpu":
+        restored_state = _merge_main_pulse(mi_scoped_state(restored_state, reliability))
+    events: list[dict] = []
+    state = advance_incidents(
+        reliability,
+        restored_state,
+        track_commit_range=config.track_commit_range,
+        initialize_from_history=config.initialize_from_history,
+        events=events,
+    )
+    state["timeline"] = _timeline_for_run(restored_state, reliability, events, config, now)
+    state["schema_version"] = 2
+    if config.job_scope == "amd_gpu":
+        state["hardware_scope"] = "amd_mi_gpu"
+    state["signal_fingerprint_version"] = 2
+    state["last_run"] = str(reliability.get("generated_at") or now.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    state["issue"] = None
+    state["suppressed"] = False
+    _write_state(state, config.state, state_filename=config.state.name)
+    log.info(
+        "%s main watcher evaluated %d confirmed and %d pending-soft strict groups",
+        config.pipeline,
+        len(state.get("active") or {}),
+        len(state.get("pending_soft") or {}),
+    )
+    return 0

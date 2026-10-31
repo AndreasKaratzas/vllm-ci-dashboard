@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "pipeline": "ci",
+  "budget_branch": "main-pulse-request-budget",
+  "budget_ledger_path": "main_pulse_request_budget.json",
+  "state_branch": "main-pulse-data",
+  "state_path": "main_pulse_state.json",
+  "window_hours": 25,
+  "max_request_starts": 750,
+  "reservation_request_starts": 5,
+  "minimum_interval_minutes": 10,
+  "max_reservations": 160,
+  "max_ledger_bytes": 65536,
+  "max_state_bytes": 2097152,
+  "max_pages": 1,
+  "max_lookback_minutes": 180,
+  "cursor_overlap_minutes": 10
+}
