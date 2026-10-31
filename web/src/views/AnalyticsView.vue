@@ -55,7 +55,7 @@ const INFO: Record<string, AnalyticsSubview> = {
     source: 'agent_health',
   },
   docker: {
-    description: 'How long the ROCm docker build jobs take on Buildkite, for main and PR builds, and how often the base image is rebuilt.',
+    description: 'How often the ROCm base image cache hits, what a miss costs, and how long the test image takes, for main and PR builds.',
     component: AnalyticsDocker,
     source: 'docker_builds',
   },

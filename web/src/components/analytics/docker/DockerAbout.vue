@@ -21,6 +21,12 @@ const [LIVE, PAGES] = DATASETS.docker_builds.paths
     The base step reuses its cached image when it finishes in under 10 minutes. From 10 minutes to 2 hours it rebuilt the runtime layer (a partial
     rebuild); from 2 hours it rebuilt the ROCm stack (a full rebuild). The test image always builds, so it has no cache classes.
   </p>
+  <p>
+    Windows are 5-minute to 1-day UTC buckets ending at the last collection, which publishes about every 2 hours. A base run still running past 10 minutes
+    at collection is counted as a cache miss; runs younger than that are not counted yet. Deltas compare with the equal-length period just before the window
+    and are hidden when either period has fewer than 20 runs. Rebuilds starting within an hour of each other form one episode. Rebuild counts and agent
+    time cover final attempts only, like the run times.
+  </p>
   <p data-testid="docker-method">
     Window {{ shortDate(payload.window?.from) }} to {{ shortDate(payload.window?.to) }}. Schema v{{ value(payload.schema_version) }}, generated
     {{ shortDate(payload.generated_at) }}. Stale after 6 hours.

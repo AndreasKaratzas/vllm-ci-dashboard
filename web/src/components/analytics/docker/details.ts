@@ -1,8 +1,8 @@
 import { shortDayTime } from '@/components/charts/chart'
 import type { Detail, DetailField } from '@/components/evidence/detail'
 import { badge, link, num, text, type ColumnSpec, type FilterSpec } from '@/components/table/columns'
-import { CACHE_LABELS, cacheClass, dockerJobUrl, stepLabel, stepShort, type DockerJob } from '@/domain/dockerBuilds'
-import { seconds } from '@/domain/format'
+import { CACHE_LABELS, cacheClass, dockerJobUrl, stepLabel, stepShort, type DockerJob, type RebuildEpisode } from '@/domain/dockerBuilds'
+import { agentHours, integer, seconds } from '@/domain/format'
 import type { Tone } from '@/lib/tone'
 
 const STATE_TONE: Record<string, Tone> = {
@@ -86,5 +86,44 @@ export function jobDetail(job: DockerJob): Detail {
     fields,
     sources: [{ label: 'Buildkite job', url }],
     width: 'md',
+  }
+}
+
+const SOURCE_ORDER = ['main', 'pr']
+const episodeSpan = (ep: RebuildEpisode) => (ep.lastMs === ep.firstMs ? 'single' : seconds((ep.lastMs - ep.firstMs) / 1000))
+const episodeTime = (ep: RebuildEpisode) => (ep.rebuilding ? `${agentHours(ep.rebuildS + ep.runningS)} so far` : agentHours(ep.rebuildS))
+export const episodeSources = (ep: RebuildEpisode) =>
+  Object.entries(ep.sources)
+    .sort(([a], [b]) => (SOURCE_ORDER.indexOf(a) + 1 || 9) - (SOURCE_ORDER.indexOf(b) + 1 || 9))
+    .map(([source, count]) => `${sourceLabel(source)} ${integer(count)}`)
+    .join(' · ')
+
+export function episodeColumns(): ColumnSpec<RebuildEpisode>[] {
+  return [
+    { id: 'started', label: 'Started (UTC)', value: (ep) => ep.firstMs, cell: (ep) => ({ text: shortDayTime(ep.firstMs), nowrap: true }) },
+    { id: 'span', label: 'Span', value: (ep) => ep.lastMs - ep.firstMs, cell: (ep) => ({ text: episodeSpan(ep), nowrap: true }), numeric: true, class: 'hidden sm:table-cell' },
+    { id: 'rebuilds', label: 'Rebuilds', value: (ep) => ep.jobs.length, cell: (ep) => ({ ...num(ep.jobs.length), sub: ep.rebuilding ? `${integer(ep.rebuilding)} running` : undefined }), numeric: true },
+    { id: 'full', label: 'Full', value: (ep) => ep.full, cell: (ep) => ({ ...num(ep.full), muted: !ep.full }), numeric: true, class: 'hidden sm:table-cell' },
+    { id: 'time', label: 'Agent time', value: (ep) => ep.rebuildS + ep.runningS, cell: (ep) => ({ text: episodeTime(ep), nowrap: true }), numeric: true, class: 'hidden sm:table-cell' },
+    { id: 'longest', label: 'Longest', value: (ep) => ep.longestS ?? -1, cell: (ep) => num(ep.longestS, seconds), numeric: true, class: 'hidden md:table-cell @5xl/main:hidden @[96rem]/main:table-cell' },
+    { id: 'sources', label: 'Sources', value: episodeSources, class: 'hidden lg:table-cell @5xl/main:hidden @[96rem]/main:table-cell' },
+  ]
+}
+
+export function episodeDetail(ep: RebuildEpisode): Detail {
+  return {
+    id: ep.id,
+    title: `Base rebuild episode · ${shortDayTime(ep.firstMs)} UTC`,
+    subtitle: episodeSources(ep),
+    stats: [
+      { label: 'Rebuilds', value: integer(ep.jobs.length) },
+      { label: 'Full', value: integer(ep.full) },
+      { label: 'Partial', value: integer(ep.partial) },
+      { label: 'Still running', value: integer(ep.rebuilding) },
+      { label: 'Agent time', value: episodeTime(ep) },
+      { label: 'Span', value: episodeSpan(ep) },
+    ],
+    tables: [{ title: 'Rebuilds', columns: jobColumns(), rows: ep.jobs, pageSize: 10, onRowClick: jobDetail }],
+    width: 'lg',
   }
 }
