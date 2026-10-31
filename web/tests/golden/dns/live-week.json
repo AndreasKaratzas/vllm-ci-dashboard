@@ -1,0 +1,161 @@
+{
+  "badge": "Updated just now",
+  "cards": [
+    {
+      "bars": [
+        {
+          "aria": "amd_mi250_4, smci250-ccs-aus-c21-33: ≥ 1 jobs with DNS observations; - passed, ≥ 1 nonpassing. Open exact Buildkite evidence.",
+          "count": "≥ 1",
+          "fill": "100%",
+          "meta": "- passed, ≥ 1 nonpassing - ≥ 1 episodes",
+          "name": "smci250-ccs-aus-c21-33",
+          "segments": [
+            "is-hard:100%"
+          ]
+        }
+      ],
+      "queue": "amd_mi250_4",
+      "stats": [
+        "≥ 1 jobs",
+        "≥ 1 nodes",
+        "- HF"
+      ]
+    },
+    {
+      "bars": [
+        {
+          "aria": "amd_mi355_1, bu-17: ≥ 1 jobs with DNS observations; - passed, ≥ 1 nonpassing. Open exact Buildkite evidence.",
+          "count": "≥ 1",
+          "fill": "100%",
+          "meta": "- passed, ≥ 1 nonpassing - ≥ 73 episodes",
+          "name": "bu-17",
+          "segments": [
+            "is-hard:100%"
+          ]
+        }
+      ],
+      "queue": "amd_mi355_1",
+      "stats": [
+        "≥ 1 jobs",
+        "≥ 1 nodes",
+        "- HF"
+      ]
+    }
+  ],
+  "coverage": "Partial coverage - counts are lower bounds. 3,852 jobs scanned - 136,212 eligible jobs - 2 positive jobs - 132,348 jobs pending - 0 logs unavailable - 12 oversized logs. Missing observations never mean zero.",
+  "drawers": [
+    {
+      "fields": [
+        "Queue=amd_mi250_4",
+        "Physical node=smci250-ccs-aus-c21-33",
+        "Affected jobs=≥ 1",
+        "DNS episodes=≥ 1",
+        "Hugging Face affected jobs=-",
+        "Passed after observation=-",
+        "Soft-failed after observation=-",
+        "Hard-failed after observation=≥ 1",
+        "Exact evidence shown=1",
+        "Exact evidence total=1",
+        "Evidence retention truncated=No"
+      ],
+      "links": [
+        "https://buildkite.com/vllm/ci/builds/94260/list?jid=01a1311a-fc4b-4fbd-ad8d-2f8ffd859e02&tab=output"
+      ],
+      "meta": "1 shown / 1 total",
+      "notes": [],
+      "rows": [
+        [
+          "Hard-failed",
+          "Open exact log",
+          "Oct 12, 05:46 PM",
+          "log timestamp",
+          "MI250",
+          "ci #94260",
+          "1",
+          "3",
+          "GitHub",
+          "curl could not resolve"
+        ]
+      ],
+      "subtitle": "amd_mi250_4 DNS evidence - 168h",
+      "title": "smci250-ccs-aus-c21-33"
+    },
+    {
+      "fields": [
+        "Queue=amd_mi355_1",
+        "Physical node=bu-17",
+        "Affected jobs=≥ 1",
+        "DNS episodes=≥ 73",
+        "Hugging Face affected jobs=-",
+        "Passed after observation=-",
+        "Soft-failed after observation=-",
+        "Hard-failed after observation=≥ 1",
+        "Exact evidence shown=1",
+        "Exact evidence total=1",
+        "Evidence retention truncated=No"
+      ],
+      "links": [
+        "https://buildkite.com/vllm/ci/builds/95124/list?jid=01a13f95-56c9-49a0-97ec-d73b768991a2&tab=output"
+      ],
+      "meta": "1 shown / 1 total",
+      "notes": [],
+      "rows": [
+        [
+          "Hard-failed",
+          "Open exact log",
+          "Oct 15, 01:06 PM → Oct 15, 02:02 PM",
+          "log timestamp",
+          "MI355",
+          "ci #95124",
+          "73",
+          "73",
+          "Unknown target",
+          "temporary name resolution"
+        ]
+      ],
+      "subtitle": "amd_mi355_1 DNS evidence - 168h",
+      "title": "bu-17"
+    }
+  ],
+  "empty": null,
+  "error": null,
+  "method": [
+    "One job attempt counts once when its complete log contains a DNS-specific resolver signature. Repeated matching lines collapse into episodes; retries remain distinct attempts. Generic connection, TLS, timeout, and HTTP failures do not count.",
+    "Selected window: Oct 12, 07:54 AM to Oct 19, 07:54 AM. Schema v1, generated Oct 19, 07:54 AM, source: live dns-health-data."
+  ],
+  "stale": null,
+  "stateWindow": "168h",
+  "summary": [
+    {
+      "label": "JOBS WITH DNS OBSERVATIONS",
+      "meta": "≥ 74 episodes",
+      "tone": "soft",
+      "value": "≥ 2"
+    },
+    {
+      "label": "AFFECTED QUEUES",
+      "meta": "active AMD GPU",
+      "tone": "",
+      "value": "≥ 2"
+    },
+    {
+      "label": "PHYSICAL NODES",
+      "meta": "including unidentified",
+      "tone": "",
+      "value": "≥ 2"
+    },
+    {
+      "label": "HUGGING FACE JOBS",
+      "meta": "resolver target",
+      "tone": "",
+      "value": "-"
+    },
+    {
+      "label": "PASSED / NONPASSING",
+      "meta": "final outcome after observation",
+      "tone": "hard",
+      "value": "- / ≥ 2"
+    }
+  ],
+  "window": "168h"
+}

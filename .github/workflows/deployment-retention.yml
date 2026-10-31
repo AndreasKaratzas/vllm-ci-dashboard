@@ -1,0 +1,55 @@
+name: Deployment Record Retention
+# cspell:ignore PYTHONDONTWRITEBYTECODE
+
+on:
+  schedule:
+    - cron: '48 4 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Preview eligible inactive deployment records without deleting them
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: deployment-record-retention
+  cancel-in-progress: false
+
+jobs:
+  retain:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+
+      - name: Install the bounded REST client
+        run: pip install -c constraints.txt requests
+
+      - name: Retain recent and active deployment records
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          args=()
+          if [[ "$DRY_RUN" != 'true' ]]; then
+            args+=(--apply)
+          fi
+          python scripts/vllm/prune_deployment_history.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --journal "$RUNNER_TEMP/deployment-retention-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.jsonl" \
+            --max-deletions 250 --timeout-seconds 1200 "${args[@]}"

@@ -1,0 +1,338 @@
+name: Docker Build Monitor (2h)
+
+on:
+  schedule:
+    # Off the lifecycle (:18/:48) and DNS (:38) GraphQL minutes. Successful
+    # attempts remain hard-gated to one per two hours, so the extra schedules
+    # make zero Buildkite calls.
+    - cron: '21,51 * * * *'
+  repository_dispatch:
+    # Optional external wake-up; the durable attempt ledger still enforces the
+    # success/retry cadences and rolling Buildkite request ceiling.
+    types: [docker_builds_tick]
+  workflow_dispatch:
+
+concurrency:
+  group: docker-builds-data-publish
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  docker-builds:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: ${{ github.workspace }}/scripts
+      DOCKER_CHECKPOINT: data/vllm/ci/.cache/docker-builds-wip-v1/checkpoint.json.gz
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+
+      - name: Reserve guarded Docker Builds attempt
+        id: request-attempt
+        env:
+          ATTEMPT_ID: docker-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          OUTPUTS="$RUNNER_TEMP/docker-builds-attempt.outputs"
+          : > "$OUTPUTS"
+          python3 scripts/vllm/request_bearing_attempt_budget.py \
+            --config config/docker_builds_attempt_budget.json reserve \
+            --attempt-id "$ATTEMPT_ID" \
+            --workflow-run-id "${{ github.run_id }}" \
+            --workflow-run-attempt "${{ github.run_attempt }}" \
+            --event-name "${{ github.event_name }}" \
+            --github-output "$OUTPUTS"
+          REQUEST_MODE=$(awk -F= '$1 == "request_mode" {print $2}' "$OUTPUTS")
+          ALLOWANCE=$(awk -F= '$1 == "request_start_allowance" {print $2}' "$OUTPUTS")
+          if [[ ! "$REQUEST_MODE" =~ ^(reserved|success_gated|retry_gated|cap_gated)$ ]] || \
+             [ "$ALLOWANCE" != 30 ]; then
+            echo "::error::Attempt ledger returned malformed gate outputs."
+            exit 1
+          fi
+          cat "$OUTPUTS" >> "$GITHUB_OUTPUT"
+
+      - name: Report bounded request gate
+        if: steps.request-attempt.outputs.request_mode != 'reserved'
+        run: >-
+          echo "Docker builds made zero Buildkite requests:
+          ${{ steps.request-attempt.outputs.request_mode }} until
+          ${{ steps.request-attempt.outputs.available_at }}."
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        if: steps.request-attempt.outputs.request_mode == 'reserved'
+        with:
+          python-version: '3.12.13'
+          cache: 'pip'
+          cache-dependency-path: |
+            constraints.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        if: steps.request-attempt.outputs.request_mode == 'reserved'
+        run: pip install -c constraints.txt requests
+
+      - name: Initialize exact Buildkite request guard
+        if: steps.request-attempt.outputs.request_mode == 'reserved'
+        env:
+          ATTEMPT_ID: docker-${{ github.run_id }}-${{ github.run_attempt }}
+          ALLOWANCE: ${{ steps.request-attempt.outputs.request_start_allowance }}
+        run: |
+          set -euo pipefail
+          GUARD_FILE="$RUNNER_TEMP/docker-buildkite-request-guard-${{ github.run_id }}-${{ github.run_attempt }}.json"
+          python scripts/vllm/buildkite_request_guard.py initialize \
+            --file "$GUARD_FILE" \
+            --attempt-id "$ATTEMPT_ID" \
+            --allowance "$ALLOWANCE"
+          {
+            echo "BUILDKITE_REQUEST_GUARD_FILE=$GUARD_FILE"
+            echo "BUILDKITE_REQUEST_GUARD_ATTEMPT_ID=$ATTEMPT_ID"
+            echo "BUILDKITE_REQUEST_GUARD_ALLOWANCE=$ALLOWANCE"
+          } >> "$GITHUB_ENV"
+
+      - name: Restore durable docker builds baseline
+        id: docker-baseline
+        if: steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          # A missing branch is the expected first-run bootstrap. Every other
+          # lookup/fetch/read failure is fatal: publishing an empty orphan
+          # branch over established evidence would discard the retained window.
+          set +e
+          DOCKER_REMOTE=$(git ls-remote --exit-code --refs origin refs/heads/docker-builds-data)
+          DOCKER_DATA_STATUS=$?
+          set -e
+          if [ "$DOCKER_DATA_STATUS" -eq 0 ]; then
+            read -r DOCKER_DATA_SHA DOCKER_DATA_REF EXTRA <<< "$DOCKER_REMOTE"
+            if ! [[ "$DOCKER_DATA_SHA" =~ ^[0-9a-f]{40}$ ]] || \
+               [ "$DOCKER_DATA_REF" != refs/heads/docker-builds-data ] || \
+               [ -n "${EXTRA:-}" ]; then
+              echo "::error::Docker builds branch lookup returned an ambiguous ref."
+              exit 1
+            fi
+            git fetch origin \
+              +refs/heads/docker-builds-data:refs/remotes/origin/docker-builds-data \
+              --depth=1
+            if [ "$(git rev-parse --verify 'origin/docker-builds-data^{commit}')" != \
+                 "$DOCKER_DATA_SHA" ]; then
+              echo "::error::Fetched docker builds baseline moved during exact restore."
+              exit 1
+            fi
+            python scripts/vllm/collect_docker_builds.py \
+              --restore-git-ref origin/docker-builds-data
+            echo "baseline_ref=$DOCKER_DATA_SHA" >> "$GITHUB_OUTPUT"
+          elif [ "$DOCKER_DATA_STATUS" -eq 2 ]; then
+            echo "No docker-builds-data branch exists; starting the first bounded bootstrap."
+            echo "baseline_ref=bootstrap" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Could not determine durable docker builds branch state; refusing to publish."
+            exit "$DOCKER_DATA_STATUS"
+          fi
+
+      # DOCKER-WIP-CACHE-BOUNDARY: the checkpoint holds only validated job rows
+      # and pagination cursors. It is gitignored and never installed into the
+      # durable data branch.
+      - name: Prepare private docker builds WIP cache key
+        id: docker-wip-cache-key
+        if: steps.request-attempt.outputs.request_mode == 'reserved'
+        shell: bash
+        run: |
+          set -euo pipefail
+          CACHE_NAMESPACE="docker-builds-wip-v1-${{ runner.os }}"
+          {
+            echo "key=$CACHE_NAMESPACE-${{ github.run_id }}-${{ github.run_attempt }}"
+            echo "namespace_prefix=$CACHE_NAMESPACE-"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore newest private docker builds WIP
+        if: steps.request-attempt.outputs.request_mode == 'reserved'
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/vllm/ci/.cache/docker-builds-wip-v1
+          key: ${{ steps.docker-wip-cache-key.outputs.key }}
+          restore-keys: |
+            ${{ steps.docker-wip-cache-key.outputs.namespace_prefix }}
+
+      - name: Collect ROCm docker build jobs
+        id: collect-docker-builds
+        # Independent backstop for the collector's 18-minute internal deadline.
+        timeout-minutes: 22
+        if: steps.request-attempt.outputs.request_mode == 'reserved'
+        env:
+          BUILDKITE_TOKEN: ${{ secrets.BUILDKITE_TOKEN }}
+          DOCKER_BASELINE_REF: ${{ steps.docker-baseline.outputs.baseline_ref }}
+        run: |
+          # Exit 75 means the request-start allowance was consumed and exit 76
+          # means the wall-clock budget ended; both saved resumable progress.
+          # Every other non-zero status remains a hard workflow failure.
+          set +e
+          python scripts/vllm/collect_docker_builds.py \
+            --checkpoint "$DOCKER_CHECKPOINT" \
+            --baseline-ref "$DOCKER_BASELINE_REF" \
+            --window-days 30 \
+            --refetch-hours 10 \
+            --max-requests 30 \
+            --time-budget-seconds 1080
+          DOCKER_STATUS=$?
+          set -e
+          if [ "$DOCKER_STATUS" -eq 0 ]; then
+            echo "collection_complete=true" >> "$GITHUB_OUTPUT"
+          elif [ "$DOCKER_STATUS" -eq 75 ]; then
+            echo "collection_complete=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Docker builds collection used its request allowance and saved resumable progress."
+          elif [ "$DOCKER_STATUS" -eq 76 ]; then
+            echo "collection_complete=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Docker builds collection reached its wall-clock budget and saved resumable progress."
+          else
+            exit "$DOCKER_STATUS"
+          fi
+
+      - name: Read exact guarded Buildkite request total
+        id: request-guard-report
+        if: >-
+          always() &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          set -euo pipefail
+          python scripts/vllm/buildkite_request_guard.py report \
+            --file "$BUILDKITE_REQUEST_GUARD_FILE" \
+            --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
+            --allowance "$BUILDKITE_REQUEST_GUARD_ALLOWANCE" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Validate docker builds evidence
+        id: docker-validation
+        if: >-
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
+          steps.collect-docker-builds.outputs.collection_complete == 'true' &&
+          steps.request-guard-report.outcome == 'success'
+        run: |
+          python -m json.tool data/vllm/ci/docker_builds.json >/dev/null
+          python scripts/vllm/collect_docker_builds.py --validate-only
+          python scripts/vllm/audit_dashboard_data.py \
+            --docker-builds-only --docker-builds-path data/vllm/ci/docker_builds.json
+
+      - name: Publish durable docker builds evidence
+        id: docker-publication
+        if: >-
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
+          steps.collect-docker-builds.outputs.collection_complete == 'true' &&
+          steps.request-guard-report.outcome == 'success' &&
+          steps.docker-validation.outcome == 'success'
+        env:
+          DOCKER_BASELINE_REF: ${{ steps.docker-baseline.outputs.baseline_ref }}
+        run: |
+          # Only the public aggregate is retained on this single-commit orphan
+          # branch; it is also the restore baseline for the next attempt.
+          LIVE_ROOT=$(mktemp -d)
+          cleanup() {
+            git worktree remove --force "$LIVE_ROOT" 2>/dev/null || true
+            rm -rf "$LIVE_ROOT"
+          }
+          trap cleanup EXIT
+          git worktree add --detach "$LIVE_ROOT" HEAD
+          git -C "$LIVE_ROOT" switch --orphan docker-builds-data-publish
+          git -C "$LIVE_ROOT" rm -rf --ignore-unmatch .
+          install -D -m 0644 data/vllm/ci/docker_builds.json \
+            "$LIVE_ROOT/data/vllm/ci/docker_builds.json"
+          git -C "$LIVE_ROOT" config user.name "github-actions[bot]"
+          git -C "$LIVE_ROOT" config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C "$LIVE_ROOT" add data/vllm/ci/docker_builds.json
+          python "$GITHUB_WORKSPACE/scripts/vllm/check_git_blob_sizes.py" --root "$LIVE_ROOT"
+          git -C "$LIVE_ROOT" commit -m "docker: build job observations $(date -u +%Y-%m-%dT%H:%M)"
+          DURABLE_REF=$(git -C "$LIVE_ROOT" rev-parse --verify 'HEAD^{commit}')
+          if [ "$DOCKER_BASELINE_REF" = bootstrap ]; then
+            DOCKER_LEASE="--force-with-lease=refs/heads/docker-builds-data:"
+          elif [[ "$DOCKER_BASELINE_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            DOCKER_LEASE="--force-with-lease=refs/heads/docker-builds-data:$DOCKER_BASELINE_REF"
+          else
+            echo "::error::Docker builds publication baseline ref is invalid."
+            exit 1
+          fi
+          git -C "$LIVE_ROOT" push "$DOCKER_LEASE" origin HEAD:docker-builds-data
+          REMOTE_REF=$(git ls-remote --refs origin refs/heads/docker-builds-data | awk '{print $1}')
+          if ! [[ "$DURABLE_REF" =~ ^[0-9a-f]{40}$ ]] || \
+             [ "$REMOTE_REF" != "$DURABLE_REF" ]; then
+            echo "::error::Published docker builds ref does not match its exact local commit."
+            exit 1
+          fi
+          echo "durable_ref=$DURABLE_REF" >> "$GITHUB_OUTPUT"
+
+      - name: Mark durable Docker Builds success
+        if: steps.docker-publication.outputs.durable_ref != ''
+        env:
+          DURABLE_REF: ${{ steps.docker-publication.outputs.durable_ref }}
+          ACTUAL_REQUEST_STARTS: ${{ steps.request-guard-report.outputs.actual_request_starts }}
+        run: |
+          set -euo pipefail
+          for MARK_ATTEMPT in 1 2 3; do
+            if python scripts/vllm/request_bearing_attempt_budget.py \
+              --config config/docker_builds_attempt_budget.json mark-success \
+              --attempt-id "$BUILDKITE_REQUEST_GUARD_ATTEMPT_ID" \
+              --durable-ref "$DURABLE_REF" \
+              --actual-request-starts "$ACTUAL_REQUEST_STARTS"; then
+              exit 0
+            fi
+            if [ "$MARK_ATTEMPT" -lt 3 ]; then sleep $((MARK_ATTEMPT * 2)); fi
+          done
+          echo "::error::Docker builds data published, but its durable attempt success could not be recorded."
+          exit 1
+
+      - name: Clear published docker builds WIP
+        if: steps.docker-publication.outputs.durable_ref != ''
+        run: >-
+          python scripts/vllm/collect_docker_builds.py
+          --checkpoint "$DOCKER_CHECKPOINT"
+          --clear-checkpoint
+
+      - name: Prepare private docker builds cache payload
+        id: docker-wip-cache-payload
+        if: >-
+          always() &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        run: |
+          # The marker keeps a cleared checkpoint cacheable, so an older WIP
+          # entry can never become the newest restore candidate again.
+          set -euo pipefail
+          WIP_DIR=$(dirname "$DOCKER_CHECKPOINT")
+          mkdir -p "$WIP_DIR"
+          echo "docker-builds-private-cache-v1" > "$WIP_DIR/cache-marker"
+
+      - name: Save private docker builds recovery checkpoint
+        if: >-
+          always() &&
+          steps.request-attempt.outputs.request_mode == 'reserved' &&
+          steps.docker-wip-cache-payload.outcome == 'success'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/vllm/ci/.cache/docker-builds-wip-v1
+          key: ${{ steps.docker-wip-cache-key.outputs.key }}
+
+      - name: Prune superseded private docker builds caches
+        if: >-
+          always() &&
+          steps.request-attempt.outputs.request_mode == 'reserved'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          CACHE_IDS="$RUNNER_TEMP/docker-builds-wip-cache-ids.txt"
+          gh cache list \
+            --repo "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF" \
+            --key "docker-builds-wip-v1-${{ runner.os }}-" \
+            --sort created_at \
+            --order desc \
+            --limit 100 \
+            --json id \
+            --jq '.[8:] | .[].id' > "$CACHE_IDS"
+          while IFS= read -r CACHE_ID; do
+            if [[ "$CACHE_ID" =~ ^[0-9]+$ ]]; then
+              gh cache delete "$CACHE_ID" --repo "$GITHUB_REPOSITORY"
+            fi
+          done < "$CACHE_IDS"
