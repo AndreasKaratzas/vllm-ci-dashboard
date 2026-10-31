@@ -308,10 +308,11 @@ def duration_state(mains: list[dict]) -> dict:
 
 
 # ROCm docker build jobs, as (pipeline, step, day before GENERATED_AT, hour, minutes, source) plus options.
-# Over the last 14 days vllm/ci has 20 finished first test image runs (one failed), a retried attempt
-# and a running job, and 29 base runs: 24 reused (72-95 s), partial rebuilds of 15, 45 and 95 min and
-# full rebuilds of 2.5 and 5 h. Day 5 has no test image run. Older days, vllm/amd-ci and the retired
-# ci_base step only widen the other slices.
+# Over the last 14 days vllm/ci has 22 finished first test image runs (one failed), a retried attempt
+# and a running job, and 36 finished base runs: 27 reused (72-95 s), partial rebuilds of 15, 30, 45 and
+# 95 min and full rebuilds of 150 (twice), 160, 170 and 300 min, plus one still rebuilding at collection.
+# Day 5 has no test image run. Older days, vllm/amd-ci and the retired ci_base step only widen the
+# other slices.
 IMAGE_MINUTES = (10, 12, 14, 15, 16, 18, 20, 22, 24, 25, 26, 28, 30, 32, 35, 38, 40, 45, 50, 60)
 IMAGE, BASE, RETIRED = "image-build-amd", "refresh-rocm-base-amd", "ensure-ci-base-amd"
 
@@ -339,6 +340,14 @@ def docker_jobs() -> list[tuple]:
         jobs.append(("amd-ci", IMAGE, day, 9, minutes, "main", {}))
     for day, minutes in ((1, 1.3), (2, 30), (3, 1.4), (6, 1.5)):
         jobs.append(("amd-ci", BASE, day, 9, minutes, "main", {}))
+    # Day 0: one rebuild episode (each rebuild within an hour of the last), then cache hits, test images and a
+    # base rebuild still running at collection.
+    for hour, minutes in ((12.0, 150), (12.3, 160), (12.6, 170), (13.2, 30)):
+        jobs.append(("ci", BASE, 0, hour, minutes, "pr", {}))
+    for hour in (18.6, 19.2, 19.6):
+        jobs.append(("ci", BASE, 0, hour, 1.4, "main", {}))
+    jobs += [("ci", IMAGE, 0, 18.7, 12, "main", {}), ("ci", IMAGE, 0, 19.3, 14, "pr", {}),
+             ("ci", BASE, 0, 19.25, None, "pr", {"running": True})]
     # A job of another queue is dropped by the projection.
     jobs.append(("ci", IMAGE, 0, 3, 90, "main", {"queue": "medium_cpu_queue_premerge"}))
     return jobs

@@ -50,6 +50,12 @@ export function seconds(value: unknown): string {
   return h % 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${h / 24}d`
 }
 
+/** Agent time summed over runs: seconds() under an hour, then decimal hours ("14.3 h", "388 h"). */
+export function agentHours(s: number): string {
+  if (s < 3600) return seconds(s)
+  return s < 99.95 * 3600 ? `${(s / 3600).toFixed(1)} h` : `${Math.round(s / 3600)} h`
+}
+
 export function shortDate(ts: unknown): string {
   if (!ts) return '-'
   const d = new Date(String(ts))
