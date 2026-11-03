@@ -166,17 +166,20 @@ def _is_fresh(reliability: dict, now: datetime) -> bool:
     return -timedelta(minutes=15) <= age <= MAX_DATA_AGE
 
 
-def _wall_history(group: dict) -> list[tuple[int, float | None]] | None:
-    """(build, final passing wall minutes or None) per build, or None if absent."""
+def _wall_history(group: dict) -> list[tuple[int, float | None, int]] | None:
+    """(build, final passing wall minutes or None, jobs) per build, or None if absent."""
     history = group.get("outcome_history")
     if not isinstance(history, dict):
         return None
     numbers, walls = history.get("builds"), history.get("wall_mins")
     if not isinstance(numbers, list) or not isinstance(walls, list) or len(numbers) != len(walls):
         return None
+    jobs = history.get("jobs")
+    if not isinstance(jobs, list) or len(jobs) != len(numbers):
+        jobs = [1] * len(numbers)
     return [
-        (number, _positive_float(wall))
-        for number, wall in zip(numbers, walls)
+        (number, _positive_float(wall), count if type(count) is int and count > 0 else 1)
+        for number, wall, count in zip(numbers, walls, jobs)
         if isinstance(number, int) and not isinstance(number, bool)
     ]
 
@@ -216,10 +219,12 @@ def _display_name(groups: list[dict]) -> str:
 def _signal_runs(groups: list[dict], catalog: dict[int, dict]) -> list[dict]:
     """One row per cohort build: job count and summed wall when every job passed."""
     by_build: dict[int, list[float | None]] = defaultdict(list)
+    jobs: Counter[int] = Counter()
     for group in groups:
-        for number, wall in _wall_history(group) or []:
+        for number, wall, count in _wall_history(group) or []:
             if number in catalog:
                 by_build[number].append(wall)
+                jobs[number] += count
     runs = []
     for number, walls in by_build.items():
         build = catalog[number]
@@ -228,7 +233,7 @@ def _signal_runs(groups: list[dict], catalog: dict[int, dict]) -> list[dict]:
             "created_at": str(build.get("created_at") or ""),
             "commit": str(build.get("commit") or ""),
             "build_url": str(build.get("url") or ""),
-            "jobs": len(walls),
+            "jobs": jobs[number],
             "wall_mins": round(sum(walls), 1) if all(wall is not None for wall in walls) else None,
         })
     runs.sort(key=lambda row: (row["created_at"], row["build_number"]))

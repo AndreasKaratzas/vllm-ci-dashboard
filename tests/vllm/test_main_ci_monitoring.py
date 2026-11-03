@@ -17,6 +17,7 @@ from vllm import main_ci_section
 from vllm.ci import main_flakiness
 from vllm.ci.main_pulse_overlay import merge_overlay, overlay_groups
 from vllm.ci.reliability_history import (
+    GROUP_IDENTITY_VERSION,
     OBSERVATION_LIMIT,
     build_all_main_reliability,
     validate_all_main_reliability,
@@ -95,11 +96,13 @@ def test_reliability_records_per_build_amd_counts_and_final_outcome_history():
     assert reliability["builds"][0]["amd_jobs"] == {
         "passed": 2, "soft": 1, "hard": 1, "unknown": 1, "not_run": 1, "retried": 1,
     }
-    assert _group(reliability, "Retried")["outcome_history"] == {"builds": [101], "results": "r", "wall_mins": [9.0]}
+    assert _group(reliability, "Retried")["outcome_history"] == {
+        "builds": [101], "results": "r", "wall_mins": [9.0], "jobs": [1],
+    }
     assert _group(reliability, "Stable")["outcome_history"]["results"] == "p"
     assert _group(reliability, "Broken")["outcome_history"]["results"] == "f"
     assert _group(reliability, "Soft")["outcome_history"]["results"] == "s"
-    assert _group(reliability, "Blocked")["outcome_history"] == {"builds": [], "results": "", "wall_mins": []}
+    assert _group(reliability, "Blocked")["outcome_history"] == {"builds": [], "results": "", "wall_mins": [], "jobs": []}
 
 
 def _flaky_builds(start, count, *, outcome):
@@ -220,117 +223,119 @@ def _renamed_lora_shards(new_state, renamed=True, runs=1):
 
 
 @pytest.mark.parametrize("new_state", ["passed", "soft_fail", "failed"])
-def test_renamed_shards_resolve_or_carry_their_incidents(new_state):
+def test_replanned_shards_keep_one_group_and_its_incident(new_state):
     reliability = _renamed_lora_shards(new_state)
     events = []
     state = amd.advance_incidents(
         reliability, amd._default_state(), track_commit_range=True, initialize_from_history=True, events=events
     )
 
-    renamed = [event for event in events if event.get("reason") == "renamed"]
-    assert sorted(event["name"] for event in renamed) == [f"LoRA Shard {index}" for index in range(1, 5)]
-    assert {event["build_number"] for event in renamed} == {302}
+    (group,) = reliability["groups"]
+    assert group["name"] == "LoRA"
+    assert group["outcome_history"]["results"] == "pf" + {"passed": "p", "soft_fail": "s", "failed": "f"}[new_state]
+    assert group["outcome_history"]["jobs"] == [4, 4, 2]
+    assert not [event for event in events if event.get("reason") == "renamed"]
     if new_state == "passed":
         assert state["active"] == {} and state["pending_soft"] == {}
-        assert {event["event"] for event in renamed} == {"resolved"}
+        assert [(event["event"], event["build_number"]) for event in events] == [("opened", 301), ("resolved", 302)]
         return
-    carried = _group(reliability, "LoRA Shard 2/2")["group_id"]
-    assert list(state["active"]) == [carried] and state["pending_soft"] == {}
-    incident = state["active"][carried]
-    assert (incident["transition"]["peak_severity"], incident["good_build_number"], incident["bad_build_number"]) == (
-        "hard", 300, 301
-    )
-    assert sorted((event["event"], event.get("carried_to", "")) for event in renamed) == [
-        ("renamed", ""), ("renamed", ""), ("renamed", ""), ("renamed", carried)
-    ]
-    assert [event["build_number"] for event in events if event["group_id"] == carried] == [302]
+    incident = state["active"][group["group_id"]]
+    assert (incident["good_build_number"], incident["bad_build_number"]) == (300, 301)
+    assert [(event["event"], event["build_number"]) for event in events] == [("opened", 301)]
 
 
 @pytest.mark.parametrize("new_state", ["passed", "failed"])
-def test_renamed_shards_resolve_or_carry_after_their_first_run_ages_out(new_state):
+def test_step_outcome_survives_shard_observations_aging_out(new_state):
     state = amd.advance_incidents(
         _renamed_lora_shards("failed", renamed=False), amd._default_state(), track_commit_range=True, initialize_from_history=True
     )
     reliability = _renamed_lora_shards(new_state, runs=OBSERVATION_LIMIT + 10)
-    assert 302 not in {row["build_number"] for row in _group(reliability, "LoRA Shard 2/2")["observations"]}
+    (group,) = reliability["groups"]
+    assert 302 not in {row["build_number"] for row in group["observations"]}
     events = []
     state = amd.advance_incidents(reliability, state, track_commit_range=True, events=events)
 
-    renamed = {(event["event"], event["build_number"]) for event in events if event.get("reason") == "renamed"}
     if new_state == "passed":
-        assert state["active"] == {} and renamed == {("resolved", 302)}
+        assert state["active"] == {}
+        assert [(event["event"], event["build_number"]) for event in events] == [("resolved", 302)]
         return
-    incident = state["active"].pop(_group(reliability, "LoRA Shard 2/2")["group_id"])
-    assert state["active"] == {} and renamed == {("renamed", 302)}
+    incident = state["active"].pop(group["group_id"])
+    assert state["active"] == {} and events == []
     assert (incident["good_build_number"], incident["bad_build_number"]) == (300, 301)
 
 
-def test_incidents_held_past_an_already_processed_rename_resolve_on_the_next_run():
-    reliability = _renamed_lora_shards("passed", runs=3)
-    before_rename = json.loads(json.dumps(reliability))
-    for group in before_rename["groups"]:
-        if "/" in group["name"]:
-            del group["outcome_history"]
-    state = amd.advance_incidents(
-        before_rename, amd._default_state(), track_commit_range=True, initialize_from_history=True
-    )
-    assert len(state["active"]) == 4
+def test_identity_migration_carries_shard_incidents_to_one_step_group():
+    reliability = _renamed_lora_shards("failed", renamed=False)
+    (group,) = reliability["groups"]
+    step_run = {"step": ["amd-lora", "mi300", "amd_mi300_1"], "labels": ["old-1", "old-2"]}
 
-    events = []
-    state = amd.advance_incidents(reliability, state, track_commit_range=True, events=events)
+    def legacy(name, status, start):
+        return {
+            "group_id": name, "name": f"LoRA {name}", "hardware": "mi300", "queue": "amd_mi300_1",
+            "result": "failed", "build_number": 301, "bad_build_number": int(start), "step_run": step_run,
+            "transition": {"status": status, "severity": "hard", "peak_severity": "hard", "soft_streak": 0,
+                           "last_eligible_build_id": "301", "incident_start_build_id": start,
+                           "confirmed_build_id": "301" if status == "confirmed" else None},
+        }
 
-    assert state["active"] == {} and state["pending_soft"] == {}
-    assert {(event["event"], event["reason"], event["build_number"]) for event in events} == {
-        ("resolved", "renamed", 304)
+    old = {
+        **amd._default_state(),
+        "initialized": True,
+        "processed_build_numbers": [300, 301],
+        "active": {"old-1": legacy("Shard 1", "confirmed", "301")},
+        "pending_soft": {"old-2": legacy("Shard 2", "pending_soft", "300")},
+        "group_watermarks": {"old-1": {"build_number": 301}, "old-2": {"build_number": 301}},
+        "timeline": [{"event": "opened", "group_id": "old-1", "build_number": 301}],
     }
-
-
-def test_renamed_shard_with_a_newer_pass_does_not_reopen_on_carry_over():
-    state = amd.advance_incidents(
-        _renamed_lora_shards("failed", renamed=False), amd._default_state(), track_commit_range=True, initialize_from_history=True
-    )
-    assert len(state["active"]) == 4
-
-    reliability = _renamed_lora_shards("failed")
-    replacement = _group(reliability, "LoRA Shard 2/2")["group_id"]
-    at = _ts(NOW - timedelta(hours=3))
-    state["group_watermarks"][replacement] = {
-        "build_number": 303, "order_at": at, "created_at": at, "finished_at": at,
-        "result": "passed", "commit": "%040x" % 303,
-    }
+    del old["group_identity_version"]
     events = []
-    state = amd.advance_incidents(reliability, state, track_commit_range=True, events=events)
+    state = amd.advance_incidents(reliability, old, track_commit_range=True, events=events)
 
-    assert state["active"] == {} and state["pending_soft"] == {}
-    assert state["group_watermarks"][replacement]["build_number"] == 303
-    assert {(event["event"], event["reason"]) for event in events} == {("resolved", "renamed")}
+    assert list(state["active"]) == [group["group_id"]] and state["pending_soft"] == {}
+    assert state["active"][group["group_id"]]["bad_build_number"] == 301
+    assert state["active"][group["group_id"]]["step_run"]["labels"] == [group["group_id"]]
+    assert set(state["group_watermarks"]) == {group["group_id"]}
+    assert state["group_identity_version"] == GROUP_IDENTITY_VERSION
+    assert state["timeline"] == [{"event": "opened", "group_id": group["group_id"], "build_number": 301}]
+    assert events == []
+
+    # A pulse overlay written before the migration still names its step key.
+    state["active"]["old-3"] = {**legacy("Shard 2/2", "confirmed", "300"), "step_key": "amd-lora", "step_run": None}
+    state = amd.advance_incidents(reliability, state, track_commit_range=True)
+    assert list(state["active"]) == [group["group_id"]]
+    assert state["active"][group["group_id"]]["bad_build_number"] == 300
 
 
-@pytest.mark.parametrize("newer_result", ["failed", "soft_fail"])
-def test_renamed_shard_still_failing_at_a_newer_build_takes_the_old_incident(newer_result):
-    state = amd.advance_incidents(
-        _renamed_lora_shards("failed", renamed=False), amd._default_state(), track_commit_range=True, initialize_from_history=True
+def test_watcher_leaves_state_untouched_for_reliability_of_another_identity(monkeypatch, tmp_path):
+    monkeypatch.setattr(amd, "ANALYTICS", tmp_path / "analytics.json")
+    config = dataclasses.replace(upstream.CONFIG, state=tmp_path / "open_ci_main_failure_issues.json")
+    at = datetime.now(timezone.utc) - timedelta(hours=1)
+    reliability = _reliability([_build(201, at, [_job("j201", "Kernels", "failed", at)])], datetime.now(timezone.utc))
+    del reliability["group_identity_version"]
+    _write_analytics(tmp_path / "analytics.json", reliability)
+
+    assert amd.run_watcher(config) == 0
+    assert not config.state.exists()
+
+
+def test_failing_build_row_links_the_failing_shard():
+    at = NOW - timedelta(hours=2)
+    jobs = [
+        _job("shard-1", "LoRA Shard 1/2", "passed", at + timedelta(minutes=5), step="amd-lora"),
+        _job("shard-2", "LoRA Shard 2/2", "failed", at, step="amd-lora"),
+    ]
+    section = main_ci_section.build_main_ci(
+        {"all_main_reliability": _reliability([_build(401, at, jobs)])}, {}, _ts(NOW)
     )
-    reliability = _renamed_lora_shards("failed")
-    replacement = _group(reliability, "LoRA Shard 2/2")["group_id"]
-    at = _ts(NOW - timedelta(hours=3))
-    state["group_watermarks"][replacement] = {
-        "build_number": 303, "order_at": at, "created_at": at, "finished_at": at,
-        "result": newer_result, "commit": "%040x" % 303,
-    }
-    held = state["active" if newer_result == "failed" else "pending_soft"]
-    held[replacement] = {**next(iter(state["active"].values())), "group_id": replacement, "name": "LoRA Shard 2/2"}
-    events = []
-    state = amd.advance_incidents(reliability, state, track_commit_range=True, events=events)
 
-    assert list(state["active"]) == [replacement] and state["pending_soft"] == {}
-    opened = {("opened", None)} if newer_result == "soft_fail" else set()
-    assert {(event["event"], event.get("carried_to")) for event in events} == {("renamed", replacement), ("renamed", None), *opened}
+    (row,) = section["builds"][0]["failing"]
+    assert row["severity"] == "hard" and row["job_url"].endswith("jid=shard-2&tab=output")
+    assert section["builds"][0]["amd"]["hard"] == 1 and section["builds"][0]["amd"]["passed"] == 0
 
 
 @pytest.mark.parametrize("replay", [False, True])
 @pytest.mark.parametrize("renamed_results", [("passed", "failed"), ("failed", "passed", "failed")])
-def test_renamed_shard_that_passed_before_failing_in_one_run_keeps_its_own_range(renamed_results, replay):
+def test_replanned_step_that_passed_before_failing_keeps_its_own_range(renamed_results, replay):
     start = NOW - timedelta(hours=6)
 
     def build(number, shards):
@@ -353,13 +358,12 @@ def test_renamed_shard_that_passed_before_failing_in_one_run_keeps_its_own_range
         reliability, state, track_commit_range=True, initialize_from_history=replay, events=events
     )
 
-    replacement = _group(reliability, "LoRA Shard 2/2")["group_id"]
-    assert list(state["active"]) == [replacement]
-    incident = state["active"][replacement]
+    (group,) = reliability["groups"]
+    assert list(state["active"]) == [group["group_id"]]
+    incident = state["active"][group["group_id"]]
     assert (incident["good_build_number"], incident["bad_build_number"]) == (builds[-2]["number"], builds[-1]["number"])
-    renamed = {(event["event"], event["build_number"]) for event in events if event.get("reason") == "renamed"}
-    assert renamed == {("resolved" if renamed_results[0] == "passed" else "renamed", 302)}
-    assert [event["event"] for event in events if event["group_id"] == replacement][-1] == "opened"
+    assert not [event for event in events if event.get("reason") == "renamed"]
+    assert events[-1]["event"] == "opened"
 
 
 @pytest.mark.parametrize("final_state", ["passed", "failed"])
@@ -475,9 +479,9 @@ def test_carried_incident_keeps_its_good_build_before_its_bad_build():
     assert (incident["bad_build_number"], incident["good_build_number"]) == (300, None)
 
 
-def test_flakiness_drops_renamed_labels():
+def test_flakiness_keeps_one_row_per_replanned_step():
     rows = main_flakiness.group_rows(_renamed_lora_shards("passed"), NOW, 7)
-    assert sorted(row["name"] for row in rows) == ["LoRA Shard 1/2", "LoRA Shard 2/2"]
+    assert [row["name"] for row in rows] == ["LoRA"]
 
 
 def test_flakiness_thresholds_are_inclusive():
