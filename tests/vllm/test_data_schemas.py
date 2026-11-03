@@ -17,6 +17,7 @@ import pytest
 
 from vllm.ci import dns_failures as dns_backend
 from vllm.ci import docker_builds as docker_backend
+from vllm.amd_queue_registry import TARGET_HARDWARE
 from vllm.constants import amd_gpu_hardware
 
 from tests.vllm.workload_live_contract import (
@@ -611,12 +612,6 @@ class TestQueueJobs:
 
 
 class TestQueueLifecycle:
-    TARGET_QUEUES = [
-        f"amd_mi{family}_{width}"
-        for family in (250, 300, 355)
-        for width in (1, 2, 4, 8)
-    ]
-
     def test_top_level_and_exact_scope(self):
         d = _load_json_or_skip("queue_lifecycle.json")
         _assert_has_keys(
@@ -637,8 +632,10 @@ class TestQueueLifecycle:
             "queue_lifecycle.json",
         )
         assert d["schema_version"] == 1
-        assert d["scope"]["queues"] == self.TARGET_QUEUES
-        assert set(d["queues"]) == set(self.TARGET_QUEUES)
+        queues = d["scope"]["queues"]
+        assert queues and len(set(queues)) == len(queues)
+        assert {amd_gpu_hardware(queue) for queue in queues} <= set(TARGET_HARDWARE)
+        assert set(d["queues"]) == set(queues)
         assert isinstance(d["coverage"].get("complete"), bool)
 
     def test_daily_wait_vectors(self):

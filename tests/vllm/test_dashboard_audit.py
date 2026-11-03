@@ -580,7 +580,7 @@ def test_queue_lifecycle_audit_accepts_and_reconciles_bounded_daily_vectors(tmp_
     observation = {
         "schema_version": queue_lifecycle.SCHEMA_VERSION,
         "job_id": "a" * 64,
-        "queue": queue_lifecycle.AMD_METRIC_TARGET_QUEUES[0],
+        "queue": queue_lifecycle.target_queues()[0],
         "timestamps": {
             "created_at": "2026-08-11T18:00:00Z",
             "runnable_at": "2026-08-11T18:10:00Z",

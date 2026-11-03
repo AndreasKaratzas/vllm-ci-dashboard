@@ -52,6 +52,7 @@ from vllm.buildkite_request_guard import (  # noqa: E402
 
 install_from_environment_or_exit()
 
+from vllm.amd_queue_registry import lanes  # noqa: E402
 from vllm.constants import BK_API_BASE, BK_ORG, amd_gpu_hardware  # noqa: E402
 from vllm.pipelines import _job_queue as observed_job_queue, is_cpu_only_job  # noqa: E402
 from vllm.ci.utils import parse_iso  # noqa: E402
@@ -240,13 +241,31 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
     return data
 
 
-def monitored_queues(config: dict) -> dict[str, dict]:
-    """Return the exact public AMD queue allowlist keyed by Buildkite queue ID."""
-    rows: dict[str, dict] = {}
+def monitored_queues(config: dict, registry: dict | None = None) -> dict[str, dict]:
+    """Return the AMD queue-lane allowlist: ci-infra lanes with config overrides."""
+    registry_lanes = lanes(registry)
+    families = {
+        str(family).upper()
+        for family in (config.get("scope") or {}).get("monitored_hardware_families") or []
+    }
+    rows: dict[str, dict] = {
+        lane["id"]: {
+            "id": lane["id"],
+            "label": lane["id"].removeprefix("amd_"),
+            "family": lane["hardware"],
+            "gpus_per_job": lane["gpus_per_job"],
+            "lifecycle": "active",
+        }
+        for lane in registry_lanes.values()
+        if lane["hardware"] in families
+    }
     for raw in config.get("queues") or []:
-        if not isinstance(raw, dict) or raw.get("monitored") is not True:
+        if not isinstance(raw, dict):
             continue
         queue_id = str(raw.get("id") or "").strip()
+        if raw.get("monitored") is not True or queue_id not in registry_lanes:
+            rows.pop(queue_id, None)
+            continue
         if not amd_gpu_hardware(queue_id) or "perf_eval" in queue_id.casefold():
             continue
         try:

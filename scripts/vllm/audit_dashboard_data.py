@@ -73,7 +73,12 @@ from vllm.publication_surfaces import (  # noqa: E402
     unavailable_finding_surfaces,
 )
 from vllm.dashboard_storage_budget import group_max_bytes, writer_max_bytes  # noqa: E402
-from vllm.constants import AGENT_HEALTH_ATTRIBUTIONS, AGENT_HEALTH_NODE_SUSPECT  # noqa: E402
+from vllm.amd_queue_registry import TARGET_HARDWARE  # noqa: E402
+from vllm.constants import (  # noqa: E402
+    AGENT_HEALTH_ATTRIBUTIONS,
+    AGENT_HEALTH_NODE_SUSPECT,
+    amd_gpu_hardware,
+)
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 DATA = ROOT / "data"
@@ -697,7 +702,7 @@ DATA_SPECS: tuple[DataSpec, ...] = (
             "coverage",
             "provenance",
         ),
-        "Direct observed event-time lifecycle metrics for the twelve canonical AMD queues",
+        "Direct observed event-time lifecycle metrics for the ci-infra-routed MI250/MI300/MI355 queues",
     ),
     DataSpec(
         "data/vllm/ci/workload_mapping.json",
@@ -8113,19 +8118,24 @@ class DashboardAudit:
             )
             return
 
-        expected_queues = [
-            f"amd_mi{family}_{width}"
-            for family in (250, 300, 355)
-            for width in (1, 2, 4, 8)
-        ]
         scope = _mapping(payload.get("scope"))
-        if scope.get("queues") != expected_queues:
+        expected_queues = scope.get("queues")
+        if (
+            not isinstance(expected_queues, list)
+            or not expected_queues
+            or len(set(map(str, expected_queues))) != len(expected_queues)
+            or any(
+                not isinstance(queue, str) or amd_gpu_hardware(queue) not in TARGET_HARDWARE
+                for queue in expected_queues
+            )
+        ):
             self.error(
                 "queue-lifecycle-scope",
-                "queue lifecycle scope must be exactly the twelve canonical MI250/MI300/MI355 queues",
+                "queue lifecycle scope must list distinct MI250/MI300/MI355 queues",
                 path,
             )
-        if scope.get("families") != ["MI250", "MI300", "MI355"]:
+            expected_queues = []
+        if scope.get("families") != list(TARGET_HARDWARE):
             self.error(
                 "queue-lifecycle-families",
                 f"queue lifecycle families are {scope.get('families')!r}",
@@ -8413,7 +8423,7 @@ class DashboardAudit:
         if not isinstance(queues, dict) or set(queues) != set(expected_queues):
             self.error(
                 "queue-lifecycle-queue-map",
-                "queue lifecycle queue map must contain only the ordered canonical queue cohort",
+                "queue lifecycle queue map must contain exactly the scoped queues",
                 path,
             )
             queues = queues if isinstance(queues, dict) else {}

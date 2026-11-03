@@ -506,3 +506,32 @@ def test_capacity_payload_compacts_detail_then_group_rows_with_exact_summary(
     assert retention["aggregate_summaries_complete"] is True
     assert retention["complete_relative_to_source"] is False
     assert retention["group_index"]["omitted"] > 0
+
+
+def test_dpx_mirror_groups_are_in_capacity_scope_with_unknown_not_zero_capacity(
+    tmp_path: Path,
+) -> None:
+    repo = _fake_repo(tmp_path)
+    _write(
+        repo / ".buildkite" / "test_areas" / "dpx.yaml",
+        """
+group: DPX
+steps:
+- label: DPX mirrored
+  mirror:
+    amd:
+      device: mi355_dpx
+""",
+    )
+
+    payload = ccm.build_capacity_payload(repo, theoretical_groups=4)
+
+    group = next(row for row in payload["groups"] if row["device"] == "mi355_dpx")
+    assert group["queue"] == "amd_mi355_dpx"
+    assert group["in_capacity_scope"] is True
+    queue = {row["id"]: row for row in payload["projection"]["queues"]}["amd_mi355_dpx"]
+    assert queue["capacity_source"] == "unconfigured"
+    assert queue["max_concurrent_jobs"] is None
+    assert queue["projected_capacity_ratio"] is None
+    assert payload["scope"]["unconfigured_capacity_queues"] == ["amd_mi355_dpx"]
+    assert payload["scope"]["queue_registry"]["repository"] == "vllm-project/ci-infra"

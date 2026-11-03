@@ -7,11 +7,11 @@ import math
 import re
 from typing import Any, Callable
 
+from vllm.amd_queue_registry import target_queues
 from vllm.operations_bundle_contract import OPERATIONS_CANARY_SECTION_MAX_BYTES
 
 
 QUEUE_SECTION_MAX_BYTES = OPERATIONS_CANARY_SECTION_MAX_BYTES["queue"]
-CANONICAL_AMD_QUEUE_RE = re.compile(r"^amd_mi(?:250|300|355)_(?:1|2|4|8)$")
 FIXED_STRING_MAX_CHARS = 512
 OMITTED_FIELD_EXAMPLE_LIMIT = 64
 
@@ -45,24 +45,26 @@ def _finite_number(value: Any) -> float:
     return result if math.isfinite(result) else 0.0
 
 
-def _queue_matches_scope(name: str, scope: str) -> bool:
+def _queue_matches_scope(name: str, scope: str, canonical: frozenset[str]) -> bool:
     normalized = name.strip().lower()
     if re.match(r"^amd_mi355b(?:_|$)", normalized):
         return False
     if scope == "all":
         return True
     if scope == "canonical":
-        return CANONICAL_AMD_QUEUE_RE.fullmatch(normalized) is not None
+        return normalized in canonical
     return normalized == "amd-cpu" or normalized.startswith("amd_")
 
 
-def _scope_totals(rows: list[tuple[str, Any]]) -> dict[str, dict[str, Any]]:
+def _scope_totals(
+    rows: list[tuple[str, Any]], canonical: frozenset[str]
+) -> dict[str, dict[str, Any]]:
     totals: dict[str, dict[str, Any]] = {}
     for scope in ("canonical", "amd", "all"):
         selected = [
             (name, row)
             for name, row in rows
-            if _queue_matches_scope(name, scope)
+            if _queue_matches_scope(name, scope, canonical)
         ]
         totals[scope] = {
             "queue_count": len(selected),
@@ -80,7 +82,7 @@ def _scope_totals(rows: list[tuple[str, Any]]) -> dict[str, dict[str, Any]]:
     return totals
 
 
-def _queue_row_priority(item: tuple[str, Any]) -> tuple[Any, ...]:
+def _queue_row_priority(item: tuple[str, Any], canonical: frozenset[str]) -> tuple[Any, ...]:
     name, row = item
     values = row if isinstance(row, dict) else {}
     active = any(
@@ -88,9 +90,8 @@ def _queue_row_priority(item: tuple[str, Any]) -> tuple[Any, ...]:
         for key in ("waiting", "running", "zombie_waiting", "zombie_running")
     )
     normalized = name.strip().lower()
-    canonical = CANONICAL_AMD_QUEUE_RE.fullmatch(normalized) is not None
-    amd = _queue_matches_scope(normalized, "amd")
-    return (-int(active), -int(canonical), -int(amd), normalized, _stable_json(row))
+    amd = _queue_matches_scope(normalized, "amd", canonical)
+    return (-int(active), -int(normalized in canonical), -int(amd), normalized, _stable_json(row))
 
 
 def _job_row_priority(item: tuple[str, int, Any]) -> tuple[Any, ...]:
@@ -230,15 +231,20 @@ def compact_queue_section(
     raw_queues = source_snapshot.get("queues") or {}
     if not isinstance(raw_queues, dict):
         raw_queues = {}
+    target_ids = (source_snapshot.get("target_queue_scope") or {}).get("queue_ids")
+    canonical = frozenset(
+        str(queue).strip().lower()
+        for queue in (target_ids if isinstance(target_ids, list) else target_queues())
+    )
 
     queue_rows = sorted(
         ((str(name), row) for name, row in raw_queues.items()),
-        key=_queue_row_priority,
+        key=lambda item: _queue_row_priority(item, canonical),
     )
     pressure_rows = sorted(
         ((str(name), row) for name, row in source_pressure.items()),
         key=lambda item: (
-            _queue_row_priority((item[0], raw_queues.get(item[0]))),
+            _queue_row_priority((item[0], raw_queues.get(item[0])), canonical),
             _stable_json(item[1]),
         ),
     )
@@ -251,7 +257,7 @@ def compact_queue_section(
         key=_job_row_priority,
     )
     job_source_counts, job_source_complete = _source_job_counts(source_queue_jobs)
-    exact_scope_totals = _scope_totals(queue_rows)
+    exact_scope_totals = _scope_totals(queue_rows, canonical)
 
     def candidate(
         queue_count: int,
@@ -385,7 +391,7 @@ def compact_queue_section(
                 "published_queue_count": sum(
                     name in selected_queue_names
                     for name, _row in queue_rows
-                    if _queue_matches_scope(name, scope)
+                    if _queue_matches_scope(name, scope, canonical)
                 )
             }
             for scope, totals in exact_scope_totals.items()

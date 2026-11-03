@@ -76,49 +76,7 @@ def amd_gpu_hardware(queue: str | None) -> str:
     return "MI" + match.group(1) if match else ""
 
 
-# Every tracked queue is emitted in every snapshot — zero-filled if no jobs
-# referenced it during the poll — so the queue timeseries chart never shows
-# gaps for queues we actively monitor. Untracked queues that show up with
-# activity are still recorded on the fly by the collector.
-_TRACKED_QUEUE_NAMES = {
-    # AMD MI250: one shared queue split by gpu_size; per-width queues are retired
-    "amd_mi250",
-    "amd_mi250_1",
-    "amd_mi250_2",
-    "amd_mi250_4",
-    "amd_mi250_8",
-    # AMD MI300 (legacy / partner agents, still active)
-    "amd_mi300_1",
-    "amd_mi300_2",
-    "amd_mi300_4",
-    "amd_mi300_8",
-    # AMD MI325
-    "amd_mi325_1",
-    "amd_mi325_2",
-    "amd_mi325_4",
-    "amd_mi325_8",
-    # AMD MI355
-    "amd_mi355_1",
-    "amd_mi355_2",
-    "amd_mi355_4",
-    "amd_mi355_8",
-
-}
-
-TRACKED_QUEUES: frozenset[str] = frozenset(
-    queue for queue in _TRACKED_QUEUE_NAMES if amd_gpu_hardware(queue)
-)
-
 AMD_QUEUE_PREFIX = "amd_"
-
-# Queue lifecycle/throughput metrics intentionally cover only the accelerator
-# families requested by the AMD CI operators.  Keep this tuple ordered and
-# explicit: it is both the collector allowlist and the public output contract.
-# MI325, AMD CPU, partner, and ``mi355b`` queues must never be folded into these
-# totals merely because they share an ``amd_`` prefix.
-AMD_METRIC_TARGET_QUEUES: tuple[str, ...] = tuple(
-    f"amd_mi{family}_{width}" for family in (250, 300, 355) for width in (1, 2, 4, 8)
-)
 
 # ---------------------------------------------------------------------------
 # Workload classification (vllm vs vllm-omni)

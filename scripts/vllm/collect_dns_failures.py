@@ -71,7 +71,8 @@ from vllm.ci.analytics_cache import (  # noqa: E402
     retain_runtime_source_indexes,
     write_runtime_source_indexes,
 )
-from vllm.constants import BK_CLUSTER_UUID, TRACKED_QUEUES  # noqa: E402
+from vllm.amd_queue_registry import tracked_queues  # noqa: E402
+from vllm.constants import BK_CLUSTER_UUID  # noqa: E402
 from vllm.pipelines import _job_queue, is_amd_ci_job  # noqa: E402
 from vllm.main_ci_definitions import RUNTIME_SOURCE_MAX_PINS, RuntimeSourceError  # noqa: E402
 
@@ -138,7 +139,7 @@ ACTIVE_BUILD_STATES = (
     "failing",
     "canceling",
 )
-AMD_DISCOVERY_QUEUES = tuple(sorted(queue for queue in TRACKED_QUEUES if queue_hardware(queue)))
+AMD_DISCOVERY_QUEUES = tuple(sorted(queue for queue in tracked_queues() if queue_hardware(queue)))
 
 _QUEUE_RULE_RE = re.compile(r"^queue=(.+)$", re.IGNORECASE)
 _SAFE_COORD_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
