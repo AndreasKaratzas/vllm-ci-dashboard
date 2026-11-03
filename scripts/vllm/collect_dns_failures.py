@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect privacy-minimized DNS failure evidence from all AMD GPU CI jobs.
+"""Collect privacy-minimized DNS evidence from failed and soft-failed AMD GPU jobs.
 
 The collector deliberately persists only fixed enums, timestamps, Buildkite
 identifiers, and safe queue/node coordinates. Complete logs are bounded and
@@ -38,12 +38,15 @@ from vllm.ci.dns_failures import (  # noqa: E402
     MAX_LOG_BYTES,
     CURRENT_PIPELINES as PIPELINES,
     RETENTION_HOURS,
+    SCANNED_JOB_STATES,
+    SCOPED_DISCOVERY_VERSION,
     StateValidationError,
     STATE_FAILURE_CODES,
     build_public_output,
     canonical_uuid,
     classify_dns_log,
     empty_state,
+    in_scope_jobs,
     iso_timestamp,
     load_state,
     merge_state_jobs,
@@ -656,6 +659,7 @@ class BuildkiteClient:
               clustered: true,
               clusterQueue: $queues,
               createdAtFrom: $from,
+              passed: false,
               state: [FINISHED, TIMED_OUT, BROKEN, EXPIRED],
               type: [COMMAND],
               order: RECENTLY_CREATED
@@ -692,7 +696,7 @@ class BuildkiteClient:
         created_from: datetime,
         deadline: float | None,
     ) -> list[dict]:
-        """Page one server-filtered stream of recent AMD jobs for both pipelines."""
+        """Page one server-filtered stream of recent failed and soft-failed AMD jobs."""
         if not queue_ids:
             return []
         discovered: dict[tuple[str, str], dict] = {}
@@ -787,6 +791,8 @@ class BuildkiteClient:
                         )
                     },
                 }
+                if _job_state(rest_job) not in SCANNED_JOB_STATES:
+                    continue
                 page_candidates.append((pipeline, build, rest_job))
 
             _prime_source_builds([{**build, "jobs": [job]} for _, build, job in page_candidates])
@@ -1238,7 +1244,7 @@ def _prime_source_builds(builds: Iterable[dict]) -> None:
         if not re.fullmatch(r"[0-9a-f]{40}", commit):
             continue
         if any(isinstance(job, dict) and job.get("type") == "script"
-               and queue_hardware(_queue_of(job)) and _job_state(job)
+               and queue_hardware(_queue_of(job)) and _job_state(job) in SCANNED_JOB_STATES
                and _normalized_timestamp(job.get("finished_at"), "finished_at") is not None
                for job in build["jobs"]):
             pins.add(commit)
@@ -1280,7 +1286,7 @@ def _remember_unavailable_source(exc: RuntimeSourceError, *, requested_pins: Ite
 
 
 def job_metadata(pipeline: str, build: dict, job: dict) -> dict | None:
-    """Return safe terminal MI-route metadata, including exact CPU exclusions."""
+    """Return safe failed MI-route metadata, including exact CPU exclusions."""
     if pipeline not in PIPELINES or job.get("type") != "script":
         return None
     queue = _queue_of(job)
@@ -1288,7 +1294,7 @@ def job_metadata(pipeline: str, build: dict, job: dict) -> dict | None:
     if not hardware:
         return None
     state = _job_state(job)
-    if not state:
+    if state not in SCANNED_JOB_STATES:
         return None
     finished_at = _normalized_timestamp(job.get("finished_at"), "finished_at")
     if finished_at is None:
@@ -1350,7 +1356,7 @@ def job_metadata(pipeline: str, build: dict, job: dict) -> dict | None:
 
 
 def discover_job_metadata(builds_by_pipeline: dict[str, Iterable[dict]]) -> list[dict]:
-    """Extract every distinct terminal AMD GPU script attempt, newest first."""
+    """Extract every distinct failed AMD GPU script attempt, newest first."""
     discovered: dict[tuple[str, str], dict] = {}
     for pipeline in PIPELINES:
         builds = list(builds_by_pipeline.get(pipeline, []))
@@ -1560,22 +1566,6 @@ def _scoped_coverage_start(prior_states: Iterable[dict], *, query_start: datetim
     return start
 
 
-def _needs_full_active_reconciliation(
-    prior_states: Iterable[dict],
-    *,
-    clock: datetime,
-) -> bool:
-    """Run the expensive active-parent sweep at most once per UTC day."""
-    generated = [parse_timestamp(state["generated_at"], "generated_at") for state in prior_states]
-    if not generated:
-        return True
-    latest = max(generated)
-    return (
-        clock - latest > timedelta(hours=MAX_INCREMENTAL_DISCOVERY_GAP_HOURS)
-        or latest.date() != clock.date()
-    )
-
-
 def _coordinate_round_robin(rows: Iterable[dict]) -> list[dict]:
     """Keep each coordinate fresh while preventing one fleet from dominating."""
     buckets: dict[tuple[str, str, str], list[dict]] = {}
@@ -1598,44 +1588,8 @@ def _coordinate_round_robin(rows: Iterable[dict]) -> list[dict]:
 
 
 def _fair_pending_order(rows: Iterable[dict]) -> list[dict]:
-    """Return a prefix-stable, fresh, state-and-coordinate-stratified order.
-
-    A hard request cap can stop at any prefix, so terminal states are rotated
-    before taking another sample from one state. This explicitly retains
-    passed jobs (where DNS incidents can still occur), while each state also
-    round-robins pipeline/queue/node coordinates. Rows and coordinate rounds
-    remain newest-first; unlike the old oldest/newest alternation, a small
-    budget does not spend half its requests on stale backlog.
-    """
-    newest_first = sort_state_jobs(rows)
-    by_outcome: dict[str, list[dict]] = {"passed": [], "nonpassing": []}
-    for row in newest_first:
-        outcome = "passed" if row["state"] == "passed" else "nonpassing"
-        by_outcome[outcome].append(row)
-
-    outcome_rows = {
-        outcome: _coordinate_round_robin(outcome_group)
-        for outcome, outcome_group in by_outcome.items()
-    }
-    positions = {outcome: 0 for outcome in outcome_rows}
-    # Preserve the dominant passed-job population without letting a limited
-    # prefix become passed-only: every five-slot cycle targets 60% passed and
-    # 40% hard/soft-failed jobs. An exhausted stratum simply yields its slots
-    # to the other, so no eligible work is discarded.
-    cycle = ("passed", "nonpassing", "passed", "nonpassing", "passed")
-    ordered: list[dict] = []
-    while len(ordered) < len(newest_first):
-        added = False
-        for outcome in cycle:
-            outcome_group = outcome_rows[outcome]
-            position = positions[outcome]
-            if position < len(outcome_group):
-                ordered.append(outcome_group[position])
-                positions[outcome] = position + 1
-                added = True
-        if not added:
-            break
-    return ordered
+    """Return a prefix-stable, newest-first, coordinate-stratified order."""
+    return _coordinate_round_robin(sort_state_jobs(rows))
 
 
 def _scan_candidate(
@@ -1883,8 +1837,8 @@ def collect(
                 "Discarded invalid private DNS classification cache; continuing with cache misses"
             )
     old_rows = merge_state_jobs(
-        local_state["jobs"] if local_state else [],
-        ref_state["jobs"] if ref_state else [],
+        in_scope_jobs(local_state["jobs"]) if local_state else [],
+        in_scope_jobs(ref_state["jobs"]) if ref_state else [],
     )
 
     prior_states = available_states
@@ -1893,9 +1847,6 @@ def collect(
         clock=clock,
         target_start=target_start,
     )
-    full_active_reconciliation = not isinstance(
-        client, BuildkiteClient
-    ) or _needs_full_active_reconciliation(prior_states, clock=clock)
     finished_from = iso_timestamp(query_start)
     active_created_from = iso_timestamp(target_start)
     active_created_to = iso_timestamp(clock)
@@ -1933,9 +1884,8 @@ def collect(
             started_monotonic + (deadline - started_monotonic) / 2 if deadline is not None else None
         )
         try:
-            # Current AMD job observations come first, even after a stale
-            # checkpoint or UTC rollover. The expensive active-parent sweep
-            # may add older observations only within the discovery subbudget.
+            # Current failed-job observations come first, so a sweep stopped
+            # by the discovery subbudget still checkpoints the newest jobs.
             discovered.extend(
                 client.discover_incremental_job_metadata(
                     created_from=finished_from,
@@ -1943,19 +1893,16 @@ def collect(
                     deadline=discovery_deadline,
                 )
             )
-            if full_active_reconciliation:
-                for pipeline in PIPELINES:
-                    builds = client.discover_builds(
-                        pipeline,
-                        finished_from=finished_from,
-                        active_created_from=active_created_from,
-                        active_created_to=active_created_to,
-                        deadline=discovery_deadline,
-                    )
-                    discovered_builds += len(builds)
-                    discovered.extend(discover_job_metadata({pipeline: builds}))
-            else:
-                discovery_complete = False
+            for pipeline in PIPELINES:
+                builds = client.discover_builds(
+                    pipeline,
+                    finished_from=finished_from,
+                    active_created_from=active_created_from,
+                    active_created_to=active_created_to,
+                    deadline=discovery_deadline,
+                )
+                discovered_builds += len(builds)
+                discovered.extend(discover_job_metadata({pipeline: builds}))
         except BudgetExhausted:
             # Only live, validated observations can advance the generation.
             # An exception before the first successful discovery page must
@@ -1998,10 +1945,9 @@ def collect(
         raise CollectionError("source_unavailable")
     log.info(
         "DNS collection phase complete: phase=discovery elapsed_seconds=%.3f "
-        "mode=%s builds=%d eligible_job_rows=%d build_page_requests=%d "
+        "builds=%d eligible_job_rows=%d build_page_requests=%d "
         "graphql_requests=%d",
         max(0.0, monotonic() - discovery_started),
-        "full-active" if full_active_reconciliation else "incremental-jobs",
         discovered_builds,
         len(discovered),
         requests_after_discovery["build_page"] - requests_before_discovery["build_page"],
@@ -2059,7 +2005,7 @@ def collect(
     state = empty_state(clock, coverage_start)
     state["discovery"]["complete"] = discovery_complete
     state["scoped_discovery"] = {
-        "version": 1,
+        "version": SCOPED_DISCOVERY_VERSION,
         "hardware_scope": "amd_mi_gpu",
         "pipelines": list(PIPELINES),
         "start": iso_timestamp(max(target_start, _scoped_coverage_start(

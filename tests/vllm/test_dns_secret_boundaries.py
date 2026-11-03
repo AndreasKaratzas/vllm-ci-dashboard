@@ -46,7 +46,7 @@ def _metadata(now: datetime, *, node: str = "node-1") -> dict:
         "queue": "amd_mi300_1",
         "node": node,
         "hardware": "MI300",
-        "state": "passed",
+        "state": "hard",
         "started_at": dns.iso_timestamp(now - timedelta(minutes=20)),
         "finished_at": dns.iso_timestamp(now - timedelta(minutes=10)),
         "execution_proof": {
@@ -91,7 +91,7 @@ def test_source_job_labels_never_enter_dns_state_or_public_output(
     job = {
         "id": metadata["job_id"],
         "type": "script",
-        "state": "passed",
+        "state": "failed",
         "name": f"nightly tests {source_label}",
         "started_at": metadata["started_at"],
         "finished_at": metadata["finished_at"],

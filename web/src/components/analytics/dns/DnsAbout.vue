@@ -9,6 +9,7 @@ defineProps<{ payload: Rec; view: DnsPresentation }>()
 
 <template>
   <p>
+    Only failed and soft-failed MI GPU job attempts on the vllm/ci pipeline are scanned; passed, amd-ci, and vLLM-Omni jobs are excluded.
     A job attempt counts once when its complete log contains a DNS-specific resolver signature. Repeated matching lines collapse into episodes;
     retries remain distinct attempts. Generic connection, TLS, timeout, and HTTP failures do not count.
   </p>

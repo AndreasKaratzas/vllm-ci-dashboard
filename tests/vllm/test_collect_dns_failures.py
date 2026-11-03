@@ -261,7 +261,7 @@ def _metadata(
     pipeline: str = "ci",
     finished_hours: float = -0.5,
     started_hours: float | None = None,
-    state: str = "passed",
+    state: str = "hard",
     queue: str = "amd_mi355_1",
     node: str = "crsuse2-m2m-295",
 ) -> dict:
@@ -304,7 +304,7 @@ def _positive_record(
     episode_hours: float = -0.25,
     finished_hours: float = -0.1,
     started_hours: float | None = None,
-    state: str = "passed",
+    state: str = "hard",
     targets: tuple[str, ...] = ("unknown",),
     node: str = "crsuse2-m2m-295",
 ) -> dict:
@@ -341,7 +341,7 @@ def _state(rows: list[dict], *, discovery_hours: float = 720) -> dict:
 def _job(
     index: int,
     *,
-    state: str = "passed",
+    state: str = "failed",
     soft_failed: bool = False,
     queue: str = "amd_mi355_1",
     finished_hours: float = -0.5,
@@ -491,7 +491,7 @@ def test_episode_gap_is_inclusive_at_five_seconds_and_splits_after_it():
     assert len(result.episode_times) == 2
 
 
-def test_discovery_includes_passed_soft_hard_and_distinct_retry_uuids():
+def test_discovery_includes_only_failed_soft_failed_and_distinct_retry_uuids():
     jobs = [
         _job(1, state="passed"),
         _job(2, state="failed", soft_failed=True),
@@ -499,16 +499,19 @@ def test_discovery_includes_passed_soft_hard_and_distinct_retry_uuids():
         _job(4, state="failed", name="same retried step"),
         _job(5, state="passed", name="same retried step"),
         _job(6, state="canceled"),
-        _job(7, state="passed", queue="cpu_queue_postmerge"),
-        _job(8, state="passed", queue="amd_mi355b_1"),
+        _job(7, queue="cpu_queue_postmerge"),
+        _job(8, queue="amd_mi355b_1"),
+        _job(9, state="timed_out"),
+        _job(10, state="passed", soft_failed=True),
     ]
 
     rows = collector.discover_job_metadata(
         {"ci": [_build(12112, jobs)]}
     )
 
-    assert {row["job_id"] for row in rows} == {_uuid(i) for i in range(1, 6)}
-    assert {row["state"] for row in rows} == {"passed", "soft", "hard"}
+    assert {row["job_id"]: row["state"] for row in rows} == {
+        _uuid(2): "soft", _uuid(3): "hard", _uuid(4): "hard", _uuid(9): "hard", _uuid(10): "soft",
+    }
     assert all("job_name" not in row for row in rows)
     assert all("branch" not in row and "commit" not in row and "author" not in row for row in rows)
     assert all("raw_log_url" not in row and "env" not in row for row in rows)
@@ -826,7 +829,7 @@ def test_dns_pinned_cpu_definition_overrides_mi_queue_and_misleading_label(monke
 
 
 def test_discovery_normalizes_fractional_job_timestamps_to_whole_seconds():
-    job = _job(1, state="passed")
+    job = _job(1)
     job["started_at"] = "2026-08-16T22:00:00.987654Z"
     job["finished_at"] = "2026-08-16T23:00:00.123456Z"
 
@@ -995,64 +998,26 @@ def test_pending_scan_prioritizes_the_freshest_prefix_with_a_hard_limit():
     assert [row["status"] for row in rows].count("pending") == 2
 
 
-def test_pending_order_has_a_stratified_60_40_prefix_and_rotates_coordinates():
+def test_pending_order_rotates_coordinates_newest_first():
+    coordinates = {
+        1: ("amd_mi355_1", "crsuse2-m2m-295"),
+        2: ("amd_mi355_1", "crsuse2-m2m-295"),
+        3: ("amd_mi355_1", "crsuse2-m2m-295"),
+        4: ("amd_mi300_1", "crsuse2-m2m-296"),
+        5: ("amd_mi325_1", "crsuse2-m2m-297"),
+        6: ("amd_mi300_1", "crsuse2-m2m-296"),
+    }
     pending = [
-        dns.pending_record(
-            _metadata(1, finished_hours=-0.01, state="passed")
-        ),
-        dns.pending_record(
-            _metadata(2, finished_hours=-0.02, state="hard")
-        ),
-        dns.pending_record(
-            _metadata(3, finished_hours=-0.03, state="passed")
-        ),
-        dns.pending_record(
-            _metadata(
-                4,
-                finished_hours=-0.04,
-                state="soft",
-                queue="amd_mi300_1",
-                node="crsuse2-m2m-296",
-            )
-        ),
-        dns.pending_record(
-            _metadata(
-                5,
-                pipeline="ci",
-                finished_hours=-0.05,
-                state="passed",
-                queue="amd_mi325_1",
-                node="crsuse2-m2m-297",
-            )
-        ),
-        dns.pending_record(
-            _metadata(
-                6,
-                finished_hours=-0.06,
-                state="hard",
-                queue="amd_mi300_1",
-                node="crsuse2-m2m-296",
-            )
-        ),
+        dns.pending_record(_metadata(
+            index, finished_hours=-index / 100, state="soft" if index % 2 else "hard",
+            queue=queue, node=node,
+        ))
+        for index, (queue, node) in coordinates.items()
     ]
 
-    ordered = collector._fair_pending_order(pending)
+    ordered = collector._fair_pending_order(reversed(pending))
 
-    assert [row["job_id"] for row in ordered[:5]] == [
-        _uuid(1),
-        _uuid(2),
-        _uuid(5),
-        _uuid(4),
-        _uuid(3),
-    ]
-    assert [row["state"] for row in ordered[:5]] == [
-        "passed",
-        "hard",
-        "passed",
-        "soft",
-        "passed",
-    ]
-    assert sum(row["state"] == "passed" for row in ordered[:5]) == 3
+    assert [row["job_id"] for row in ordered] == [_uuid(i) for i in (1, 4, 5, 2, 6, 3)]
 
 
 def test_scan_uses_the_configured_bounded_rolling_fetch_window():
@@ -1600,20 +1565,21 @@ def test_public_windows_reconcile_affected_jobs_by_terminal_outcome():
     output = dns.build_public_output(_state(rows))
     one_hour = output["windows"]["1h"]
     outcome_counts = {
-        "passed_jobs": 1,
+        "passed_jobs": 0,
         "soft_failed_jobs": 1,
         "hard_failed_jobs": 1,
     }
 
     assert output["outcome_contract"] == "dns-job-outcomes-v1"
-    assert one_hour["totals"]["affected_jobs"] == 3
+    assert output["scope"]["states"] == ["soft", "hard"]
+    assert one_hour["coverage"]["eligible_jobs"] == 2
+    assert one_hour["totals"]["affected_jobs"] == 2
     assert {key: one_hour["totals"][key] for key in outcome_counts} == outcome_counts
     assert len(one_hour["rows"]) == 1
     node_row = one_hour["rows"][0]
-    assert node_row["affected_jobs"] == 3
+    assert node_row["affected_jobs"] == 2
     assert {key: node_row[key] for key in outcome_counts} == outcome_counts
-    assert sum(one_hour["totals"][key] for key in outcome_counts) == 3
-    assert sum(node_row[key] for key in outcome_counts) == 3
+    assert [item["job_id"] for item in output["evidence"]["items"]] == [_uuid(3), _uuid(2)]
 
 
 def test_partial_coverage_reconciles_every_cached_status():
@@ -1882,7 +1848,7 @@ def test_hard_request_cap_is_thread_safe_for_concurrent_log_workers():
     }
 
 
-def test_incremental_graphql_discovers_all_eligible_terminal_outcomes():
+def test_incremental_graphql_discovers_only_failed_ci_jobs():
     queue = "amd_mi355_1"
     queue_id = "Q2x1c3RlclF1ZXVlLS0x"
 
@@ -1932,8 +1898,10 @@ def test_incremental_graphql_discovers_all_eligible_terminal_outcomes():
             "organization": {
                 "jobs": {
                     "edges": [
-                        {"node": node(1, "FINISHED", passed=True, soft_failed=False)},
-                        {"node": node(2, "FINISHED", passed=True, soft_failed=True)},
+                        {"node": node(1, "FINISHED", passed=False, soft_failed=False)},
+                        {"node": node(2, "FINISHED", passed=False, soft_failed=True)},
+                        # A lagging search index may still return a passed job.
+                        {"node": node(9, "FINISHED", passed=True, soft_failed=False)},
                     ],
                     "pageInfo": {"hasNextPage": True, "endCursor": "jobs-page-2"},
                 }
@@ -1952,16 +1920,17 @@ def test_incremental_graphql_discovers_all_eligible_terminal_outcomes():
                             "node": node(
                                 6,
                                 "FINISHED",
-                                passed=True,
+                                passed=False,
                                 soft_failed=False,
-                                pipeline="unrelated-pipeline",
+                                pipeline="vllm-omni-amd-ci",
                             )
                         },
+                        {"node": node(8, "FINISHED", passed=False, soft_failed=False, pipeline="amd-ci")},
                         {
                             "node": node(
                                 7,
                                 "FINISHED",
-                                passed=True,
+                                passed=False,
                                 soft_failed=False,
                             )
                             | {"createdAt": _timestamp(hours=-3)}
@@ -1999,7 +1968,7 @@ def test_incremental_graphql_discovers_all_eligible_terminal_outcomes():
     )
 
     assert {row["job_id"]: row["state"] for row in rows} == {
-        _uuid(1): "passed",
+        _uuid(1): "hard",
         _uuid(2): "soft",
         _uuid(3): "hard",
         _uuid(4): "hard",
@@ -2018,6 +1987,7 @@ def test_incremental_graphql_discovers_all_eligible_terminal_outcomes():
     assert "createdAtFrom: $from" in jobs_call["json"]["query"]
     assert "clusterQueue: $queues" in jobs_call["json"]["query"]
     assert "FINISHED, TIMED_OUT, BROKEN, EXPIRED" in jobs_call["json"]["query"]
+    assert "passed: false" in jobs_call["json"]["query"]
     assert ci_rest_call["params"]["finished_from"] == _timestamp(hours=-2)
     assert client.request_starts() == {
         "build_page": 1,
@@ -2525,7 +2495,7 @@ def test_log_fetch_marks_declared_and_streamed_oversize_without_partial_scan(mon
     assert streamed_error.value.log_bytes == 11
 
 
-def test_same_day_incremental_discovery_stays_conservatively_partial(tmp_path: Path):
+def test_same_day_collection_sweeps_active_builds_and_completes_recent_windows(tmp_path: Path):
     prior_end = NOW - timedelta(hours=1)
     state_path = tmp_path / "dns_health" / "scan_state.json.gz"
     dns.write_state(
@@ -2533,14 +2503,14 @@ def test_same_day_incremental_discovery_stays_conservatively_partial(tmp_path: P
         dns.empty_state(prior_end, NOW - timedelta(days=10)),
     )
 
-    class IncrementalClient(collector.BuildkiteClient):
+    class SweepClient(collector.BuildkiteClient):
         def __init__(self):
             super().__init__(
                 "memory-only-token",
                 session=_FakeSession([]),
                 sleep=lambda _: None,
             )
-            self.incremental_calls: list[tuple[str, str]] = []
+            self.calls: list[tuple[str, str]] = []
 
         def discover_incremental_job_metadata(
             self,
@@ -2549,16 +2519,17 @@ def test_same_day_incremental_discovery_stays_conservatively_partial(tmp_path: P
             finished_from: str,
             deadline: float | None = None,
         ) -> list[dict]:
-            self.incremental_calls.append((created_from, finished_from))
+            self.calls.append(("recent-jobs", finished_from))
             return []
 
-        def discover_builds(self, *args, **kwargs):
-            raise AssertionError("same-day runs must use incremental job discovery")
+        def discover_builds(self, pipeline: str, *, finished_from: str, **kwargs) -> list[dict]:
+            self.calls.append((pipeline, finished_from))
+            return []
 
         def fetch_job_log(self, metadata: dict, *, deadline: float | None = None):
             raise AssertionError("empty discovery has no logs")
 
-    client = IncrementalClient()
+    client = SweepClient()
     output = collector.collect(
         client=client,
         state_path=state_path,
@@ -2569,12 +2540,106 @@ def test_same_day_incremental_discovery_stays_conservatively_partial(tmp_path: P
     overlap_start = dns.iso_timestamp(
         prior_end - timedelta(hours=collector.INCREMENTAL_DISCOVERY_OVERLAP_HOURS)
     )
-    assert client.incremental_calls == [(overlap_start, overlap_start)]
+    assert client.calls == [("recent-jobs", overlap_start), ("ci", overlap_start)]
     state = dns.load_state(state_path)
     assert state is not None
-    assert state["discovery"]["complete"] is False
-    assert output["coverage"]["discovery_complete"] is False
-    assert output["windows"]["1h"]["coverage"]["discovery_complete"] is False
+    assert state["discovery"]["complete"] is True
+    assert state["scoped_discovery"]["version"] == dns.SCOPED_DISCOVERY_VERSION
+    assert output["windows"]["3h"]["coverage"]["status"] == "complete"
+    assert output["windows"]["12h"]["coverage"]["discovery_complete"] is False
+
+
+def test_first_failed_scope_collection_drops_legacy_passed_and_amd_ci_rows(tmp_path: Path):
+    legacy_amd_ci = _negative_record(3)
+    legacy_amd_ci["pipeline"] = "amd-ci"
+    legacy_amd_ci.pop("execution_proof")
+    legacy = _state([
+        dns.pending_record(_metadata(1, state="passed")),
+        _negative_record(2),
+        legacy_amd_ci,
+        _positive_record(4, state="passed"),
+    ])
+    legacy["discovery"]["pipelines"] = ["amd-ci", "ci"]
+    state_path = tmp_path / "scan_state.json.gz"
+    dns.write_state(state_path, dns.validate_state(legacy))
+
+    class Client(collector.BuildkiteClient):
+        def __init__(self):
+            super().__init__("memory-only-token", session=_FakeSession([]), sleep=lambda _: None)
+
+        def discover_incremental_job_metadata(self, **kwargs):
+            return []
+
+        def discover_builds(self, *args, **kwargs):
+            return []
+
+        def fetch_job_log(self, *args, **kwargs):
+            raise AssertionError("legacy passed rows must not be scanned")
+
+    output = collector.collect(
+        client=Client(), state_path=state_path, output_path=tmp_path / "dns_failures.json",
+        now=NOW + timedelta(hours=1),
+    )
+
+    state = dns.load_state(state_path)
+    assert state is not None
+    assert [(row["pipeline"], row["job_id"]) for row in state["jobs"]] == [("ci", _uuid(2))]
+    assert output["coverage"]["eligible_jobs"] == 1
+    assert output["evidence"]["evidence_total"] == 0
+
+
+def test_failed_scope_completes_the_24h_window_under_the_production_allowance(tmp_path: Path):
+    """Twice the observed failed-job peak still drains within the 110-start runs."""
+    jobs_per_hour = 12
+    logs_per_run = collector.DEFAULT_MAX_REQUESTS - 10
+    jobs = [
+        _metadata(index, finished_hours=-24 + index / jobs_per_hour, state=("soft", "hard")[index % 2])
+        for index in range(1, 54 * jobs_per_hour)
+    ]
+    legacy = _state([
+        *(dns.pending_record(row) for row in jobs if row["finished_at"] < _timestamp()),
+        *(dns.pending_record(_metadata(100_000 + index, state="passed", finished_hours=-index / 100))
+          for index in range(1, 2001)),
+    ])
+    legacy.pop("scoped_discovery")
+    legacy["discovery"]["complete"] = False
+    state_path = tmp_path / "scan_state.json.gz"
+    dns.write_state(state_path, legacy)
+
+    class Client(collector.BuildkiteClient):
+        def __init__(self, clock: datetime):
+            super().__init__("memory-only-token", session=_FakeSession([]), sleep=lambda _: None)
+            self.clock = clock
+            self.logs = 0
+            self.lock = threading.Lock()
+
+        def discover_incremental_job_metadata(self, *, finished_from: str, **kwargs):
+            start = dns.parse_timestamp(finished_from)
+            return [row for row in jobs
+                    if start <= dns.parse_timestamp(row["finished_at"]) < self.clock]
+
+        def discover_builds(self, *args, **kwargs):
+            return []
+
+        def fetch_job_log(self, metadata, *, deadline):
+            with self.lock:
+                if self.logs >= logs_per_run:
+                    raise collector.RequestBudgetExhausted()
+                self.logs += 1
+            return "ordinary output", 15
+
+    statuses = []
+    for run in range(10):
+        clock = NOW + timedelta(hours=1 + 3 * run)
+        output = collector.collect(
+            client=Client(clock), state_path=state_path,
+            output_path=tmp_path / "dns_failures.json", now=clock,
+        )
+        statuses.append(output["windows"]["24h"]["coverage"]["status"])
+
+    assert statuses[:7] == ["partial"] * 7
+    assert statuses[7:] == ["complete"] * 3
+    assert output["windows"]["24h"]["coverage"]["eligible_jobs"] == 24 * jobs_per_hour
 
 
 def test_new_utc_day_discovers_recent_jobs_before_full_active_reconciliation(tmp_path: Path):
@@ -2651,7 +2716,7 @@ def test_stale_discovery_preserves_current_partial_progress_and_scans_logs(
             return [metadata]
 
         def discover_builds(self, *args, **kwargs):
-            raise AssertionError("a bounded recent phase must not restart the full sweep")
+            raise exhaustion()
 
         def fetch_job_log(self, metadata, *, deadline):
             self.log_calls.append((metadata["job_id"], deadline))
@@ -2697,7 +2762,7 @@ def test_recent_graphql_page_checkpoint_reserves_transport_starts_for_logs(tmp_p
     nodes = [{
         "uuid": _uuid(index), "createdAt": _timestamp(hours=-0.75),
         "startedAt": _timestamp(hours=-0.5), "finishedAt": _timestamp(hours=-0.1),
-        "state": "FINISHED", "passed": True, "softFailed": False,
+        "state": "FINISHED", "passed": False, "softFailed": False,
         "agent": {"metaData": [f"queue={queue}", "k8s:node=crsuse2-m2m-295"]},
         "clusterQueue": {"id": queue_id, "key": queue},
         "build": {"number": 13000 + index, "commit": FIXTURE_PIN, "pipeline": {"slug": "ci"}},
@@ -3289,8 +3354,8 @@ def test_partial_discovery_budget_cannot_hide_concurrent_source_failure(
     assert output_path.read_text() == "durable-public-output\n"
 
 
-@pytest.mark.parametrize("mode", ["same-day", "recent-budget", "full-sweep-budget"])
-def test_partial_collector_public_projection_passes_real_dns_audit(tmp_path: Path, monkeypatch, mode):
+@pytest.mark.parametrize("mode", ["recent-budget", "full-sweep-budget"])
+def test_partial_collector_public_projection_passes_real_dns_audit(tmp_path: Path, mode):
     from vllm import audit_dashboard_data as audit_module
 
     collection_clock = datetime.now(timezone.utc).replace(microsecond=0)
@@ -3299,10 +3364,6 @@ def test_partial_collector_public_projection_passes_real_dns_audit(tmp_path: Pat
     output_path = tmp_path / "dns_failures.json"
     dns.write_state(
         state_path, dns.empty_state(prior_end, collection_clock - timedelta(days=10)),
-    )
-    monkeypatch.setattr(
-        collector, "_needs_full_active_reconciliation",
-        lambda _prior_states, *, clock: mode == "full-sweep-budget",
     )
     metadata = _metadata(1) | {
         "started_at": dns.iso_timestamp(collection_clock - timedelta(minutes=30)),

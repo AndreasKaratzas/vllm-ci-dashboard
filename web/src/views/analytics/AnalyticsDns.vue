@@ -136,22 +136,43 @@ const kpis = computed<Kpi[]>(() => {
       action: { label: 'Open every affected node', onOpen: () => sheets.open(nodesDetail(context)) },
     },
     { id: 'hf', label: 'Hugging Face jobs', value: asValue(hf!.value), footnote: hf!.meta, trend: trendOf((r) => r.huggingface, 'down') },
-    {
-      id: 'passed',
-      label: 'Passed after observation',
-      value: outcome(current.totals.passedJobs),
-      footnote: outcomes!.meta,
-      empty: known ? undefined : 'Outcomes unavailable',
-      trend: known ? trendOf((r) => r.passed) : {},
-    },
-    {
-      id: 'nonpassing',
-      label: 'Nonpassing after observation',
-      value: outcome(current.totals.softFailedJobs + current.totals.hardFailedJobs),
-      footnote: known ? 'soft or hard failed after observation' : outcomes!.meta,
-      empty: known ? undefined : 'Outcomes unavailable',
-      trend: known ? trendOf((r) => r.nonpassing, 'down') : {},
-    },
+    ...(current.passedScanned
+      ? [
+          {
+            id: 'passed',
+            label: 'Passed after observation',
+            value: outcome(current.totals.passedJobs),
+            footnote: outcomes!.meta,
+            empty: known ? undefined : 'Outcomes unavailable',
+            trend: known ? trendOf((r) => r.passed) : {},
+          },
+          {
+            id: 'nonpassing',
+            label: 'Nonpassing after observation',
+            value: outcome(current.totals.softFailedJobs + current.totals.hardFailedJobs),
+            footnote: known ? 'soft or hard failed after observation' : outcomes!.meta,
+            empty: known ? undefined : 'Outcomes unavailable',
+            trend: known ? trendOf((r) => r.nonpassing, 'down') : {},
+          },
+        ]
+      : [
+          {
+            id: 'soft',
+            label: 'Soft-failed after observation',
+            value: outcome(current.totals.softFailedJobs),
+            footnote: outcomes!.meta,
+            empty: known ? undefined : 'Outcomes unavailable',
+            trend: known ? trendOf((r) => r.soft, 'down') : {},
+          },
+          {
+            id: 'hard',
+            label: 'Hard-failed after observation',
+            value: outcome(current.totals.hardFailedJobs),
+            footnote: outcomes!.meta,
+            empty: known ? undefined : 'Outcomes unavailable',
+            trend: known ? trendOf((r) => r.hard, 'down') : {},
+          },
+        ]),
   ]
 })
 

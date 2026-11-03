@@ -40,7 +40,7 @@ def offline_source(monkeypatch):
 
 def job(index=1):
     return {"id": str(UUID(f"00000000-0000-4000-8000-{index:012x}")), "type": "script", "name": "GPU workload",
-            "state": "passed", "started_at": dns.iso_timestamp(NOW - timedelta(hours=1)),
+            "state": "failed", "started_at": dns.iso_timestamp(NOW - timedelta(hours=1)),
             "finished_at": dns.iso_timestamp(NOW - timedelta(minutes=30)),
             "agent_query_rules": ["queue=amd_mi300_1"],
             "agent": {"meta_data": ["queue=amd_mi300_1", "k8s:node=node-1"]}}

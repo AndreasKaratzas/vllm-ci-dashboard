@@ -37,6 +37,7 @@ from vllm.ci.dns_failures import (  # noqa: E402
     PUBLICATION_RETENTION_COUNT_KEYS as DNS_PUBLICATION_RETENTION_COUNT_KEYS,
     PUBLICATION_RETENTION_KEYS as DNS_PUBLICATION_RETENTION_KEYS,
     PUBLICATION_RETENTION_POLICY as DNS_PUBLICATION_RETENTION_POLICY,
+    SCANNED_JOB_STATES as DNS_SCANNED_JOB_STATES,
 )
 from vllm.ci.docker_builds import (  # noqa: E402
     MAX_FRESH_AGE_HOURS as DOCKER_BUILDS_MAX_FRESH_AGE_HOURS,
@@ -158,6 +159,9 @@ OPERATIONS_GZIP_DATA_PATH = "data/vllm/ci/operations_v2.json.gz"
 DNS_EVIDENCE_MAX_ITEMS = 5000
 DNS_MAX_FRESH_AGE_HOURS = 12
 DNS_OUTCOME_CONTRACT = "dns-job-outcomes-v1"
+# Publications labelled with the retired all-states scope are accepted only
+# when generated before this cutover.
+DNS_ALL_STATES_SCOPE_RETIRED_AT = datetime(2026, 11, 17, tzinfo=timezone.utc)
 AMD_MATRIX_RETENTION_POLICY = "incident_first_connected_logical_cohorts_v2"
 AMD_MATRIX_DETAIL_CONTRACT = "source_aggregates_with_connected_published_detail_v1"
 AMD_MATRIX_MAX_BYTES = writer_max_bytes("amd_test_matrix")
@@ -9207,15 +9211,21 @@ class DashboardAudit:
             "pipelines": list(DNS_PIPELINES),
             "branches": "all",
             "job_types": ["script"],
-            "states": ["passed", "soft", "hard"],
+            "states": list(DNS_SCANNED_JOB_STATES),
             "queue_scope": "active_amd_gpu",
             "hardware_scope": "amd_mi_gpu",
             "retried_jobs": "included",
         }
-        if scope != expected_scope:
+        legacy_generated_at = _parse_timestamp(payload.get("generated_at"))
+        legacy_scope_allowed = (
+            legacy_generated_at is not None
+            and legacy_generated_at < DNS_ALL_STATES_SCOPE_RETIRED_AT
+            and scope == {**expected_scope, "states": ["passed", "soft", "hard"]}
+        )
+        if scope != expected_scope and not legacy_scope_allowed:
             self.error(
                 "dns-health-scope",
-                "DNS health scope must remain all branches, terminal script attempts, and active AMD GPU queues",
+                "DNS health scope must remain all branches, failed script attempts, and active AMD GPU queues",
                 path,
             )
 
