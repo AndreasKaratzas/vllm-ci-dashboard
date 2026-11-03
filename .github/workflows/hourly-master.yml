@@ -945,6 +945,15 @@ jobs:
               --source="$PUBLICATION_CODE_SHA" --worktree -- data/vllm/ci/docker_builds.json
           fi
 
+      - name: Resolve AMD queue registry from ci-infra
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$PUBLICATION_CODE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          # A state captured before the registry existed falls back to the committed seed.
+          python scripts/vllm/amd_queue_registry.py --fallback-git-ref "$PUBLICATION_CODE_SHA"
+
       - name: Resolve immutable vLLM config snapshot
         if: inputs.dns_generation == '' && inputs.queue_generation == ''
         env:

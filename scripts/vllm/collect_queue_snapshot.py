@@ -35,8 +35,14 @@ from vllm.buildkite_request_guard import install_from_environment_or_exit  # noq
 
 install_from_environment_or_exit()
 
+from vllm.amd_queue_registry import (  # noqa: E402
+    TARGET_SCOPE_ID,
+    registry_provenance,
+    target_gpu_widths,
+    target_queues,
+    tracked_queues,
+)
 from vllm.constants import (  # noqa: E402
-    AMD_METRIC_TARGET_QUEUES,
     BK_API_BASE,
     BK_CLUSTER_UUID,
     BK_GRAPHQL_URL,
@@ -46,7 +52,6 @@ from vllm.constants import (  # noqa: E402
     QUEUE_HISTORY_MAX_BYTES,
     QUEUE_HISTORY_RETENTION_DAYS,
     QUEUE_ZOMBIE_THRESHOLD_MIN,
-    TRACKED_QUEUES,
     amd_gpu_hardware,
     is_amd_queue,
     is_excluded_queue,
@@ -905,14 +910,30 @@ def _scope_totals(queues: dict[str, dict]) -> dict:
     }
 
 
-def _target_queue_scope(queues: dict[str, dict]) -> dict:
-    """Describe the canonical AMD metric cohort without filtering other queues."""
-    queue_ids = list(AMD_METRIC_TARGET_QUEUES)
+TARGET_QUEUE_SCOPE_SOURCE = (
+    "MI250/MI300/MI355 physical queues routed by upstream ci-infra (see registry provenance); "
+    "annotations and target totals do not remove the dashboard's general queue monitoring."
+)
+
+
+def _target_queue_scope(queues: dict[str, dict], stored: object = None) -> dict:
+    """Describe the canonical AMD metric cohort without filtering other queues.
+
+    A snapshot keeps the registry scope it was collected under, so history is
+    never re-scoped by a later upstream queue change.
+    """
+    stored = stored if isinstance(stored, dict) else {}
+    queue_ids = stored.get("queue_ids")
+    if not isinstance(queue_ids, list) or not all(isinstance(queue, str) for queue in queue_ids):
+        queue_ids = list(target_queues())
+    gpu_widths = stored.get("gpu_widths")
+    if not isinstance(gpu_widths, list):
+        gpu_widths = target_gpu_widths()
     present = [queue for queue in queue_ids if queue in queues]
-    return {
-        "id": "amd_mi250_mi300_mi355",
-        "families": ["MI250", "MI300", "MI355"],
-        "gpu_widths": [1, 2, 4, 8],
+    scope = {
+        "id": TARGET_SCOPE_ID,
+        "families": sorted({amd_gpu_hardware(queue) for queue in queue_ids} - {""}),
+        "gpu_widths": gpu_widths,
         "queue_ids": queue_ids,
         "queue_count": len(queue_ids),
         "rows_present": present,
@@ -931,6 +952,10 @@ def _target_queue_scope(queues: dict[str, dict]) -> dict:
         ],
         "monitoring_scope": "annotation_only_general_queue_monitoring_is_retained",
     }
+    for field in ("registry", "cluster_absent_queue_ids", "unregistered_active_queue_ids"):
+        if field in stored:
+            scope[field] = stored[field]
+    return scope
 
 
 def _selected_waits_source(queues: dict[str, dict]) -> str:
@@ -1077,14 +1102,11 @@ def normalize_history_snapshot(snapshot: dict) -> dict | None:
         ),
     }
     if retain_target_contract:
+        target_scope = _target_queue_scope(normalized_queues, snapshot.get("target_queue_scope"))
         scope_totals["target"] = _scope_totals(
-            {
-                queue: normalized_queues[queue]
-                for queue in AMD_METRIC_TARGET_QUEUES
-                if queue in normalized_queues
-            }
+            {queue: normalized_queues[queue] for queue in target_scope["rows_present"]}
         )
-        normalized["target_queue_scope"] = _target_queue_scope(normalized_queues)
+        normalized["target_queue_scope"] = target_scope
     else:
         normalized.pop("target_queue_scope", None)
     normalized["scope_totals"] = scope_totals
@@ -1094,10 +1116,7 @@ def normalize_history_snapshot(snapshot: dict) -> dict | None:
     if retain_metric_contract:
         sources["metric_fields"] = _metric_field_descriptions()
     if retain_target_contract:
-        sources["target_queue_scope"] = (
-            "Canonical MI250/MI300/MI355 queues at widths 1/2/4/8; annotations and target totals "
-            "do not remove the dashboard's general queue monitoring."
-        )
+        sources["target_queue_scope"] = TARGET_QUEUE_SCOPE_SOURCE
     sources["workload_split_fields"] = {
         "source": "Fetched active jobs, independent of queue-native metric timing.",
         "rule": (
@@ -2549,7 +2568,8 @@ def collect_snapshot(
             "metrics-only queue collection requires a prior complete detail overlay"
         )
     queue_stats: dict = defaultdict(_queue_row)
-    for queue in TRACKED_QUEUES:
+    registry_queues = frozenset(tracked_queues())
+    for queue in registry_queues:
         queue_stats[queue]
 
     metrics_by_queue: dict[str, dict] = {}
@@ -2608,7 +2628,7 @@ def collect_snapshot(
     # Queue IDs are retained solely for the compatibility fallback.
     requested_job_queues = {
         queue: str((metrics_by_key.get(queue.casefold()) or {}).get("graphql_id") or "")
-        for queue in TRACKED_QUEUES
+        for queue in registry_queues
         if bool(amd_gpu_hardware(queue))
     }
     for queue, queue_id in active_metric_queues.items():
@@ -2726,7 +2746,7 @@ def collect_snapshot(
     for queue, stats in sorted(queue_stats.items()):
         if not amd_gpu_hardware(queue):
             continue
-        if queue not in TRACKED_QUEUES and not stats["waiting"] and not stats["running"]:
+        if queue not in registry_queues and not stats["waiting"] and not stats["running"]:
             continue
         row = {k: v for k, v in stats.items() if k not in {"wait_times", "official_wait"}}
         official_wait = stats.get("official_wait") or _empty_official_wait()
@@ -2772,6 +2792,17 @@ def collect_snapshot(
         "details_status": details_status,
         "details_refresh_attempted_at": current_observed_at if refresh_details else None,
         "queues": queues,
+        "target_queue_scope": {
+            "queue_ids": list(target_queues()),
+            "gpu_widths": target_gpu_widths(),
+            "registry": registry_provenance(),
+            "cluster_absent_queue_ids": [
+                queue for queue in target_queues() if queue not in metrics_by_queue
+            ]
+            if metrics_by_queue
+            else None,
+            "unregistered_active_queue_ids": sorted(set(queues) - registry_queues),
+        },
         "total_waiting": sum(int(s.get("waiting") or 0) for s in queues.values()),
         "total_running": sum(int(s.get("running") or 0) for s in queues.values()),
         "total_zombie_waiting": sum(int(s.get("zombie_waiting") or 0) for s in queues.values()),
@@ -2796,10 +2827,7 @@ def collect_snapshot(
             },
             "wait_fields": _wait_field_descriptions(),
             "metric_fields": _metric_field_descriptions(),
-            "target_queue_scope": (
-                "Canonical MI250/MI300/MI355 queues at widths 1/2/4/8; annotations and target "
-                "totals do not remove the dashboard's general queue monitoring."
-            ),
+            "target_queue_scope": TARGET_QUEUE_SCOPE_SOURCE,
             "history_reset_ts": queue_history_reset_datetime().strftime("%Y-%m-%dT%H:%M:%SZ"),
             "zombie_threshold_min": QUEUE_ZOMBIE_THRESHOLD_MIN,
         },

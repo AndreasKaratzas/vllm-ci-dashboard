@@ -205,6 +205,12 @@ fails closed on conflicting equal-generation values.
 ## Data Flow
 
 ```
+ci-infra AgentQueue + AMD_DEVICE_CONFIGS
+    |
+    v
+amd_queue_registry.py     --> data/vllm/ci/amd_queue_registry.json (private
+                              last-good queue scope for every queue collector)
+
 Buildkite API
     |
     v
