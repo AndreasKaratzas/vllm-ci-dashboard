@@ -110,23 +110,23 @@ WAITING_STATES = frozenset({"running", "scheduled", "assigned"})
 # an MI355 execution that exercises hardware-specific models, topology, or
 # kernels and must therefore remain a separate test group. Every other MI355
 # definition is folded into its logical family and uses best-hardware status.
-MI355_SENSITIVE_RULES = (
-    ("Attention Benchmark Smoke", "MI355-only ROCm/AITER attention backend benchmark"),
-    ("Distributed Features", "MI355-only AITER custom all-reduce and quick-reduce coverage"),
-    ("GPQA Eval (GPT-OSS)", "gfx950-specific model configuration"),
-    ("LM Eval Qwen3-5 Models", "MI355-specific Qwen3.5 model configuration"),
-    ("Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy", "MI355-specific two-GPU EPLB topology"),
-    ("LM Eval Large Models", "gfx950-specific large-model configuration"),
-    ("Kernels", "MI355-only attention selector and ROCm AITER MLA smoke coverage"),
-    ("MLA Kernels", "architecture-sensitive ROCm AITER MLA coverage"),
-    ("Attention Kernels Shard", "architecture-sensitive attention-kernel coverage"),
-    ("MoE Kernels Shard", "architecture-sensitive MoE-kernel coverage"),
-    ("Quantization Kernels", "architecture-sensitive quantization-kernel coverage"),
-    ("DeepEP FP8 MoE Kernels", "architecture-sensitive FP8 MoE-kernel coverage"),
-    ("Quantized Models", "architecture-sensitive quantized-model coverage"),
-    ("Quantization", "architecture-sensitive quantization integration coverage"),
-    ("V1 Attention Shard", "architecture-sensitive V1 attention coverage"),
-)
+# Keys are main-CI definition ids verified at vllm-project/vllm
+# commit 4d2fa5637c945b19afaa2b48270e8bbe24d0823f.
+MI355_SENSITIVE_RULES: dict[str, str] = {
+    ".buildkite/test_areas/benchmarks.yaml#attention-benchmarks-smoke-test-b200": "MI355-only ROCm/AITER attention backend benchmark",
+    ".buildkite/test_areas/distributed.yaml#distributed-tests-2xh100-2xmi300": "MI355-only AITER custom all-reduce and quick-reduce coverage",
+    ".buildkite/test_areas/lm_eval.yaml#gpqa-eval-gpt-oss-2xb200": "gfx950-specific model configuration",
+    ".buildkite/test_areas/lm_eval.yaml#lm-eval-qwen3-5-models-2xb200": "MI355-specific Qwen3.5 model configuration",
+    ".buildkite/test_areas/e2e_integration.yaml#qwen3-30b-a3b-fp8-block-sync-eplb-accuracy-2xb200": "MI355-specific two-GPU EPLB topology",
+    ".buildkite/test_areas/lm_eval.yaml#amd-lm-eval-large-models": "gfx950-specific large-model configuration",
+    ".buildkite/test_areas/kernels.yaml#amd-kernels-mi355": "MI355-only attention selector and ROCm AITER MLA smoke coverage",
+    ".buildkite/test_areas/kernels.yaml#kernels-flashmla-test-h100": "architecture-sensitive ROCm AITER MLA coverage",
+    ".buildkite/test_areas/kernels.yaml#amd-native-quantization-kernels-mi355": "architecture-sensitive quantization-kernel coverage",
+    ".buildkite/test_areas/kernels.yaml#kernels-fp8-moe-test-2xh100": "architecture-sensitive FP8 MoE-kernel coverage",
+    ".buildkite/test_areas/quantization.yaml#quantized-models-test": "architecture-sensitive quantized-model coverage",
+    ".buildkite/test_areas/quantization.yaml#quantized-moe-test-b200": "architecture-sensitive quantization integration coverage",
+    ".buildkite/test_areas/attention.yaml#v1-attention-b200": "architecture-sensitive V1 attention coverage",
+}
 
 # Only this previously reviewed dependency is revision-insensitive for test
 # identity. Other repositories, packages, flags and test selections stay exact.
@@ -137,30 +137,6 @@ GENERIC_EXECUTION_ALIAS_REASON = (
     "same test execution after normalizing pytest directory paths and reviewed dependency revisions"
 )
 GENERIC_EXECUTION_ALIAS_POLICY = "execution-v1"
-
-# Exact execution fingerprints of the reviewed MI355 gates, including working
-# directory and agent topology. These preserve a gate when its display label
-# changes without silently classifying different commands as hardware-sensitive.
-# Verified against test-amd.yaml at commit b443c1cc4e12171be0b0bbb7cc107919bda4634f
-# and commit 995e8581f462a13e32f30cfba946c63d48cf31d7. Fingerprints exclude labels and
-# source-file triggers; neither changes the execution covered by a gate.
-MI355_SENSITIVE_EXECUTION_SIGNATURES: dict[str, tuple[str, ...]] = {
-    "Attention Benchmark Smoke": ("execution-d8e664bc1a8c08cd",),
-    "Distributed Features": ("execution-541320e55c49c180",),
-    "GPQA Eval (GPT-OSS)": ("execution-85aad33fd8238d81",),
-    "LM Eval Qwen3-5 Models": ("execution-13dc174816f2f5fe",),
-    "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy": ("execution-1065fe948d3d2a67",),
-    "LM Eval Large Models": ("execution-07945e2a5ffdcb28",),
-    "Kernels": ("execution-ee38af932881120d",),
-    "MLA Kernels": ("execution-7ac1cc234c8c0b8f",),
-    "Attention Kernels Shard": ("execution-5f59601d16518d5e",),
-    "MoE Kernels Shard": ("execution-fd79925765be2102",),
-    "Quantization Kernels": ("execution-714fb15eef89661d",),
-    "DeepEP FP8 MoE Kernels": ("execution-cff27977e957d0e6",),
-    "Quantized Models": ("execution-5c08bea049ae72c7",),
-    "Quantization": ("execution-1a7b4637f0b24f36",),
-    "V1 Attention Shard": ("execution-d4b19c2fab0274e0",),
-}
 
 
 def _github_headers() -> dict[str, str]:
@@ -553,9 +529,7 @@ def _normalized_execution_command(command: str) -> list[str]:
     return tokens
 
 
-def execution_fingerprint(
-    row: dict[str, Any], arch: str, *, normalize: bool = True
-) -> str | None:
+def execution_fingerprint(row: dict[str, Any], arch: str) -> str | None:
     """Identify concrete commands, working directory and hardware shape.
 
     Missing evidence cannot authorize a new merge. Existing duplicate-group
@@ -588,24 +562,26 @@ def execution_fingerprint(
         return None
     payload = {
         "working_dir": working_dir.strip(),
-        "commands": [
-            _normalized_execution_command(command.strip()) if normalize else command.strip()
-            for command in commands
-        ],
+        "commands": [_normalized_execution_command(command.strip()) for command in commands],
         "agent_shapes": sorted(shapes),
     }
     return _stable_id("execution", json.dumps(payload, sort_keys=True))
 
 
+def _mi355_definition_ids(row: dict[str, Any]) -> set[str]:
+    return {
+        entry["definition_id"]
+        for variant in row.get("cells", {}).get("mi355", {}).get("variants", [])
+        for entry in variant.get("entries") or [variant]
+        if entry.get("definition_id")
+    }
+
+
 def _mi355_sensitive_reason(row: dict[str, Any]) -> str | None:
     """Return why an MI355 cell remains a separate best-hardware test group."""
-    title = clean_label(row.get("canonical_title") or row.get("title", ""))
-    exact_execution = execution_fingerprint(row, "mi355", normalize=False)
-    for rule_title, reason in MI355_SENSITIVE_RULES:
-        if title == rule_title or (
-            exact_execution is not None
-            and exact_execution in MI355_SENSITIVE_EXECUTION_SIGNATURES.get(rule_title, ())
-        ):
+    definition_ids = _mi355_definition_ids(row)
+    for definition_id, reason in MI355_SENSITIVE_RULES.items():
+        if definition_id in definition_ids:
             return reason
     return None
 
@@ -823,6 +799,18 @@ def build_best_hardware_health_groups(
     sensitive_rules = {
         row["canonical_title"]: reason for row, _, reason in sensitive_cells
     }
+    matched_definition_ids = {
+        definition_id
+        for row, _, _ in sensitive_cells
+        for definition_id in _mi355_definition_ids(row)
+    }
+    unmatched_rules = [
+        {"definition_id": definition_id, "reason": reason, "status": "matches_no_mi355_definition"}
+        for definition_id, reason in MI355_SENSITIVE_RULES.items()
+        if definition_id not in matched_definition_ids
+    ]
+    for rule in unmatched_rules:
+        log.warning("MI355-sensitive rule %s matches no MI355 definition", rule["definition_id"])
     alias_rules = [
         {
             "title": group["title"],
@@ -849,6 +837,7 @@ def build_best_hardware_health_groups(
             {"title": title, "reason": reason}
             for title, reason in sorted(sensitive_rules.items())
         ],
+        "mi355_sensitive_rule_diagnostics": unmatched_rules,
         "generic_alias_match_policy": GENERIC_EXECUTION_ALIAS_POLICY,
         "generic_alias_rules": alias_rules,
         "mi355_classification": mi355_classification,
