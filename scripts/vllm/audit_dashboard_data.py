@@ -153,6 +153,9 @@ OPERATIONS_GZIP_DATA_PATH = "data/vllm/ci/operations_v2.json.gz"
 DNS_EVIDENCE_MAX_ITEMS = 5000
 DNS_MAX_FRESH_AGE_HOURS = 12
 DNS_OUTCOME_CONTRACT = "dns-job-outcomes-v1"
+# Publications labelled with the retired all-states scope are accepted only
+# when generated before this cutover.
+DNS_ALL_STATES_SCOPE_RETIRED_AT = datetime(2026, 11, 17, tzinfo=timezone.utc)
 AMD_MATRIX_RETENTION_POLICY = "incident_first_connected_logical_cohorts_v2"
 AMD_MATRIX_DETAIL_CONTRACT = "source_aggregates_with_connected_published_detail_v1"
 AMD_MATRIX_MAX_BYTES = writer_max_bytes("amd_test_matrix")
@@ -9154,10 +9157,13 @@ class DashboardAudit:
             "hardware_scope": "amd_mi_gpu",
             "retried_jobs": "included",
         }
-        # A generation published before the failed-job scope stays valid
-        # until the next DNS run republishes it from migrated state.
-        legacy_scope = {**expected_scope, "states": ["passed", "soft", "hard"]}
-        if scope not in (expected_scope, legacy_scope):
+        legacy_generated_at = _parse_timestamp(payload.get("generated_at"))
+        legacy_scope_allowed = (
+            legacy_generated_at is not None
+            and legacy_generated_at < DNS_ALL_STATES_SCOPE_RETIRED_AT
+            and scope == {**expected_scope, "states": ["passed", "soft", "hard"]}
+        )
+        if scope != expected_scope and not legacy_scope_allowed:
             self.error(
                 "dns-health-scope",
                 "DNS health scope must remain all branches, failed script attempts, and active AMD GPU queues",

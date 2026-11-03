@@ -790,6 +790,8 @@ class BuildkiteClient:
                         )
                     },
                 }
+                if _job_state(rest_job) not in SCANNED_JOB_STATES:
+                    continue
                 page_candidates.append((pipeline, build, rest_job))
 
             _prime_source_builds([{**build, "jobs": [job]} for _, build, job in page_candidates])

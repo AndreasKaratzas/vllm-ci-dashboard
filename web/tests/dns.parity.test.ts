@@ -362,6 +362,18 @@ describe('DNS health domain matches the classic renderer', () => {
     expect(rendered).toBeGreaterThan(20)
   })
 
+  it('never presents passed jobs as a measured zero when the scope does not scan them', () => {
+    const payload = structuredClone(pages)
+    payload.scope.states = ['soft', 'hard']
+    for (const id of v2.QUEUE_DNS_WINDOW_IDS) payload.windows[id].coverage = { status: 'complete', complete: true }
+    expect(v2.dnsPresentation(payload, '720h', 'amd', NOW).coverage.complete).toBe(true)
+    const view = expectSameView(payload, '720h', 'amd')
+    expect(view.summary.map((item) => item.label)).toContain('SOFT / HARD FAILED')
+    expect(view.cards.length).toBeGreaterThan(0)
+    for (const text of [...view.summary.map((item) => item.label), ...view.cards.flatMap((card) => card.bars.map((bar) => bar.meta)), ...view.drawers.flatMap((d) => d.fields)])
+      expect(text).not.toMatch(/passed/i)
+  })
+
   it('agrees on counts, outcomes, labels, and URLs for arbitrary inputs', () => {
     const rand = rng(9091)
     const pick = <T,>(xs: T[]) => xs[Math.floor(rand() * xs.length)]!

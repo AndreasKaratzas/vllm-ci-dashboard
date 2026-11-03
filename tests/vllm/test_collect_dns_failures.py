@@ -1900,6 +1900,8 @@ def test_incremental_graphql_discovers_only_failed_ci_jobs():
                     "edges": [
                         {"node": node(1, "FINISHED", passed=False, soft_failed=False)},
                         {"node": node(2, "FINISHED", passed=False, soft_failed=True)},
+                        # A lagging search index may still return a passed job.
+                        {"node": node(9, "FINISHED", passed=True, soft_failed=False)},
                     ],
                     "pageInfo": {"hasNextPage": True, "endCursor": "jobs-page-2"},
                 }

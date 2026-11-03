@@ -880,10 +880,8 @@ the host's timers are active; checked-in units alone do not supply a clock.
 Each eligible run gives collection a 20-minute budget with a separate
 finalization reserve. Unvisited log work remains pending for a later sample
 instead of being reported as a complete zero. Pending work is ordered newest
-first, distributed round-robin across pipeline/queue/node coordinates, and allocated in
-a prefix-stable 60/40 passed/non-passing mix. That preserves the passing-job
-signals that outcome-only filtering would miss without letting one busy fleet
-consume the bounded request budget. Its public
+first and distributed round-robin across pipeline/queue/node coordinates, so one
+busy fleet cannot consume the bounded request budget. Its public
 `dns_failures.json` dataset covers the trailing 720 observed hours. “Observed”
 is deliberate: API, rate-limit, oversized-log, and pending-job gaps remain
 explicit in each window's coverage block, so an incomplete scan cannot be
@@ -905,14 +903,14 @@ that arbitrary labels contain no credentials. Evidence never contains log
 snippets, raw-log URLs, headers, environment values, branches, commits,
 authors, or arbitrary target hostnames.
 
-A DNS observation is independent of the final Buildkite outcome. Passing jobs
-remain in scope because a retry or cache fallback can recover from genuine
-resolver trouble while leaving useful node-level infrastructure evidence. The
-public outcome contract therefore reconciles every affected-job total into
-`passed_jobs`, `soft_failed_jobs`, and `hard_failed_jobs`. The dashboard labels
-these as final outcomes after the DNS observation and reserves failure styling
-for non-passing outcomes. It does not infer that DNS caused a retry, or describe
-resolver-line clusters as CI incidents.
+Passed jobs are out of scope, so resolver trouble that a retry or cache
+fallback recovered from is not observed. The public outcome contract still
+reconciles every affected-job total into `passed_jobs`, `soft_failed_jobs`, and
+`hard_failed_jobs`, but under `scope.states` `["soft", "hard"]` the
+`passed_jobs` count is structurally zero, not a measurement. The dashboard
+therefore splits outcomes into soft and hard failures and shows no passed count
+unless the published scope includes `passed`. It does not infer that DNS caused
+a retry, or describe resolver-line clusters as CI incidents.
 
 The repository and its force-orphan `dns-health-data` and
 `dns-request-budget` branches are publicly readable. Plaintext scanner state

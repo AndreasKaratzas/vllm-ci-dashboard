@@ -1015,9 +1015,9 @@ def _dns_audit_payload(now: datetime | None = None) -> dict:
         "node": "node-1",
         "hardware": "MI300",
         "affected_jobs": 1,
-        "passed_jobs": 1,
+        "passed_jobs": 0,
         "soft_failed_jobs": 0,
-        "hard_failed_jobs": 0,
+        "hard_failed_jobs": 1,
         "episodes": 1,
         "huggingface_affected_jobs": 1,
         "evidence_total": 1,
@@ -1030,9 +1030,9 @@ def _dns_audit_payload(now: datetime | None = None) -> dict:
             "coverage": copy.deepcopy(coverage),
             "totals": {
                 "affected_jobs": 1,
-                "passed_jobs": 1,
+                "passed_jobs": 0,
                 "soft_failed_jobs": 0,
-                "hard_failed_jobs": 0,
+                "hard_failed_jobs": 1,
                 "episodes": 1,
                 "huggingface_affected_jobs": 1,
                 "queues": 1,
@@ -1066,7 +1066,7 @@ def _dns_audit_payload(now: datetime | None = None) -> dict:
             "pipelines": ["ci"],
             "branches": "all",
             "job_types": ["script"],
-            "states": ["passed", "soft", "hard"],
+            "states": ["soft", "hard"],
             "queue_scope": "active_amd_gpu",
             "hardware_scope": "amd_mi_gpu",
             "retried_jobs": "included",
@@ -1109,7 +1109,7 @@ def _dns_audit_payload(now: datetime | None = None) -> dict:
                     "hardware": "MI300",
                     "build_number": 123,
                     "job_id": job_id,
-                    "state": "passed",
+                    "state": "hard",
                     "episodes": 1,
                     "match_count": 1,
                     "signature_ids": ["temporary_name_resolution"],
@@ -1471,10 +1471,24 @@ def test_dns_audit_accepts_legacy_payload_with_outcome_warning(tmp_path):
     assert audit.report.metrics["dns_health"]["outcome_breakdown_complete"] is False
 
 
+@pytest.mark.parametrize(("offset", "accepted"), [(-1, True), (1, False)])
+def test_dns_audit_accepts_all_states_scope_only_before_its_retirement(tmp_path, offset, accepted):
+    payload = _dns_audit_payload(
+        audit_module.DNS_ALL_STATES_SCOPE_RETIRED_AT + timedelta(hours=offset)
+    )
+    payload["scope"]["states"] = ["passed", "soft", "hard"]
+    _write_dns_audit_payload(tmp_path, payload)
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_dns_failures()
+
+    assert ("dns-health-scope" in {finding.code for finding in audit.report.errors}) is not accepted
+
+
 def test_dns_audit_rejects_unreconciled_outcome_breakdown(tmp_path):
     payload = _dns_audit_payload()
-    payload["windows"]["1h"]["totals"]["passed_jobs"] = 0
-    payload["windows"]["1h"]["rows"][0]["passed_jobs"] = 0
+    payload["windows"]["1h"]["totals"]["hard_failed_jobs"] = 0
+    payload["windows"]["1h"]["rows"][0]["hard_failed_jobs"] = 0
     _write_dns_audit_payload(tmp_path, payload)
     audit = DashboardAudit(tmp_path)
 
