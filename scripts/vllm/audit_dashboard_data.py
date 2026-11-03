@@ -37,6 +37,7 @@ from vllm.ci.dns_failures import (  # noqa: E402
     PUBLICATION_RETENTION_COUNT_KEYS as DNS_PUBLICATION_RETENTION_COUNT_KEYS,
     PUBLICATION_RETENTION_KEYS as DNS_PUBLICATION_RETENTION_KEYS,
     PUBLICATION_RETENTION_POLICY as DNS_PUBLICATION_RETENTION_POLICY,
+    SCANNED_JOB_STATES as DNS_SCANNED_JOB_STATES,
 )
 from vllm.ci.docker_builds import (  # noqa: E402
     MAX_FRESH_AGE_HOURS as DOCKER_BUILDS_MAX_FRESH_AGE_HOURS,
@@ -73,9 +74,15 @@ from vllm.publication_surfaces import (  # noqa: E402
     unavailable_finding_surfaces,
 )
 from vllm.dashboard_storage_budget import group_max_bytes, writer_max_bytes  # noqa: E402
-from vllm.constants import AGENT_HEALTH_ATTRIBUTIONS, AGENT_HEALTH_NODE_SUSPECT  # noqa: E402
+from vllm.amd_queue_registry import TARGET_HARDWARE  # noqa: E402
+from vllm.constants import (  # noqa: E402
+    AGENT_HEALTH_ATTRIBUTIONS,
+    AGENT_HEALTH_NODE_SUSPECT,
+    amd_gpu_hardware,
+)
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+AMD_QUEUE_REGISTRY_STALE_HOURS = 48
 DATA = ROOT / "data"
 VLLM = DATA / "vllm"
 CI = VLLM / "ci"
@@ -152,6 +159,9 @@ OPERATIONS_GZIP_DATA_PATH = "data/vllm/ci/operations_v2.json.gz"
 DNS_EVIDENCE_MAX_ITEMS = 5000
 DNS_MAX_FRESH_AGE_HOURS = 12
 DNS_OUTCOME_CONTRACT = "dns-job-outcomes-v1"
+# Publications labelled with the retired all-states scope are accepted only
+# when generated before this cutover.
+DNS_ALL_STATES_SCOPE_RETIRED_AT = datetime(2026, 11, 17, tzinfo=timezone.utc)
 AMD_MATRIX_RETENTION_POLICY = "incident_first_connected_logical_cohorts_v2"
 AMD_MATRIX_DETAIL_CONTRACT = "source_aggregates_with_connected_published_detail_v1"
 AMD_MATRIX_MAX_BYTES = writer_max_bytes("amd_test_matrix")
@@ -697,7 +707,7 @@ DATA_SPECS: tuple[DataSpec, ...] = (
             "coverage",
             "provenance",
         ),
-        "Direct observed event-time lifecycle metrics for the twelve canonical AMD queues",
+        "Direct observed event-time lifecycle metrics for the ci-infra-routed MI250/MI300/MI355 queues",
     ),
     DataSpec(
         "data/vllm/ci/workload_mapping.json",
@@ -7244,6 +7254,13 @@ class DashboardAudit:
                 relpath,
             )
 
+        for rule in policy.get("mi355_sensitive_rule_diagnostics") or []:
+            self.warning(
+                "matrix-mi355-sensitive-rule-unmatched",
+                f"MI355-sensitive rule {_mapping(rule).get('definition_id')} matches no MI355 definition",
+                relpath,
+            )
+
         raw_sensitive_rules = policy.get("mi355_sensitive_rules")
         raw_alias_rules = policy.get("generic_alias_rules")
         if not isinstance(raw_sensitive_rules, list) or not isinstance(
@@ -7617,6 +7634,46 @@ class DashboardAudit:
         }
 
 
+    def _audit_queue_registry(self, scope: dict) -> None:
+        path = "data/vllm/ci/queue_timeseries.jsonl"
+        registry = _mapping(scope.get("registry"))
+        fallback = _mapping(registry.get("fallback"))
+        if fallback:
+            self.warning(
+                "amd-queue-registry-fallback",
+                f"ci-infra AMD queue routing was unavailable ({fallback.get('reason')}); "
+                f"the queue scope is the registry fetched at {registry.get('fetched_at')}",
+                path,
+            )
+        fetched_at = parse_iso(registry.get("fetched_at"))
+        if fetched_at and fetched_at.tzinfo is not None:
+            age_hours = (datetime.now(timezone.utc) - fetched_at).total_seconds() / 3600
+            if age_hours > AMD_QUEUE_REGISTRY_STALE_HOURS:
+                self.warning(
+                    "amd-queue-registry-stale",
+                    f"AMD queue registry was last fetched from ci-infra {age_hours:.1f}h ago",
+                    path,
+                )
+        for row in registry.get("unrecognized_queues") or []:
+            row = _mapping(row)
+            self.warning(
+                "amd-queue-registry-unrecognized",
+                f"ci-infra AMD device {row.get('device')} routes to queue {row.get('queue')}, "
+                "which the dashboard cannot map to AMD hardware",
+                path,
+            )
+        unregistered = [
+            queue
+            for queue in scope.get("unregistered_active_queue_ids") or []
+            if amd_gpu_hardware(str(queue)) in TARGET_HARDWARE
+        ]
+        if unregistered:
+            self.warning(
+                "amd-queue-unregistered-active",
+                "active target-family queues absent from ci-infra routing: " + ", ".join(unregistered),
+                path,
+            )
+
     def audit_queue_data(
         self, *, validate_derived: bool = False, require_current_scope: bool = False,
     ) -> None:
@@ -7647,6 +7704,7 @@ class DashboardAudit:
                     f"latest queue snapshot is {age_hours:.1f}h old",
                     "data/vllm/ci/queue_timeseries.jsonl",
                 )
+        self._audit_queue_registry(_mapping(latest.get("target_queue_scope")))
 
         workload_mismatches: list[str] = []
         retired_queue_rows = 0
@@ -8113,19 +8171,24 @@ class DashboardAudit:
             )
             return
 
-        expected_queues = [
-            f"amd_mi{family}_{width}"
-            for family in (250, 300, 355)
-            for width in (1, 2, 4, 8)
-        ]
         scope = _mapping(payload.get("scope"))
-        if scope.get("queues") != expected_queues:
+        expected_queues = scope.get("queues")
+        if (
+            not isinstance(expected_queues, list)
+            or not expected_queues
+            or len(set(map(str, expected_queues))) != len(expected_queues)
+            or any(
+                not isinstance(queue, str) or amd_gpu_hardware(queue) not in TARGET_HARDWARE
+                for queue in expected_queues
+            )
+        ):
             self.error(
                 "queue-lifecycle-scope",
-                "queue lifecycle scope must be exactly the twelve canonical MI250/MI300/MI355 queues",
+                "queue lifecycle scope must list distinct MI250/MI300/MI355 queues",
                 path,
             )
-        if scope.get("families") != ["MI250", "MI300", "MI355"]:
+            expected_queues = []
+        if scope.get("families") != list(TARGET_HARDWARE):
             self.error(
                 "queue-lifecycle-families",
                 f"queue lifecycle families are {scope.get('families')!r}",
@@ -8413,7 +8476,7 @@ class DashboardAudit:
         if not isinstance(queues, dict) or set(queues) != set(expected_queues):
             self.error(
                 "queue-lifecycle-queue-map",
-                "queue lifecycle queue map must contain only the ordered canonical queue cohort",
+                "queue lifecycle queue map must contain exactly the scoped queues",
                 path,
             )
             queues = queues if isinstance(queues, dict) else {}
@@ -9148,15 +9211,21 @@ class DashboardAudit:
             "pipelines": list(DNS_PIPELINES),
             "branches": "all",
             "job_types": ["script"],
-            "states": ["passed", "soft", "hard"],
+            "states": list(DNS_SCANNED_JOB_STATES),
             "queue_scope": "active_amd_gpu",
             "hardware_scope": "amd_mi_gpu",
             "retried_jobs": "included",
         }
-        if scope != expected_scope:
+        legacy_generated_at = _parse_timestamp(payload.get("generated_at"))
+        legacy_scope_allowed = (
+            legacy_generated_at is not None
+            and legacy_generated_at < DNS_ALL_STATES_SCOPE_RETIRED_AT
+            and scope == {**expected_scope, "states": ["passed", "soft", "hard"]}
+        )
+        if scope != expected_scope and not legacy_scope_allowed:
             self.error(
                 "dns-health-scope",
-                "DNS health scope must remain all branches, terminal script attempts, and active AMD GPU queues",
+                "DNS health scope must remain all branches, failed script attempts, and active AMD GPU queues",
                 path,
             )
 

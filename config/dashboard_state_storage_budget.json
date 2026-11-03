@@ -122,6 +122,7 @@
       "max_bytes": 262144,
       "patterns": [
         "data/vllm/test_results.json",
+        "data/vllm/ci/amd_queue_registry.json",
         "data/vllm/ci/shard_base_catalog.json",
         "data/vllm/ci/parity_key_overrides.json",
         "data/vllm/ci/publication_state.json",
@@ -317,6 +318,10 @@
     "public_projection_attestation": {
       "group": "operational_misc",
       "max_bytes": 4096
+    },
+    "amd_queue_registry": {
+      "group": "operational_misc",
+      "max_bytes": 16384
     }
   }
 }

@@ -99,7 +99,7 @@ from vllm.pipelines import (
     _job_queue,
     pipeline_job_matches_scope,
 )
-from vllm.constants import TRACKED_QUEUES
+from vllm.amd_queue_registry import lanes, tracked_queues
 
 logging.basicConfig(
     level=logging.INFO,
@@ -132,8 +132,10 @@ _ROUTING_JOB_UUID_RE = re.compile(
 )
 _ROUTING_DIAGNOSTIC_LIMIT = 8
 _ROUTING_QUEUE_LIST_LIMIT = 4
-_ROUTING_DIAGNOSTIC_QUEUES = frozenset(queue.casefold() for queue in TRACKED_QUEUES) | {
-    "amd-cpu", "amd_mi355_dpx", "h100", "h200_18gb", "h200_35gb",
+_ROUTING_DIAGNOSTIC_QUEUES = frozenset(
+    queue.casefold() for queue in (*tracked_queues(), *lanes())
+) | {
+    "amd-cpu", "h100", "h200_18gb", "h200_35gb",
     "b200-k8s", "l4-k8s", "dgx-spark", "gpu_1", "gpu_4",
     *(f"amd_mi355b_{width}" for width in (1, 2, 4, 8)),
 }

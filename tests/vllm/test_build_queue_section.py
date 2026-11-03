@@ -336,3 +336,26 @@ def test_queue_section_validator_rejects_exact_cap_overflow(tmp_path) -> None:
 
     with pytest.raises(RuntimeError, match="limit is 1048576 bytes"):
         bqs.validate_queue_section_file(output)
+
+
+def test_queue_section_canonical_totals_follow_the_snapshot_target_scope() -> None:
+    queues = {
+        "amd_mi250": {"waiting": 55, "running": 14},
+        "amd_mi355_dpx": {"waiting": 0, "running": 71},
+        "amd_mi325_1": {"waiting": 9, "running": 9},
+    }
+    section = bqs.compact_queue_section({
+        "snapshot": {
+            "ts": "2026-11-03T04:43:00Z",
+            "queues": queues,
+            "target_queue_scope": {"queue_ids": ["amd_mi250", "amd_mi355_dpx"]},
+        },
+        "queue_jobs": {"pending": [], "running": []},
+        "history": [],
+        "pressure_baseline": {},
+        "history_summary": {},
+        "provenance": {},
+    })
+
+    canonical = section["queue"]["operations_publication_retention"]["scope_totals"]["canonical"]
+    assert (canonical["queue_count"], canonical["waiting"], canonical["running"]) == (2, 55, 85)

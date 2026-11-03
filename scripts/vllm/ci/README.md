@@ -212,7 +212,7 @@ Eight workflows divide canonical publication from focused manual/event collector
 | `daily-update.yml` | Manual | Compatibility handoff to the canonical collector; never writes generated data to `main` |
 | `ci-collect.yml` | Manual | Tokenless compatibility dispatch into the canonical guarded collector; it cannot run an independent Buildkite refresh |
 | `queue-monitor.yml` | Ten-minute recovery checks + external tick + queue webhooks + manual | Queue snapshots and the main pulse; canonical publication follows via `hourly-master.yml` |
-| `queue-lifecycle.yml` | 30-minute recovery checks + external tick, two-hour successful cadence + manual | Organization-wide direct job lifecycle observations for the twelve canonical MI250/MI300/MI355 queues |
+| `queue-lifecycle.yml` | 30-minute recovery checks + external tick, two-hour successful cadence + manual | Organization-wide direct job lifecycle observations for the MI250/MI300/MI355 queues ci-infra routes to |
 | `docker-builds.yml` | 30-minute recovery checks + external tick, two-hour successful cadence + manual | Run time of the ROCm docker build jobs on `ci` and `amd-ci` for main and PR builds, published to `docker-builds-data` |
 | `dns-health.yml` | Hourly recovery opportunity + external tick + manual | Request-budgeted observed DNS sampling with an isolated durable state branch, a durable three-hour scan gate, and conditional canonical reconciliation |
 | `publication-watchdog.yml` | Data Collection, Pages deployment, Queue Lifecycle Monitor, DNS Health Monitor, and Site Health Check completions + every 15 minutes + external tick + manual | Validates the durable state identity against Pages and routes bounded collector, DNS, or deploy-only recovery; force-cancels runs stuck past their job timeouts plus 6 hours |
@@ -640,9 +640,18 @@ and runtime updates are parentless replacements protected by exact leases.
 Queue analytics intentionally exclude waiting or running jobs older than 4 hours. Those jobs are treated as zombies, and surfaced separately in `queue_jobs.json` so the main queue charts stay conservative.
 
 Canonical AMD lifecycle analytics are intentionally narrower than the general
-queue monitor. `collect_queue_lifecycle.py` queries only the twelve standard
-`amd_mi250_*`, `amd_mi300_*`, and `amd_mi355_*` queues at widths 1, 2, 4, and
-8. MI325, MI355B, CPU, partner, perf-eval, and router queues are excluded from
+queue monitor. `collect_queue_lifecycle.py` queries only the MI250, MI300, and
+MI355 physical queues in the AMD queue registry (`amd_queue_registry.py`), which
+is parsed from ci-infra's `AgentQueue` and `AMD_DEVICE_CONFIGS` at a recorded
+commit and cached as last-good dashboard state. That includes the shared
+`amd_mi250` queue, whose widths ci-infra splits only by a `gpu_size` tag, and
+`amd_mi355_dpx`; retired per-width `amd_mi250_N` queues fold into `amd_mi250`.
+When ci-infra cannot be fetched or parsed, the cached copy is republished with
+`source.fallback`, and the audit warns on a fallback, a registry older than 48
+hours, a ci-infra device queue the dashboard cannot map to hardware, or an
+active target-family queue ci-infra does not route. A ledger published under a
+different queue scope is re-segmented under the current one on restore.
+MI325, MI355B, CPU, partner, perf-eval, and router queues are excluded from
 these totals. The collector records three event-time facts independently:
 incoming work at REST `build.jobs[].runnable_at`, served work at
 `build.jobs[].started_at`, and completions at `build.jobs[].finished_at`. It
@@ -665,8 +674,8 @@ retention. The supported organization
 Builds REST endpoint does not filter job event timestamps directly. The
 collector unions builds finished inside the source window, builds created
 inside it, and active-state builds created inside the bounded parent-build
-horizon, then filters jobs by the twelve direct cluster-queue UUIDs. A target
-queue missing from a fully paginated cluster listing is retired: it is listed
+horizon, then filters jobs by the target direct cluster-queue UUIDs. A registry
+queue missing from a fully paginated cluster listing is listed
 in `coverage.absent_queues` and its zero row is not a measurement, while an
 empty discovery still fails. Every
 retained value is therefore an exact direct job observation, while the
@@ -736,9 +745,13 @@ horizons remain invalid.
 
 ### DNS health observations
 
-`collect_dns_failures.py` discovers terminal script-job attempts across the
-`amd-ci` and `ci` pipelines, including retries and passing jobs, then scans each
-bounded log sample for strong DNS signatures. The workflow gets an hourly
+`collect_dns_failures.py` discovers failed and soft-failed MI GPU script-job
+attempts on the `ci` pipeline, including retries, then scans each bounded log
+for strong DNS signatures. Passed jobs, `amd-ci`, and vLLM-Omni
+(`vllm-omni-amd-ci`) jobs are out of scope; the first collection on this scope
+drops their rows from the encrypted state. Buildkite filters the recent-job
+stream to failed jobs (`passed: false`), which leaves room for the active-build
+sweep on every scan, so discovery can complete. The workflow gets an hourly
 recovery opportunity and retains a three-hour scanner interval, but the hard
 cross-run limit comes from the separate parentless `dns-request-budget` branch.
 Before an eligible attempt receives a Buildkite token, the workflow atomically
@@ -876,10 +889,8 @@ the host's timers are active; checked-in units alone do not supply a clock.
 Each eligible run gives collection a 20-minute budget with a separate
 finalization reserve. Unvisited log work remains pending for a later sample
 instead of being reported as a complete zero. Pending work is ordered newest
-first, distributed round-robin across pipeline/queue/node coordinates, and allocated in
-a prefix-stable 60/40 passed/non-passing mix. That preserves the passing-job
-signals that outcome-only filtering would miss without letting one busy fleet
-consume the bounded request budget. Its public
+first and distributed round-robin across pipeline/queue/node coordinates, so one
+busy fleet cannot consume the bounded request budget. Its public
 `dns_failures.json` dataset covers the trailing 720 observed hours. “Observed”
 is deliberate: API, rate-limit, oversized-log, and pending-job gaps remain
 explicit in each window's coverage block, so an incomplete scan cannot be
@@ -901,14 +912,14 @@ that arbitrary labels contain no credentials. Evidence never contains log
 snippets, raw-log URLs, headers, environment values, branches, commits,
 authors, or arbitrary target hostnames.
 
-A DNS observation is independent of the final Buildkite outcome. Passing jobs
-remain in scope because a retry or cache fallback can recover from genuine
-resolver trouble while leaving useful node-level infrastructure evidence. The
-public outcome contract therefore reconciles every affected-job total into
-`passed_jobs`, `soft_failed_jobs`, and `hard_failed_jobs`. The dashboard labels
-these as final outcomes after the DNS observation and reserves failure styling
-for non-passing outcomes. It does not infer that DNS caused a retry, or describe
-resolver-line clusters as CI incidents.
+Passed jobs are out of scope, so resolver trouble that a retry or cache
+fallback recovered from is not observed. The public outcome contract still
+reconciles every affected-job total into `passed_jobs`, `soft_failed_jobs`, and
+`hard_failed_jobs`, but under `scope.states` `["soft", "hard"]` the
+`passed_jobs` count is structurally zero, not a measurement. The dashboard
+therefore splits outcomes into soft and hard failures and shows no passed count
+unless the published scope includes `passed`. It does not infer that DNS caused
+a retry, or describe resolver-line clusters as CI incidents.
 
 The repository and its force-orphan `dns-health-data` and
 `dns-request-budget` branches are publicly readable. Plaintext scanner state

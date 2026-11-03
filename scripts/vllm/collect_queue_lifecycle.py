@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect exact-time lifecycle observations for twelve target AMD queues.
+"""Collect exact-time lifecycle observations for the target AMD queues.
 
 Buildkite's public GraphQL API does not expose the historical Cluster Insights
 time series.  This collector builds an auditable local series from command-job
@@ -55,13 +55,18 @@ from vllm.collect_workload_mapping import (  # noqa: E402
     PER_PAGE as REST_PAGE_SIZE,
     _request_build_page,
 )
+from vllm.amd_queue_registry import (  # noqa: E402
+    TARGET_HARDWARE,
+    physical_queue,
+    registry_provenance,
+    target_queues,
+)
 from vllm.constants import (  # noqa: E402
-    AMD_METRIC_TARGET_QUEUES,
     BK_CLUSTER_UUID,
     BK_ORG,
+    amd_gpu_hardware,
 )
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
-from vllm.pipelines import _SHARED_MI_QUEUE_RE, _job_queue  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -567,6 +572,7 @@ def _rest_job_node(job: dict, queue: str) -> dict:
 def fetch_rest_target_queues(token: str, *, page_fetcher=None) -> tuple[dict[str, str], dict]:
     fetch_page = page_fetcher or _request_build_page
     path = f"/organizations/{BK_ORG}/clusters/{BK_CLUSTER_UUID}/queues"
+    targets = target_queues()
     discovered: dict[str, str] = {}
     pages = 0
     for page in range(1, REST_PAGE_SAFETY_CAP + 1):
@@ -576,7 +582,7 @@ def fetch_rest_target_queues(token: str, *, page_fetcher=None) -> tuple[dict[str
             if not isinstance(row, dict):
                 raise RuntimeError("REST cluster queue response contains a malformed row")
             key = str(row.get("key") or "").strip()
-            if key not in AMD_METRIC_TARGET_QUEUES:
+            if physical_queue(key) not in targets:
                 continue
             queue_id = str(row.get("id") or row.get("uuid") or "").strip()
             if not queue_id:
@@ -590,13 +596,15 @@ def fetch_rest_target_queues(token: str, *, page_fetcher=None) -> tuple[dict[str
         raise RuntimeError("REST cluster queue discovery reached the pagination safety cap")
     if not discovered:
         raise RuntimeError("REST cluster queue discovery found no target queues")
-    missing = [queue for queue in AMD_METRIC_TARGET_QUEUES if queue not in discovered]
-    if missing:
-        log.warning("Target queues absent from the Buildkite cluster: %s", ", ".join(missing))
-    by_id = {queue_id: queue for queue, queue_id in discovered.items()}
+    # Retired per-width queues of a gpu_size-shared queue fold into it.
+    by_id = {queue_id: physical_queue(key) for key, queue_id in discovered.items()}
     if len(by_id) != len(discovered):
         raise RuntimeError("target REST cluster queues share a queue ID")
-    return by_id, {"complete": True, "pages": pages, "target_queue_count": len(by_id),
+    present = set(by_id.values())
+    missing = [queue for queue in targets if queue not in present]
+    if missing:
+        log.warning("Target queues absent from the Buildkite cluster: %s", ", ".join(missing))
+    return by_id, {"complete": True, "pages": pages, "target_queue_count": len(present),
                    "absent_target_queues": missing}
 
 
@@ -605,6 +613,7 @@ def _project_rest_builds(
     queue_by_id: dict[str, str],
     jobs: dict[str, dict],
 ) -> tuple[int, int]:
+    targets = target_queues()
     command_jobs = 0
     target_jobs = 0
     for build in builds:
@@ -621,18 +630,14 @@ def _project_rest_builds(
             command_jobs += 1
             queue_id = str(job.get("cluster_queue_id") or "").strip()
             queue = queue_by_id.get(queue_id)
-            rule_queue = queue_from_rules(job.get("agent_query_rules"))
-            if queue is None and queue_id and _SHARED_MI_QUEUE_RE.fullmatch(rule_queue or ""):
-                # Shared MI queues split widths by gpu_size; keep the per-width target row.
-                width_queue = _job_queue({"agent_query_rules": job.get("agent_query_rules")})
-                queue = width_queue if width_queue in AMD_METRIC_TARGET_QUEUES else None
+            rule_queue = physical_queue(queue_from_rules(job.get("agent_query_rules")) or "")
             if queue is None:
-                if rule_queue in AMD_METRIC_TARGET_QUEUES:
+                if rule_queue in targets:
                     raise RuntimeError(
                         "target queue REST job lacks direct cluster_queue_id attribution"
                     )
                 continue
-            if rule_queue in AMD_METRIC_TARGET_QUEUES and rule_queue != queue:
+            if rule_queue in targets and rule_queue != queue:
                 raise RuntimeError(
                     "REST job cluster queue ID conflicts with its explicit queue rule"
                 )
@@ -801,7 +806,7 @@ def observations_from_jobs(
         if not isinstance(queue, dict):
             raise RuntimeError(f"Buildkite job {job_uuid} lacks queue metadata")
         queue_key = str(queue.get("key") or "").strip()
-        if queue_key not in AMD_METRIC_TARGET_QUEUES:
+        if queue_key not in target_queues():
             raise RuntimeError(f"Buildkite job {job_uuid} has out-of-scope queue {queue_key!r}")
 
         timestamps = {
@@ -909,12 +914,14 @@ def _validate_observation(row: object, *, line: int | None = None) -> dict:
         raise RuntimeError(f"queue lifecycle observation top-level schema is invalid{where}")
     if type(row.get("schema_version")) is not int or row["schema_version"] != SCHEMA_VERSION:
         raise RuntimeError(f"unsupported queue lifecycle observation schema{where}")
-    if row.get("queue") not in AMD_METRIC_TARGET_QUEUES:
+    queue = row.get("queue")
+    if not isinstance(queue, str) or amd_gpu_hardware(queue) not in TARGET_HARDWARE:
         raise RuntimeError(f"out-of-scope queue lifecycle observation{where}")
     job_id = row.get("job_id")
     if not isinstance(job_id, str) or not re.fullmatch(r"[0-9a-f]{64}", job_id):
         raise RuntimeError(f"invalid hashed queue lifecycle identity{where}")
     row = dict(row)
+    row["queue"] = physical_queue(queue)
     timestamps = row.get("timestamps")
     if not isinstance(timestamps, dict):
         raise RuntimeError(f"queue lifecycle observation lacks timestamps{where}")
@@ -1168,7 +1175,8 @@ def merge_and_prune_jobs(
     retention_start: datetime,
     end_exclusive: datetime,
 ) -> list[dict]:
-    """Merge stable hashed job IDs and retain jobs with any event in range."""
+    """Merge stable hashed job IDs and retain target-queue jobs with any event in range."""
+    targets = target_queues()
     merged: dict[str, dict] = {}
     for rows in (existing, incoming):
         for value in rows:
@@ -1182,7 +1190,9 @@ def merge_and_prune_jobs(
             for key in ("runnable_at", "started_at", "finished_at")
             if row["timestamps"].get(key)
         ]
-        if any(retention_start <= value < end_exclusive for value in event_times):
+        if row["queue"] in targets and any(
+            retention_start <= value < end_exclusive for value in event_times
+        ):
             retained.append(row)
     return sorted(retained, key=lambda row: row["job_id"])
 
@@ -1637,18 +1647,15 @@ def _baseline_sha256(observations: Iterable[dict]) -> str:
 
 
 def _queue_identity_sha256(queue_by_id: dict[str, str]) -> str:
-    if not queue_by_id or not set(queue_by_id.values()) <= set(AMD_METRIC_TARGET_QUEUES):
+    if not queue_by_id or not set(queue_by_id.values()) <= set(target_queues()):
         raise RuntimeError("target queue identity map has invalid scope")
-    if len(set(queue_by_id.values())) != len(queue_by_id) or any(
-        not isinstance(queue_id, str) or not queue_id
-        for queue_id in queue_by_id
-    ):
+    if any(not isinstance(queue_id, str) or not queue_id for queue_id in queue_by_id):
         raise RuntimeError("target queue identity map is malformed")
-    by_queue = {queue: queue_id for queue_id, queue in queue_by_id.items()}
     payload = "".join(
-        f"{queue}\0{by_queue[queue]}\n" for queue in sorted(by_queue)
+        f"{queue}\0{queue_id}\n"
+        for queue, queue_id in sorted((queue, queue_id) for queue_id, queue in queue_by_id.items())
     ).encode("utf-8")
-    return hashlib.sha256(b"buildkite-cluster-queue-map-v1\0" + payload).hexdigest()
+    return hashlib.sha256(b"buildkite-cluster-queue-map-v2\0" + payload).hexdigest()
 
 
 def _checkpoint_query(previous: dict, *, query_end: datetime) -> dict:
@@ -1873,18 +1880,19 @@ def _validate_checkpoint_shape(state: object) -> dict:
     _nonnegative_checkpoint_int(
         discovery.get("pages"), "queue discovery pages", maximum=REST_PAGE_SAFETY_CAP
     )
+    targets = target_queues()
     _nonnegative_checkpoint_int(
         discovery.get("target_queue_count"),
         "queue discovery target queue count",
-        maximum=len(AMD_METRIC_TARGET_QUEUES),
+        maximum=len(targets),
     )
     absent = discovery.get("absent_target_queues")
     if (
         discovery.get("pages") < 1
         or discovery.get("target_queue_count") < 1
         or not isinstance(absent, list)
-        or absent != [queue for queue in AMD_METRIC_TARGET_QUEUES if queue in absent]
-        or discovery["target_queue_count"] + len(absent) != len(AMD_METRIC_TARGET_QUEUES)
+        or absent != [queue for queue in targets if queue in absent]
+        or discovery["target_queue_count"] + len(absent) != len(targets)
     ):
         raise RuntimeError("queue lifecycle checkpoint queue discovery scope is invalid")
 
@@ -2594,7 +2602,7 @@ def _scoped_metrics(
                 start,
                 end_exclusive,
             )
-            for queue in AMD_METRIC_TARGET_QUEUES
+            for queue in target_queues()
         },
     )
 
@@ -2692,14 +2700,20 @@ def _hourly_buckets(
     return buckets
 
 
-def _summary_provenance(payload: object) -> dict:
+def _summary_provenance(payload: object, *, require_current_scope: bool = True) -> dict:
+    """Return the summary provenance; ``scope_queues`` is set when the scope differs."""
     if not isinstance(payload, dict) or payload.get("schema_version") != SCHEMA_VERSION:
         return {}
     scope = payload.get("scope")
-    if not isinstance(scope, dict) or scope.get("queues") != list(AMD_METRIC_TARGET_QUEUES):
+    if not isinstance(scope, dict) or not isinstance(scope.get("queues"), list):
+        return {}
+    current_scope = scope["queues"] == list(target_queues())
+    if require_current_scope and not current_scope:
         return {}
     provenance = payload.get("provenance")
-    return dict(provenance) if isinstance(provenance, dict) else {}
+    if not isinstance(provenance, dict):
+        return {}
+    return dict(provenance) if current_scope else {**provenance, "scope_queues": scope["queues"]}
 
 
 def _job_directory_generation(path: Path) -> str:
@@ -2760,7 +2774,7 @@ def validate_local_ledger_generation(*, jobs_path: Path, summary_path: Path) -> 
         summary = json.loads(summary_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RuntimeError("queue lifecycle summary is not valid UTF-8 JSON") from exc
-    ledger = _summary_provenance(summary).get("ledger")
+    ledger = _summary_provenance(summary, require_current_scope=False).get("ledger")
     if not _ledger_manifest_complete(ledger):
         raise RuntimeError("queue lifecycle summary lacks a complete ledger manifest")
 
@@ -3000,6 +3014,8 @@ def build_summary(
     previous_provenance: dict | None = None,
     ledger: dict | None = None,
 ) -> dict:
+    targets = target_queues()
+    observations = [row for row in observations if row["queue"] in targets]
     retention_start = now - timedelta(days=RETENTION_DAYS)
     window_start = now - timedelta(hours=ROLLING_WINDOW_HOURS)
     totals, queues = _scoped_metrics(observations, window_start, now)
@@ -3155,8 +3171,9 @@ def build_summary(
             "hours": ROLLING_WINDOW_HOURS,
         },
         "scope": {
-            "queues": list(AMD_METRIC_TARGET_QUEUES),
-            "families": ["MI250", "MI300", "MI355"],
+            "queues": list(targets),
+            "families": list(TARGET_HARDWARE),
+            "registry": registry_provenance(),
         },
         "totals": totals,
         "queues": queues,
@@ -3404,7 +3421,7 @@ def collect_lifecycle(
         ],
         "unique_jobs": unique_job_count,
         "timestamp_coverage": timestamp_coverage,
-        "target_queues": list(AMD_METRIC_TARGET_QUEUES),
+        "target_queues": list(target_queues()),
     }
     summary = build_summary(
         retained,
@@ -3644,7 +3661,7 @@ def _git_ref_summary_provenance(git_ref: str) -> dict:
     except json.JSONDecodeError as exc:
         log.warning("Ignoring malformed derived lifecycle summary at %s: %s", git_ref, exc)
         return {}
-    return _summary_provenance(payload)
+    return _summary_provenance(payload, require_current_scope=False)
 
 
 def maintain_job_ledger(
@@ -3739,6 +3756,13 @@ def restore_exact_job_ledger(
             )
         )
     )
+    scope_migration = "scope_queues" in remote_provenance
+    if scope_migration:
+        log.warning(
+            "Re-segmenting lifecycle ledger from queue scope %s to %s",
+            remote_provenance["scope_queues"],
+            list(target_queues()),
+        )
     current = _provenance_datetime(remote_provenance.get("last_successful_query_end"))
     if current is None:
         raise RuntimeError(f"established lifecycle ref {git_ref} has no safe query horizon")
@@ -3762,6 +3786,7 @@ def restore_exact_job_ledger(
     if (
         ledger["generation_sha256"] != remote_ledger["generation_sha256"]
         and not migration_requires_rewrite
+        and not scope_migration
     ):
         raise RuntimeError(f"lifecycle generation at {git_ref} changes at its bound horizon")
     _, _, output_is_legacy = _remote_ledger_read_contract(ledger)

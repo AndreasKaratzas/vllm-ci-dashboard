@@ -266,7 +266,7 @@ def test_dns_quarantines_confirmed_missing_null_and_uses_positive_sibling_withou
         ]},
     })
     builds = [{"commit": pin, "number": index, "jobs": [{
-        "id": f"00000000-0000-4000-8000-{index:012x}", "type": "script", "state": "passed",
+        "id": f"00000000-0000-4000-8000-{index:012x}", "type": "script", "state": "failed",
         "name": ":amd: (MI300) GPU Test", "agent_query_rules": ["queue=amd_mi300_1"],
         "finished_at": "2026-10-12T06:00:00Z",
     }]} for index, pin in enumerate((KNOWN, *unknown_pins), 1)]

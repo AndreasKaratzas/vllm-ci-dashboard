@@ -2282,6 +2282,7 @@ class TestHourlyMasterWorkflow:
             "Restore validated dashboard state",
             "Restore authored dashboard documentation from immutable code",
             "Restore docker builds seed when the state predates it",
+            "Resolve AMD queue registry from ci-infra",
             "Sync validated DNS health aggregate",
             "Observe docker builds bootstrap",
             "Validate targeted DNS candidate generation",

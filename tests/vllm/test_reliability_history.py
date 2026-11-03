@@ -131,36 +131,33 @@ def test_all_main_includes_nightly_and_non_nightly_once_but_rejects_untrusted():
     assert result["denominator"]["eligible_observations"] == 2
 
 
-def test_group_identity_keeps_gpu_hardware_queue_and_shard_variants_distinct():
-    labels = [
-        "mi300_4: V1 e2e (4 GPUs)",
-        "mi300_4: V1 e2e (4xH100-4xMI300)",
-        "mi300_4: Sharded Models 1/2",
-        "mi300_4: Sharded Models 2/2",
-    ]
+def test_group_identity_is_the_step_on_its_queue_across_runtime_shard_labels():
+    """Automatic sharding re-plans "Shard k/t" per build; history must stay one group."""
     jobs = [
-        _job(
-            f"variant-{index}",
-            label,
-            step_key="variant-step",
-            queue="amd_mi300_4",
-        )
-        for index, label in enumerate(labels)
+        _job("gpus", "mi300_4: V1 e2e (4 GPUs)", step_key="e2e-4-gpus", queue="amd_mi300_4"),
+        _job("mixed", "mi300_4: V1 e2e (4xH100-4xMI300)", step_key="e2e-mixed", queue="amd_mi300_4"),
+        _job("shard-1", "mi300_4: Sharded Models Shard 1/2", step_key="sharded", queue="amd_mi300_4"),
+        _job("shard-2", "mi300_4: Sharded Models shard 2/2", "failed", step_key="sharded", queue="amd_mi300_4"),
+        _job("mi355", "mi355_4: Sharded Models", step_key="sharded", queue="amd_mi355_4"),
+    ]
+    replanned = [
+        _job("shard-3", "mi300_4: Sharded Models Shard 3/3", step_key="sharded", queue="amd_mi300_4"),
+        _job("single", "mi300_4: Sharded Models", step_key="sharded", queue="amd_mi300_4"),
     ]
 
-    groups = _dataset([_build(201, jobs)])["groups"]
+    groups = _dataset([_build(201, jobs), _build(202, replanned, hour_offset=1)])["groups"]
 
-    assert len(groups) == 4
-    assert len({row["group_id"] for row in groups}) == 4
-    assert {row["raw_name"] for row in groups} == set(labels)
+    assert len({row["group_id"] for row in groups}) == len(groups) == 4
+    sharded = {(row["name"], row["queue"]): row for row in groups}[("Sharded Models", "amd_mi300_4")]
+    assert sharded["outcome_history"] == {
+        "builds": [201, 202], "results": "fp", "wall_mins": [None, 40.0], "jobs": [2, 2],
+    }
+    assert sharded["raw_name"] == "mi300_4: Sharded Models"
     assert {row["name"] for row in groups} == {
         "V1 e2e (4 GPUs)",
         "V1 e2e (4xH100-4xMI300)",
-        "Sharded Models 1/2",
-        "Sharded Models 2/2",
+        "Sharded Models",
     }
-    assert {row["hardware"] for row in groups} == {"mi300"}
-    assert {row["queue"] for row in groups} == {"amd_mi300_4"}
 
 
 def test_current_ci_reliability_excludes_all_foreign_hardware():
@@ -206,6 +203,28 @@ def test_upstream_amd_mirrors_keep_amd_hardware_identity():
     assert mixed["hardware"] == "mi300"
 
 
+def test_one_shards_retried_pass_does_not_hide_another_shards_hard_failure():
+    def shard(job_id, index, state, **extra):
+        return _job(
+            job_id, f"mi300_1: Kernels Shard {index + 1}/2", state, minute=index,
+            step_key="kernels", parallel_group_index=index, parallel_group_total=2, **extra,
+        )
+
+    retried = [
+        shard("s1-fail", 0, "failed", retried=True, retried_in_job_id="s1-pass"),
+        shard("s1-pass", 0, "passed", retries_count=1, retry_type="automatic"),
+    ]
+    hidden = _dataset([_build(601, [*retried, shard("s2-fail", 1, "failed")], state="failed")])
+    recovered = _dataset([_build(602, [*retried, shard("s2-pass", 1, "passed")])])
+    canceled_shard = _dataset([_build(603, [shard("s1-pass", 0, "passed"), shard("s2-cancel", 1, "canceled")])])
+
+    assert hidden["groups"][0]["outcome_history"]["results"] == "f"
+    assert hidden["builds"][0]["amd_jobs"]["hard"] == 1
+    assert recovered["groups"][0]["outcome_history"]["results"] == "r"
+    assert canceled_shard["groups"][0]["outcome_history"]["results"] == ""
+    assert canceled_shard["builds"][0]["amd_jobs"]["passed"] == 0
+
+
 def test_reliability_denominator_excludes_non_pass_fail_soft_fail_states():
     jobs = [
         _job("pass", "mi300_1: Denominator", "passed"),
@@ -214,7 +233,7 @@ def test_reliability_denominator_excludes_non_pass_fail_soft_fail_states():
         _job("skip", "mi300_1: Denominator", "skipped", minute=3),
         _job("cancel", "mi300_1: Denominator", "canceled", minute=4),
         _job("unknown", "mi300_1: Denominator", "unknown", minute=5),
-        _job("only-skip", "mi300_1: Excluded Only", "skipped", minute=6),
+        _job("only-skip", "mi300_1: Excluded Only", "skipped", minute=6, step_key="excluded-only"),
     ]
 
     result = _dataset([_build(301, jobs, state="failed")])

@@ -15,8 +15,10 @@ from types import SimpleNamespace
 import pytest
 
 from vllm import collect_queue_lifecycle as lifecycle
-from vllm.constants import AMD_METRIC_TARGET_QUEUES
+from vllm.amd_queue_registry import target_queues
 from vllm.dashboard_storage_budget import writer_max_bytes
+
+TARGET_QUEUES = target_queues()
 
 
 NOW = datetime(2026, 8, 11, 20, 0, tzinfo=timezone.utc)
@@ -36,7 +38,7 @@ def test_retained_ledger_budget_stays_below_repository_sync_ceiling() -> None:
 
 
 def _queue_ids() -> dict[str, str]:
-    return {queue: f"id:{queue}" for queue in AMD_METRIC_TARGET_QUEUES}
+    return {queue: f"id:{queue}" for queue in TARGET_QUEUES}
 
 
 def _queue_by_id() -> dict[str, str]:
@@ -138,7 +140,7 @@ def _write_previous_generation(
         json.dumps(
             {
                 "schema_version": 1,
-                "scope": {"queues": list(AMD_METRIC_TARGET_QUEUES)},
+                "scope": {"queues": list(TARGET_QUEUES)},
                 "provenance": {**provenance, "ledger": ledger},
             }
         )
@@ -192,12 +194,15 @@ def _mock_remote_segments(monkeypatch, payloads: dict[str, bytes]) -> list[str]:
     return blob_reads
 
 
-def test_canonical_scope_is_only_requested_families_and_widths():
-    assert AMD_METRIC_TARGET_QUEUES == tuple(
-        f"amd_mi{family}_{width}" for family in (250, 300, 355) for width in (1, 2, 4, 8)
+def test_canonical_scope_is_the_physical_queues_ci_infra_routes_for_requested_families():
+    assert TARGET_QUEUES == (
+        "amd_mi250",
+        *(f"amd_mi300_{width}" for width in (1, 2, 4, 8)),
+        "amd_mi355_dpx",
+        *(f"amd_mi355_{width}" for width in (1, 2, 4, 8)),
     )
-    assert "amd_mi325_1" not in AMD_METRIC_TARGET_QUEUES
-    assert "amd_mi355b_1" not in AMD_METRIC_TARGET_QUEUES
+    assert "amd_mi325_1" not in TARGET_QUEUES
+    assert "amd_mi355b_1" not in TARGET_QUEUES
 
 
 def test_rest_queue_discovery_resolves_exact_target_ids_and_tolerates_retired_queue():
@@ -205,11 +210,12 @@ def test_rest_queue_discovery_resolves_exact_target_ids_and_tolerates_retired_qu
 
     def complete(path, token, params):
         calls.append((path, token, params))
-        return [{"id": f"id:{queue}", "key": queue} for queue in AMD_METRIC_TARGET_QUEUES]
+        return [{"id": f"id:{queue}", "key": queue} for queue in TARGET_QUEUES]
 
     by_id, coverage = lifecycle.fetch_rest_target_queues("secret", page_fetcher=complete)
     assert by_id == _queue_by_id()
-    assert coverage == {"complete": True, "pages": 1, "target_queue_count": 12, "absent_target_queues": []}
+    assert coverage == {"complete": True, "pages": 1, "target_queue_count": len(TARGET_QUEUES),
+                        "absent_target_queues": []}
     assert calls == [
         (
             f"/organizations/{lifecycle.BK_ORG}/clusters/{lifecycle.BK_CLUSTER_UUID}/queues",
@@ -219,12 +225,12 @@ def test_rest_queue_discovery_resolves_exact_target_ids_and_tolerates_retired_qu
     ]
 
     def retired(path, token, params):
-        return [{"id": f"id:{queue}", "key": queue} for queue in AMD_METRIC_TARGET_QUEUES[:-1]]
+        return [{"id": f"id:{queue}", "key": queue} for queue in TARGET_QUEUES[:-1]]
 
     by_id, coverage = lifecycle.fetch_rest_target_queues("secret", page_fetcher=retired)
-    assert set(by_id.values()) == set(AMD_METRIC_TARGET_QUEUES[:-1])
-    assert coverage == {"complete": True, "pages": 1, "target_queue_count": 11,
-                        "absent_target_queues": [AMD_METRIC_TARGET_QUEUES[-1]]}
+    assert set(by_id.values()) == set(TARGET_QUEUES[:-1])
+    assert coverage == {"complete": True, "pages": 1, "target_queue_count": len(TARGET_QUEUES) - 1,
+                        "absent_target_queues": [TARGET_QUEUES[-1]]}
 
     with pytest.raises(RuntimeError, match="found no target queues"):
         lifecycle.fetch_rest_target_queues(
@@ -447,18 +453,38 @@ def test_rest_projection_requires_direct_target_queue_id_and_rejects_conflict():
 
     conflicting = _rest_job(
         queue="amd_mi300_1",
-        cluster_queue_id="id:amd_mi250_1",
+        cluster_queue_id="id:amd_mi250",
     )
     with pytest.raises(RuntimeError, match="conflicts with its explicit queue rule"):
         lifecycle._project_rest_builds([{"jobs": [conflicting]}], _queue_by_id(), jobs)
 
 
-def test_rest_projection_attributes_shared_mi250_queue_to_its_width_row():
+def test_rest_projection_counts_every_shared_mi250_job_on_its_physical_queue():
     jobs = {}
     shared = _rest_job(cluster_queue_id="id:amd_mi250", rules=["queue=amd_mi250", "gpu_size=2"])
     unsized = _rest_job(uuid="job-2", cluster_queue_id="id:amd_mi250", rules=["queue=amd_mi250"])
-    assert lifecycle._project_rest_builds([{"jobs": [shared, unsized]}], _queue_by_id(), jobs) == (2, 1)
-    assert jobs["job-1"]["clusterQueue"] == {"key": "amd_mi250_2"}
+    assert lifecycle._project_rest_builds([{"jobs": [shared, unsized]}], _queue_by_id(), jobs) == (2, 2)
+    assert {job["clusterQueue"]["key"] for job in jobs.values()} == {"amd_mi250"}
+
+
+def test_rest_queue_discovery_follows_ci_infra_routing_not_queue_name_patterns():
+    listing = [
+        {"id": f"id:{queue}", "key": queue}
+        for queue in (*TARGET_QUEUES, "amd_mi250_1", "amd_mi325_1", "amd_mi355b_1")
+    ]
+    by_id, coverage = lifecycle.fetch_rest_target_queues(
+        "secret", page_fetcher=lambda path, token, params: listing
+    )
+
+    assert by_id["id:amd_mi355_dpx"] == "amd_mi355_dpx"
+    assert by_id["id:amd_mi250_1"] == "amd_mi250"
+    assert set(by_id.values()) == set(TARGET_QUEUES)
+    assert coverage["target_queue_count"] == len(TARGET_QUEUES)
+
+    jobs = {}
+    retired = _rest_job(queue="amd_mi250_1")
+    assert lifecycle._project_rest_builds([{"jobs": [retired]}], by_id, jobs) == (1, 1)
+    assert jobs["job-1"]["clusterQueue"] == {"key": "amd_mi250"}
 
 
 def test_observation_is_compact_private_and_uses_direct_durations():
@@ -602,6 +628,26 @@ def test_retained_job_filters_each_event_independently_at_retention_boundary():
     first_hour = summary["hourly"][0]["totals"]
     assert first_hour["incoming"] == 0
     assert first_hour["served"] == 1
+
+
+def test_ledger_keeps_mi250_history_and_drops_queues_upstream_stopped_routing():
+    row = _observations_for(_job())[0]
+    legacy_width = dict(row, job_id="e" * 64, queue="amd_mi250_4")
+    unrouted = dict(row, job_id="f" * 64, queue="amd_mi300_16")
+
+    folded = lifecycle._validate_observation(legacy_width)
+    summary = lifecycle.build_summary(
+        [row, folded, lifecycle._validate_observation(unrouted)], now=NOW, collection=None
+    )
+
+    assert folded["queue"] == "amd_mi250"
+    assert summary["queues"]["amd_mi250"]["completed"] == 1
+    assert "amd_mi300_16" not in summary["queues"]
+    assert summary["totals"]["completed"] == 2
+    retained = lifecycle.merge_and_prune_jobs(
+        [row, legacy_width, unrouted], [], retention_start=NOW - timedelta(days=7), end_exclusive=NOW
+    )
+    assert sorted(item["queue"] for item in retained) == ["amd_mi250", "amd_mi300_1"]
 
 
 def test_partial_first_hour_does_not_count_events_before_retention_start():
@@ -1351,7 +1397,7 @@ def test_unbound_legacy_watermark_falls_back_to_full_reconciliation(monkeypatch,
         json.dumps(
             {
                 "schema_version": 1,
-                "scope": {"queues": list(AMD_METRIC_TARGET_QUEUES)},
+                "scope": {"queues": list(TARGET_QUEUES)},
                 "provenance": {
                     "last_successful_query_end": "2026-08-11T19:59:00Z",
                     "last_successful_query_mode": lifecycle.FULL_QUERY_MODE,
@@ -1894,7 +1940,7 @@ def test_crash_generation_mismatch_discards_local_provenance(tmp_path):
         json.dumps(
             {
                 "schema_version": 1,
-                "scope": {"queues": list(AMD_METRIC_TARGET_QUEUES)},
+                "scope": {"queues": list(TARGET_QUEUES)},
                 "provenance": {
                     "last_successful_query_end": "2026-08-11T19:59:00Z",
                     "ledger": {"generation_sha256": "0" * 64},
@@ -1990,7 +2036,7 @@ def test_guard_exhaustion_checkpoints_progress_and_repeated_runs_finish_once(tmp
         ]
 
     def queue_page(path, token, params):
-        return [{"id": f"id:{queue}", "key": queue} for queue in AMD_METRIC_TARGET_QUEUES]
+        return [{"id": f"id:{queue}", "key": queue} for queue in TARGET_QUEUES]
 
     for attempt in range(3):
         remaining["requests"] = 1
@@ -2056,8 +2102,8 @@ def test_retired_target_queue_resumes_checkpoint_and_publishes_zero_row(tmp_path
     def queue_page(path, token, params):
         return [
             {"id": f"id:{queue}", "key": queue}
-            for queue in AMD_METRIC_TARGET_QUEUES
-            if queue != "amd_mi250_8"
+            for queue in TARGET_QUEUES
+            if queue != "amd_mi355_8"
         ]
 
     kwargs = dict(
@@ -2077,17 +2123,17 @@ def test_retired_target_queue_resumes_checkpoint_and_publishes_zero_row(tmp_path
         "token", now=NOW + timedelta(minutes=20), **kwargs
     )
 
-    assert summary["scope"]["queues"] == list(AMD_METRIC_TARGET_QUEUES)
-    assert summary["coverage"]["absent_queues"] == ["amd_mi250_8"]
+    assert summary["scope"]["queues"] == list(TARGET_QUEUES)
+    assert summary["coverage"]["absent_queues"] == ["amd_mi355_8"]
     assert summary["coverage"]["target_queue_scope_complete"] is True
-    assert "not measurements: amd_mi250_8." in summary["coverage"]["reason"]
-    assert summary["queues"]["amd_mi250_8"]["served"] == 0
+    assert "not measurements: amd_mi355_8." in summary["coverage"]["reason"]
+    assert summary["queues"]["amd_mi355_8"]["served"] == 0
     assert summary["queues"]["amd_mi300_1"]["served"] == 1
     assert summary["provenance"]["collection"]["queue_discovery"] == {
         "complete": True,
         "pages": 1,
-        "target_queue_count": 11,
-        "absent_target_queues": ["amd_mi250_8"],
+        "target_queue_count": len(TARGET_QUEUES) - 1,
+        "absent_target_queues": ["amd_mi355_8"],
     }
 
 
@@ -2113,7 +2159,7 @@ def test_wall_clock_yield_persists_split_before_stopping(tmp_path, monkeypatch):
     def queue_page(path, token, params):
         return [
             {"id": f"id:{queue}", "key": queue}
-            for queue in AMD_METRIC_TARGET_QUEUES
+            for queue in TARGET_QUEUES
         ]
 
     with pytest.raises(lifecycle.LifecycleWallClockYield):
@@ -2189,7 +2235,7 @@ def test_wall_clock_yield_accepts_complete_checkpoint_and_retry_makes_no_build_r
         queue_calls.append(dict(params))
         return [
             {"id": f"id:{queue}", "key": queue}
-            for queue in AMD_METRIC_TARGET_QUEUES
+            for queue in TARGET_QUEUES
         ]
 
     with pytest.raises(lifecycle.LifecycleWallClockYield):
@@ -2296,7 +2342,7 @@ def test_old_context_bound_checkpoint_remains_resumable_across_cap_waits(tmp_pat
         queue_discovery={
             "complete": True,
             "pages": 1,
-            "target_queue_count": len(AMD_METRIC_TARGET_QUEUES),
+            "target_queue_count": len(TARGET_QUEUES),
             "absent_target_queues": [],
         },
     )
@@ -2328,7 +2374,7 @@ def test_future_checkpoint_horizon_remains_fail_closed(tmp_path):
         queue_discovery={
             "complete": True,
             "pages": 1,
-            "target_queue_count": len(AMD_METRIC_TARGET_QUEUES),
+            "target_queue_count": len(TARGET_QUEUES),
             "absent_target_queues": [],
         },
     )
@@ -2368,7 +2414,7 @@ def test_corrupt_or_wrong_baseline_checkpoint_is_discarded_without_contamination
         baseline_ref="bootstrap",
         page_fetcher=empty_page,
         queue_page_fetcher=lambda path, token, params: [
-            {"id": f"id:{queue}", "key": queue} for queue in AMD_METRIC_TARGET_QUEUES
+            {"id": f"id:{queue}", "key": queue} for queue in TARGET_QUEUES
         ],
     )
     assert len(calls) == 1
@@ -2414,7 +2460,7 @@ def test_dense_unsplittable_query_records_terminal_failure_before_publication(tm
     def queue_page(path, token, params):
         return [
             {"id": f"id:{queue}", "key": queue}
-            for queue in AMD_METRIC_TARGET_QUEUES
+            for queue in TARGET_QUEUES
         ]
     with pytest.raises(RuntimeError, match="minimum time interval"):
         lifecycle.collect_lifecycle(
@@ -2559,3 +2605,44 @@ def test_restore_migrates_live_shape_90mib_legacy_generation_above_current_cap(
         jobs_path=jobs_path,
         summary_path=summary_path,
     ) == (1, 1)
+
+
+def test_restore_re_segments_a_ledger_published_under_another_queue_scope(monkeypatch, tmp_path):
+    """An upstream queue change must not wedge the durable restore step."""
+    legacy_scope = [f"amd_mi{family}_{width}" for family in (250, 300, 355) for width in (1, 2, 4, 8)]
+    rows = [_observation(1), _observation(2, queue="amd_mi250_4"), _observation(3, queue="amd_mi355_8")]
+
+    def restore(scope: list[str], name: str) -> dict:
+        with monkeypatch.context() as legacy:
+            legacy.setattr(lifecycle, "physical_queue", lambda queue: queue)
+            payloads, ledger = lifecycle.encode_job_segments(
+                rows, retention_start=NOW - timedelta(days=7), end_exclusive=NOW
+            )
+        published = {
+            "schema_version": 1,
+            "scope": {"queues": scope},
+            "provenance": {
+                "last_successful_query_end": lifecycle._utc_iso(NOW),
+                "last_successful_query_mode": lifecycle.FULL_QUERY_MODE,
+                "ledger": ledger,
+            },
+        }
+        monkeypatch.setattr(
+            lifecycle,
+            "_git_ref_summary_provenance",
+            lambda ref: lifecycle._summary_provenance(published, require_current_scope=False),
+        )
+        _mock_remote_segments(monkeypatch, payloads)
+        summary = lifecycle.restore_exact_job_ledger(
+            jobs_path=tmp_path / name / "jobs", summary_path=tmp_path / name / "summary.json",
+            git_ref="origin/queue-lifecycle-data",
+        )
+        assert summary["scope"]["queues"] == list(lifecycle.target_queues())
+        return {row["queue"] for row in lifecycle.read_job_directory(tmp_path / name / "jobs")}
+
+    assert restore(legacy_scope, "lanes") == {"amd_mi300_1", "amd_mi250", "amd_mi355_8"}
+
+    monkeypatch.setattr(
+        lifecycle, "target_queues", lambda: tuple(q for q in TARGET_QUEUES if q != "amd_mi355_8")
+    )
+    assert restore(list(TARGET_QUEUES), "retired") == {"amd_mi300_1", "amd_mi250"}

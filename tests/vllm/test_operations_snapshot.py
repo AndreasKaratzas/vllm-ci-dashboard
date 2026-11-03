@@ -2406,6 +2406,26 @@ def test_omni_uses_job_ledger_when_workload_aggregate_is_unavailable():
     assert omni["history"]["points"] == []
 
 
+def test_omni_counts_jobs_on_the_shared_queue_behind_its_gpu_size_lanes():
+    queue_jobs = {
+        "pending": [{"pipeline": "vllm-omni-amd-ci", "queue": "amd_mi250", "analysis_excluded": False}],
+        "running": [],
+    }
+    mapping = {
+        "hardware_scope": "amd_mi_gpu",
+        "execution_scope_contract": ops.EXECUTION_SCOPE_CONTRACT,
+        "scope": {
+            "queues": ["amd_mi250_1", "amd_mi250_4"],
+            "workload_pipelines": {"omni": ["vllm-omni-amd-ci"], "main": ["ci"]},
+        },
+    }
+
+    omni = ops._omni({"queues": {}}, queue_jobs, [], {}, mapping, {})
+
+    assert omni["current"]["waiting"] == 1
+    assert omni["current"]["waiting_by_queue"] == {"amd_mi250": 1}
+
+
 def test_reliability_only_marks_mixed_pass_failure_jobs_flaky(tmp_path):
     payload = ops.build_snapshot(_fixture_data(tmp_path), generated_at=GENERATED_AT)
 
@@ -2785,7 +2805,7 @@ def test_nightly_retry_collapse_is_order_independent_with_original_only_linkage(
         assert latest["transitions"]["pending_soft"] == []
 
 
-def test_operations_and_analytics_share_strict_nightly_signal_ids():
+def test_operations_and_analytics_share_main_ci_step_ids():
     jobs = [
         _job(
             "mi300_1: Strict signal",
@@ -2830,10 +2850,10 @@ def test_operations_and_analytics_share_strict_nightly_signal_ids():
     operations_ids = set(ops._nightly_group_observations("ci", build))
     analytics_ids = {
         row["group_id"]
-        for row in analytics.compute_nightly_change_history([build])[0]["new"]
+        for row in analytics.compute_nightly_change_history([build], pipeline_slug="ci")[0]["new"]
     }
 
-    assert len(operations_ids) == 5
+    assert len(operations_ids) == 4
     assert analytics_ids == operations_ids
 
 
@@ -2868,7 +2888,7 @@ def test_observed_failure_movement_matches_reliability_history():
     }
     analytics_rows = {
         row["build_number"]: row["failure_movement"]
-        for row in analytics.compute_nightly_change_history([current, previous])
+        for row in analytics.compute_nightly_change_history([current, previous], pipeline_slug="ci")
     }
 
     assert operations_rows[27]["available"] is False

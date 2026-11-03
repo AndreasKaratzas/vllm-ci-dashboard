@@ -77,6 +77,17 @@ jobs:
         if: steps.request-attempt.outputs.request_mode == 'reserved'
         run: pip install -c constraints.txt requests
 
+      - name: Resolve AMD queue registry from ci-infra
+        if: steps.request-attempt.outputs.request_mode == 'reserved'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            +refs/heads/dashboard-state:refs/remotes/origin/dashboard-state \
+            || echo "::warning::dashboard-state is unavailable; using the checked-in registry."
+          python scripts/vllm/amd_queue_registry.py --fallback-git-ref origin/dashboard-state
+
       - name: Initialize exact Buildkite request guard
         if: steps.request-attempt.outputs.request_mode == 'reserved'
         env:

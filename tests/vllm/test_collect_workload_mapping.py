@@ -324,6 +324,14 @@ def test_monitored_queues_is_an_exact_allowlist_and_excludes_perf_eval() -> None
     assert queues["amd_mi325_8"]["lifecycle"] == "retiring"
 
 
+def test_monitored_queues_follow_ci_infra_lanes_with_config_overrides() -> None:
+    queues = cwm.monitored_queues(cwm.load_config())
+
+    assert queues["amd_mi355_dpx"]["gpus_per_job"] == 1
+    assert queues["amd_mi250_1"]["label"] == "mi250_1"
+    assert "amd_mi250" not in queues
+
+
 def test_collect_has_exact_repository_labels_and_both_dimensions() -> None:
     responses = {
         "vllm-omni-amd-ci": [

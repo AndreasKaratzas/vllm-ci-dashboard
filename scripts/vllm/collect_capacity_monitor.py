@@ -32,6 +32,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from vllm.amd_queue_registry import lanes, load_registry, registry_provenance  # noqa: E402
 from vllm.bounded_json import pretty_json_bytes, write_pretty_json_lkg  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 
@@ -271,31 +272,60 @@ def load_capacity_config(path: Path = CAPACITY_CONFIG_PATH) -> dict[str, Any]:
     return normalized
 
 
-def _configured_queue_rows(config: dict[str, Any]) -> tuple[dict[str, Any], ...]:
+def _capacity_queue_rows(
+    config: dict[str, Any], registry: dict[str, Any]
+) -> tuple[tuple[dict[str, Any], ...], list[str]]:
+    """Return registry lanes with config overrides, plus config ids upstream retired."""
+    configured = {queue["id"]: queue for queue in config["queues"]}
+    families = {
+        str(family).upper() for family in config["scope"].get("monitored_hardware_families") or []
+    }
     rows: list[dict[str, Any]] = []
-    for queue in config["queues"]:
+    for lane in lanes(registry).values():
+        if lane["hardware"] not in families:
+            continue
+        queue = configured.get(lane["id"]) or {
+            "id": lane["id"],
+            "label": lane["id"].removeprefix("amd_"),
+            "family": lane["hardware"],
+            "provider": None,
+            "gpus_per_job": lane["gpus_per_job"],
+            # Unconfigured lanes stay in scope with unknown capacity, never zero.
+            "max_concurrent_jobs": None,
+            "monitored": True,
+            "capacity_eligible": True,
+            "lifecycle": "active",
+        }
         if not queue["monitored"]:
             continue
-        max_concurrent_jobs = int(queue["max_concurrent_jobs"])
-        gpus_per_job = int(queue["gpus_per_job"])
-        gpu_capacity = max_concurrent_jobs * gpus_per_job
+        max_concurrent_jobs = queue["max_concurrent_jobs"]
+        gpu_capacity = (
+            None if max_concurrent_jobs is None else max_concurrent_jobs * queue["gpus_per_job"]
+        )
         rows.append(
             {
                 **queue,
+                "physical_queue": lane["queue"],
+                "capacity_source": "config" if lane["id"] in configured else "unconfigured",
                 # Keep max_agents as a compatibility alias for the legacy queue
                 # view while making the actual unit explicit in the new schema.
                 "max_agents": max_concurrent_jobs,
                 "gpu_capacity": gpu_capacity,
-                "eight_gpu_node_equivalents": round(gpu_capacity / 8, 2),
+                "eight_gpu_node_equivalents": (
+                    None if gpu_capacity is None else round(gpu_capacity / 8, 2)
+                ),
             }
         )
-    return tuple(rows)
+    if not rows:
+        raise ValueError("AMD queue registry has no lanes in the monitored hardware families")
+    retired = sorted(queue_id for queue_id in configured if queue_id not in lanes(registry))
+    return tuple(rows), retired
 
 
 CAPACITY_CONFIG = load_capacity_config()
 PROJECTION_CONFIG = CAPACITY_CONFIG["projection"]
 DEFAULT_THEORETICAL_GROUPS = int(PROJECTION_CONFIG["target_groups"])
-CAPACITY_QUEUES = _configured_queue_rows(CAPACITY_CONFIG)
+CAPACITY_QUEUES, RETIRED_CONFIG_QUEUES = _capacity_queue_rows(CAPACITY_CONFIG, load_registry())
 CAPACITY_BY_QUEUE = {row["id"]: row for row in CAPACITY_QUEUES}
 
 
@@ -535,6 +565,7 @@ def _capacity_totals(rows: list[dict[str, Any]] | tuple[dict[str, Any], ...]) ->
     gpus = sum(int(row.get("gpu_capacity") or 0) for row in rows)
     return {
         "queue_count": len(rows),
+        "unknown_capacity_queue_count": sum(row.get("max_concurrent_jobs") is None for row in rows),
         "concurrent_jobs": concurrent_jobs,
         "gpus": gpus,
         "eight_gpu_node_equivalents": round(gpus / 8, 2),
@@ -579,6 +610,11 @@ def _summary(
     groups: list[dict[str, Any]], queue_rollups: dict[str, dict[str, Any]]
 ) -> dict[str, Any]:
     capacity_groups = [group for group in groups if group.get("in_capacity_scope")]
+    known_capacity_groups = [
+        group
+        for group in capacity_groups
+        if CAPACITY_BY_QUEUE[str(group.get("queue"))]["max_concurrent_jobs"] is not None
+    ]
     all_dependency_files: dict[str, int] = {}
     for group in groups:
         # Dependency line totals are summed per group because that is the work
@@ -614,6 +650,7 @@ def _summary(
         },
         "gated_group_count": gated_group_count,
         "capacity_scoped_group_count": len(capacity_groups),
+        "known_capacity_group_count": len(known_capacity_groups),
         "gated_job_count": sum(int(group.get("parallelism") or 1) for group in capacity_groups),
         "gated_gpu_demand": sum(
             int(group.get("parallelism") or 1)
@@ -640,13 +677,14 @@ def _projection(
     queue_rollups: dict[str, dict[str, Any]],
     theoretical_groups: int,
 ) -> dict[str, Any]:
+    # Unknown-capacity lanes stay out of the base and totals; they are reported separately.
     base_groups = max(
-        1, int(summary.get("capacity_scoped_group_count") or summary.get("gated_group_count") or 1)
+        1, int(summary.get("known_capacity_group_count") or summary.get("gated_group_count") or 1)
     )
     scale = theoretical_groups / base_groups
     queue_rows = []
     for queue_id, row in queue_rollups.items():
-        max_concurrent_jobs = int(row.get("max_concurrent_jobs") or 0)
+        max_concurrent_jobs = row.get("max_concurrent_jobs")
         gpus_per_job = int(row.get("gpus_per_job") or 0)
         capacity_eligible = bool(row.get("capacity_eligible"))
         future_max_concurrent_jobs = max_concurrent_jobs if capacity_eligible else 0
@@ -660,9 +698,10 @@ def _projection(
             else (None if raw_projected_jobs else 0)
         )
         future_ratio = current_ratio if capacity_eligible else (None if raw_projected_jobs else 0)
-        projected_gap_jobs = round(
-            max(0.0, raw_projected_jobs - future_max_concurrent_jobs),
-            1,
+        projected_gap_jobs = (
+            None
+            if future_max_concurrent_jobs is None
+            else round(max(0.0, raw_projected_jobs - future_max_concurrent_jobs), 1)
         )
         queue_rows.append(
             {
@@ -675,10 +714,15 @@ def _projection(
                 "capacity_eligible": capacity_eligible,
                 "max_agents": max_concurrent_jobs,
                 "max_concurrent_jobs": max_concurrent_jobs,
-                "gpu_capacity": int(row.get("gpu_capacity") or 0),
-                "eight_gpu_node_equivalents": float(row.get("eight_gpu_node_equivalents") or 0),
+                "capacity_source": row.get("capacity_source"),
+                "gpu_capacity": row.get("gpu_capacity"),
+                "eight_gpu_node_equivalents": row.get("eight_gpu_node_equivalents"),
                 "future_max_concurrent_jobs": future_max_concurrent_jobs,
-                "future_gpu_capacity": future_max_concurrent_jobs * gpus_per_job,
+                "future_gpu_capacity": (
+                    None
+                    if future_max_concurrent_jobs is None
+                    else future_max_concurrent_jobs * gpus_per_job
+                ),
                 "projected_jobs": projected_jobs,
                 "projected_gpu_demand": projected_gpu_demand,
                 "projected_eight_gpu_node_equivalents": round(
@@ -689,7 +733,9 @@ def _projection(
                 "projected_capacity_ratio": current_ratio,
                 "projected_future_capacity_ratio": future_ratio,
                 "projected_gap_jobs": projected_gap_jobs,
-                "projected_gap_gpus": round(projected_gap_jobs * gpus_per_job, 1),
+                "projected_gap_gpus": (
+                    None if projected_gap_jobs is None else round(projected_gap_jobs * gpus_per_job, 1)
+                ),
                 "requires_migration": bool(not capacity_eligible and raw_projected_jobs > 0),
             }
         )
@@ -701,8 +747,10 @@ def _projection(
         key=lambda row: float(row["projected_future_capacity_ratio"] or 0),
         default=None,
     )
-    projected_total_jobs = round(sum(row["projected_jobs"] for row in queue_rows), 1)
-    projected_total_gpus = round(sum(row["projected_gpu_demand"] for row in queue_rows), 1)
+    known_rows = [row for row in queue_rows if row["max_concurrent_jobs"] is not None]
+    unknown_rows = [row for row in queue_rows if row["max_concurrent_jobs"] is None]
+    projected_total_jobs = round(sum(row["projected_jobs"] for row in known_rows), 1)
+    projected_total_gpus = round(sum(row["projected_gpu_demand"] for row in known_rows), 1)
     monitored_capacity = summary["capacity"]["monitored"]
     future_capacity = summary["capacity"]["future_eligible"]
     total_capacity = int(monitored_capacity["concurrent_jobs"])
@@ -749,18 +797,25 @@ def _projection(
         "queues_over_capacity": [
             row["id"]
             for row in queue_rows
-            if row["capacity_eligible"] and float(row["projected_gap_jobs"]) > 0
+            if row["capacity_eligible"] and float(row["projected_gap_jobs"] or 0) > 0
         ],
         "queues_requiring_migration": [
             row["id"] for row in queue_rows if row["requires_migration"]
         ],
         "projected_gap_jobs": round(
-            sum(float(row["projected_gap_jobs"]) for row in queue_rows),
+            sum(float(row["projected_gap_jobs"]) for row in known_rows),
             1,
         ),
         "projected_gap_gpus": round(
-            sum(float(row["projected_gap_gpus"]) for row in queue_rows),
+            sum(float(row["projected_gap_gpus"]) for row in known_rows),
             1,
+        ),
+        "unknown_capacity_queues": [row["id"] for row in unknown_rows],
+        "unknown_capacity_projected_jobs": round(
+            sum(row["projected_jobs"] for row in unknown_rows), 1
+        ),
+        "unknown_capacity_projected_gpus": round(
+            sum(row["projected_gpu_demand"] for row in unknown_rows), 1
         ),
         "queues": queue_rows,
     }
@@ -810,11 +865,17 @@ def build_capacity_payload(
         "scope": {
             **CAPACITY_CONFIG["scope"],
             "monitored_queues": [row["id"] for row in CAPACITY_QUEUES],
+            "unconfigured_capacity_queues": [
+                row["id"] for row in CAPACITY_QUEUES if row["capacity_source"] == "unconfigured"
+            ],
+            "retired_config_queues": RETIRED_CONFIG_QUEUES,
+            "queue_registry": registry_provenance(),
             "workload_pipelines": CAPACITY_CONFIG["workload_pipelines"],
         },
         "assumptions": {
             "capacity_basis": (
-                "User-supplied maximum concurrent jobs for standard AMD queues. "
+                "User-supplied maximum concurrent jobs for the AMD queue lanes ci-infra routes to; "
+                "lanes without a configured maximum report null capacity, not zero. "
                 "perf_eval queues are excluded, amd-cpu is reserved for Docker builds "
                 "and excluded, and MI325 is monitored but excluded from future eligible "
                 "capacity because it is retiring."

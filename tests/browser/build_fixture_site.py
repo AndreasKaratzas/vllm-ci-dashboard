@@ -118,7 +118,7 @@ def raw_nightlies() -> list[dict]:
 # Main builds between the nightlies: four a day for seven days. Small builds (odd slots) run three
 # groups, full builds all six. Routed Beta breaks with nightly #30001, Broken Group fails throughout,
 # Attention Kernels Shard 2 flips, Basic Models passes only after a retry, and the newest build
-# soft-fails Attention Kernels Shard 1.
+# soft-fails Attention Kernels Shard 1. Both Attention Kernels shards are one step group.
 MAIN_FIRST = datetime(2026, 10, 2, 1, tzinfo=timezone.utc)
 MAIN_HOURS = (1, 7, 13, 19)
 MAIN_DAYS = 7
@@ -198,7 +198,7 @@ def watcher_state(reliability: dict, nightlies: list[dict], mains: list[dict]) -
         return build["web_url"] + (f"/steps/canvas?jid={job_id}&tab=output" if job_id else "")
 
     def row(title: str, severity: str, status: str, good: dict | None, bad: dict) -> dict:
-        group = groups[title]
+        group = groups[title.split(" Shard ")[0]]
         job = next(job for job in latest["jobs"] if job["name"].endswith(title)) if any(
             job["name"].endswith(title) for job in latest["jobs"]) else bad["jobs"][0]
         return {
@@ -213,7 +213,7 @@ def watcher_state(reliability: dict, nightlies: list[dict], mains: list[dict]) -
             "bisect_command": f"git bisect start {bad['commit']} {good['commit']}" if good else "",
         }
 
-    flaky = groups["Attention Kernels Shard 2"]
+    flaky = groups["Attention Kernels"]
     flips = [build for build in mains if int(build["number"]) - 31000 in FLAKY_SLOTS][-2:]
     timeline = [
         {"event": event, "group_id": flaky["group_id"], "name": flaky["name"], "hardware": flaky["hardware"], "queue": flaky["queue"],
@@ -227,7 +227,7 @@ def watcher_state(reliability: dict, nightlies: list[dict], mains: list[dict]) -
             groups["Routed Beta"]["group_id"]: row("Routed Beta", "hard", "confirmed", before, first_nightly),
             groups["Broken Group"]["group_id"]: row("Broken Group", "hard", "confirmed", None, every[0]),
         },
-        "pending_soft": {groups["Attention Kernels Shard 1"]["group_id"]: row("Attention Kernels Shard 1", "soft", "pending", every[-2], latest)},
+        "pending_soft": {groups["Attention Kernels"]["group_id"]: row("Attention Kernels Shard 1", "soft", "pending", every[-2], latest)},
         "timeline": timeline,
     }
 

@@ -132,6 +132,7 @@ def _managed_fields(source: dict) -> dict:
         "last_content_fingerprint",
         "last_run",
         "signal_fingerprint_version",
+        "group_identity_version",
         "body_schema_version",
         "incident_state_version",
         "retirement_streak",

@@ -20,6 +20,7 @@ from vllm import build_queue_section as queue_section_module
 from vllm import collect_queue_lifecycle as queue_lifecycle
 from vllm.collect_amd_test_matrix import (
     AMD_TEST_MATRIX_MAX_BYTES,
+    MI355_SENSITIVE_RULES,
     bounded_matrix_payload,
     pretty_json_bytes,
 )
@@ -359,13 +360,16 @@ def test_execution_alias_audit_preserves_sensitive_gate_after_rename(tmp_path):
     from vllm.collect_amd_test_matrix import build_matrix, parse_steps
 
     steps, architectures = parse_steps(json.dumps({"steps": [
-        {"label": f":amd: ({arch}) Renamed Quantization", "agent_pool": f"{arch.lower()}_1", "working_dir": "/vllm-workspace/tests", "commands": ["pytest -v -s kernels/quantization"]}
+        {"label": f":amd: ({arch}) Renamed Quantization", "agent_pool": f"{arch.lower()}_1", "working_dir": "/vllm-workspace/tests", "commands": ["pytest -v -s kernels/quantization"],
+         "definition_id": f".buildkite/test_areas/kernels.yaml#amd-native-quantization-kernels-{arch.lower()}"}
         for arch in ["MI300", "MI355"]
     ]}))
     matrix = build_matrix(steps, architectures, {}, None, {}, {}, [], "https://example.invalid/test-amd.yaml")
     audit = DashboardAudit(tmp_path)
     audit.audit_best_hardware_health_groups(matrix, matrix["rows"], matrix["summary"])
     assert not audit.report.errors
+    unmatched = [f for f in audit.report.warnings if f.code == "matrix-mi355-sensitive-rule-unmatched"]
+    assert len(unmatched) == len(MI355_SENSITIVE_RULES) - 1
     matrix["best_hardware_policy"]["mi355_classification"][0]["classification"] = "generic_replica"
     audit = DashboardAudit(tmp_path)
     audit.audit_best_hardware_health_groups(matrix, matrix["rows"], matrix["summary"])
@@ -580,7 +584,7 @@ def test_queue_lifecycle_audit_accepts_and_reconciles_bounded_daily_vectors(tmp_
     observation = {
         "schema_version": queue_lifecycle.SCHEMA_VERSION,
         "job_id": "a" * 64,
-        "queue": queue_lifecycle.AMD_METRIC_TARGET_QUEUES[0],
+        "queue": queue_lifecycle.target_queues()[0],
         "timestamps": {
             "created_at": "2026-08-11T18:00:00Z",
             "runnable_at": "2026-08-11T18:10:00Z",
@@ -796,6 +800,29 @@ def test_queue_only_entrypoint_runs_targeted_semantic_audit(tmp_path, monkeypatc
         "".join(json.dumps(row) + "\n" for row in rows)
     )
     assert audit_module.main(["--queue-only", "--format", "json"]) == 1
+
+
+def test_queue_registry_fallback_staleness_and_drift_are_audit_warnings(tmp_path):
+    fresh = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    healthy = DashboardAudit(tmp_path)
+    healthy._audit_queue_registry({"registry": {"fetched_at": fresh}, "unregistered_active_queue_ids": ["amd_mi325_9"]})
+    assert not healthy.report.warnings
+
+    drifted = DashboardAudit(tmp_path)
+    drifted._audit_queue_registry({
+        "registry": {
+            "fetched_at": "2026-01-01T00:00:00Z",
+            "fallback": {"reason": "HTTPError: 404", "attempted_at": fresh},
+            "unrecognized_queues": [{"device": "mi355_x", "queue": "amd-mi355-x"}],
+        },
+        "unregistered_active_queue_ids": ["amd_mi355_x_1"],
+    })
+    assert {finding.code for finding in drifted.report.warnings} == {
+        "amd-queue-registry-fallback",
+        "amd-queue-registry-stale",
+        "amd-queue-registry-unrecognized",
+        "amd-queue-unregistered-active",
+    }
 
 
 def test_queue_producer_accepts_first_idle_snapshot_and_checks_derived_files(
@@ -1015,9 +1042,9 @@ def _dns_audit_payload(now: datetime | None = None) -> dict:
         "node": "node-1",
         "hardware": "MI300",
         "affected_jobs": 1,
-        "passed_jobs": 1,
+        "passed_jobs": 0,
         "soft_failed_jobs": 0,
-        "hard_failed_jobs": 0,
+        "hard_failed_jobs": 1,
         "episodes": 1,
         "huggingface_affected_jobs": 1,
         "evidence_total": 1,
@@ -1030,9 +1057,9 @@ def _dns_audit_payload(now: datetime | None = None) -> dict:
             "coverage": copy.deepcopy(coverage),
             "totals": {
                 "affected_jobs": 1,
-                "passed_jobs": 1,
+                "passed_jobs": 0,
                 "soft_failed_jobs": 0,
-                "hard_failed_jobs": 0,
+                "hard_failed_jobs": 1,
                 "episodes": 1,
                 "huggingface_affected_jobs": 1,
                 "queues": 1,
@@ -1066,7 +1093,7 @@ def _dns_audit_payload(now: datetime | None = None) -> dict:
             "pipelines": ["ci"],
             "branches": "all",
             "job_types": ["script"],
-            "states": ["passed", "soft", "hard"],
+            "states": ["soft", "hard"],
             "queue_scope": "active_amd_gpu",
             "hardware_scope": "amd_mi_gpu",
             "retried_jobs": "included",
@@ -1109,7 +1136,7 @@ def _dns_audit_payload(now: datetime | None = None) -> dict:
                     "hardware": "MI300",
                     "build_number": 123,
                     "job_id": job_id,
-                    "state": "passed",
+                    "state": "hard",
                     "episodes": 1,
                     "match_count": 1,
                     "signature_ids": ["temporary_name_resolution"],
@@ -1471,10 +1498,24 @@ def test_dns_audit_accepts_legacy_payload_with_outcome_warning(tmp_path):
     assert audit.report.metrics["dns_health"]["outcome_breakdown_complete"] is False
 
 
+@pytest.mark.parametrize(("offset", "accepted"), [(-1, True), (1, False)])
+def test_dns_audit_accepts_all_states_scope_only_before_its_retirement(tmp_path, offset, accepted):
+    payload = _dns_audit_payload(
+        audit_module.DNS_ALL_STATES_SCOPE_RETIRED_AT + timedelta(hours=offset)
+    )
+    payload["scope"]["states"] = ["passed", "soft", "hard"]
+    _write_dns_audit_payload(tmp_path, payload)
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_dns_failures()
+
+    assert ("dns-health-scope" in {finding.code for finding in audit.report.errors}) is not accepted
+
+
 def test_dns_audit_rejects_unreconciled_outcome_breakdown(tmp_path):
     payload = _dns_audit_payload()
-    payload["windows"]["1h"]["totals"]["passed_jobs"] = 0
-    payload["windows"]["1h"]["rows"][0]["passed_jobs"] = 0
+    payload["windows"]["1h"]["totals"]["hard_failed_jobs"] = 0
+    payload["windows"]["1h"]["rows"][0]["hard_failed_jobs"] = 0
     _write_dns_audit_payload(tmp_path, payload)
     audit = DashboardAudit(tmp_path)
 
@@ -1761,7 +1802,7 @@ def test_dns_backend_window_coverage_tracks_window_relative_positives(tmp_path):
                 "queue": "amd_mi300_1",
                 "node": "node-3",
                 "hardware": "MI300",
-                "state": "passed",
+                "state": "hard",
                 "started_at": iso_timestamp(now - timedelta(hours=3)),
                 "finished_at": iso_timestamp(now - timedelta(minutes=10)),
                 "execution_proof": {

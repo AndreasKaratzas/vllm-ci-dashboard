@@ -75,6 +75,16 @@ jobs:
       - name: Install dependencies
         run: pip install -c constraints.txt requests cryptography pyyaml
 
+      - name: Resolve AMD queue registry from ci-infra
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            +refs/heads/dashboard-state:refs/remotes/origin/dashboard-state \
+            || echo "::warning::dashboard-state is unavailable; using the checked-in registry."
+          python scripts/vllm/amd_queue_registry.py --fallback-git-ref origin/dashboard-state
+
       - name: Prepare private DNS classification cache key
         id: dns-classification-cache-key
         shell: bash
@@ -252,7 +262,7 @@ jobs:
             --now "${{ steps.dns-request-budget.outputs.decision_at }}"
             # Discovery gets half the wall budget and reserves 40 of the 110
             # request starts for logs. Validated partial discovery is saved,
-            # with explicit incomplete coverage, when the daily sweep is large.
+            # with explicit incomplete coverage, when the sweep hits its budget.
             --time-budget-seconds 1200
             --classification-cache data/vllm/ci/.cache/dns-classifications-v1
             --failure-diagnostics "$RUNNER_TEMP/dns-collection-failure.json"

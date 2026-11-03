@@ -11,6 +11,7 @@ from vllm import ci_main_failure_watcher as upstream
 from vllm.ci.reliability_history import (
     LEGACY_OBSERVATION_DERIVED_FIELDS,
     build_all_main_reliability,
+    group_id_for,
     hydrate_reliability_observations,
     validate_all_main_reliability,
 )
@@ -450,7 +451,7 @@ def test_amd_watcher_migrates_legacy_active_rows_as_confirmed():
 
     migrated = amd.advance_incidents(reliability, legacy)
 
-    transition = migrated["active"]["legacy-soft"]["transition"]
+    transition = migrated["active"][group_id_for("legacy-soft", "mi300", "amd_mi300_1", "")]["transition"]
     assert migrated["schema_version"] == 2
     assert transition["status"] == "confirmed"
     assert transition["peak_severity"] == "soft"

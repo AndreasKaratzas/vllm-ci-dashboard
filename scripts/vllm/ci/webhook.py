@@ -31,7 +31,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from vllm.ci.utils import queue_from_rules  # noqa: E402
-from vllm.constants import AMD_PIPELINES, TRACKED_QUEUES, is_excluded_queue  # noqa: E402
+from vllm.constants import AMD_PIPELINES, amd_gpu_hardware  # noqa: E402
 from vllm.pipelines import NIGHTLY_NAME_PATTERNS_BY_SLUG, PIPELINES  # noqa: E402
 
 log = logging.getLogger(__name__)
@@ -63,7 +63,6 @@ QUEUE_EVENT_TYPES = {
 AGENT_QUEUE_EVENT_TYPES = frozenset(
     event_type for event_type in QUEUE_EVENT_TYPES if event_type.startswith("agent.")
 )
-TRACKED_QUEUE_KEYS = {str(queue).casefold(): str(queue) for queue in TRACKED_QUEUES}
 
 
 def _nonnegative_env_seconds(name: str, default: float) -> float:
@@ -176,7 +175,7 @@ def _queue_from_container(container: dict | None) -> str:
 
 
 def queue_for_event(event: dict) -> str:
-    """Return the canonical configured queue represented by a webhook."""
+    """Return the AMD GPU queue represented by a webhook."""
     job = _as_dict(event.get("job"))
     agent = _as_dict(event.get("agent"))
     candidates = (
@@ -186,8 +185,8 @@ def queue_for_event(event: dict) -> str:
         _queue_from_container(event),
     )
     for candidate in candidates:
-        canonical = TRACKED_QUEUE_KEYS.get(str(candidate or "").casefold())
-        if canonical and not is_excluded_queue(canonical):
+        canonical = str(candidate or "").strip().casefold()
+        if amd_gpu_hardware(canonical):
             return canonical
     return ""
 
@@ -496,8 +495,7 @@ def main():
     log.info("Webhook server listening on port %d", LISTEN_PORT)
     log.info("Watching nightly pipelines for CI dispatch: %s", WATCHED_PIPELINES)
     log.info(
-        "Watching queue events for %d configured queues in pipelines %s: %s",
-        len(TRACKED_QUEUE_KEYS),
+        "Watching AMD GPU queue events in pipelines %s: %s",
         sorted(QUEUE_WATCHED_PIPELINES),
         sorted(QUEUE_EVENT_TYPES),
     )

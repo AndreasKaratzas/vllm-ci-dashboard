@@ -75,6 +75,11 @@ export function queueDnsOutcomeCounts(raw: Rec | null | undefined): DnsOutcomes 
   }
 }
 
+/** Whether the published scope scans passed jobs; otherwise their zero count was never measured. */
+export function queueDnsScansPassed(payload: Rec): boolean {
+  return isPlainObject(payload.scope) && Array.isArray(payload.scope.states) && payload.scope.states.includes('passed')
+}
+
 export function queueDnsRowsComplete(payload: Rec, id: string, count: number): boolean | null {
   if (payload.publication_retention === undefined) return true
   const row = ((payload.publication_retention || {}).window_rows || {})[id]
@@ -554,6 +559,7 @@ export interface DnsNodeBar {
   ariaLabel: string
   fillPct: number
   segments: DnsBarSegment[]
+  passedScanned: boolean
 }
 
 export interface DnsQueueCard {
@@ -575,6 +581,7 @@ export interface DnsPresentation {
   coverage: DnsCoverage
   freshness: ReturnType<typeof queueDnsFreshness>
   scope: DnsScope
+  passedScanned: boolean
   affectedQueues: DnsQueueRow[]
   affectedNodeCount: number
   totals: Omit<DnsQueueRow, 'queue' | 'nodes' | 'evidenceTotal'>
@@ -588,9 +595,12 @@ function queueDnsNodeBar(payload: Rec, windowId: string, queueRow: DnsQueueRow, 
   const outcomes = queueDnsNodeOutcomes(payload, windowId, nodeRow)
   const renderedCount = queueDnsDisplayCount(nodeRow.affectedJobs, coverage)
   const nonpassing = outcomes.softFailed + outcomes.hardFailed
-  const outcomeText = outcomes.available
-    ? queueDnsDisplayCount(outcomes.passed, coverage) + ' passed, ' + queueDnsDisplayCount(nonpassing, coverage) + ' nonpassing'
-    : 'job outcomes unavailable'
+  const passedScanned = queueDnsScansPassed(payload)
+  const outcomeText = !outcomes.available
+    ? 'job outcomes unavailable'
+    : passedScanned
+      ? queueDnsDisplayCount(outcomes.passed, coverage) + ' passed, ' + queueDnsDisplayCount(nonpassing, coverage) + ' nonpassing'
+      : queueDnsDisplayCount(outcomes.softFailed, coverage) + ' soft-failed, ' + queueDnsDisplayCount(outcomes.hardFailed, coverage) + ' hard-failed'
   const segments: DnsBarSegment[] = []
   if (outcomes.available && nodeRow.affectedJobs) {
     for (const [kind, count] of [
@@ -620,6 +630,7 @@ function queueDnsNodeBar(payload: Rec, windowId: string, queueRow: DnsQueueRow, 
       queueRow.queue + ', ' + nodeRow.node + ': ' + renderedCount + ' jobs with DNS observations; ' + outcomeText + '. Open exact Buildkite evidence.',
     fillPct: Math.max(3, (nodeRow.affectedJobs / Math.max(1, maximum)) * 100),
     segments,
+    passedScanned,
   }
 }
 
@@ -629,6 +640,7 @@ export function dnsPresentation(payload: Rec, requestedWindow: string, requested
   const coverage = queueDnsCoverage(payload, selected.block)
   const freshness = queueDnsFreshness(payload, selected.block, nowMs)
   const scope = queueDnsScope(requestedScope)
+  const passedScanned = queueDnsScansPassed(payload)
   const affectedQueues = selected.block ? queueDnsQueueRows(selected.block, scope, []).filter((row) => row.affectedJobs > 0) : []
   const affectedNodes = new Set<string>()
   for (const queue of affectedQueues) {
@@ -685,14 +697,23 @@ export function dnsPresentation(payload: Rec, requestedWindow: string, requested
     },
     { label: 'PHYSICAL NODES', value: queueDnsDisplayCount(affectedNodes.size, coverage), meta: 'including unidentified', tone: '' },
     { label: 'HUGGING FACE JOBS', value: queueDnsDisplayCount(totals.huggingfaceAffectedJobs, coverage), meta: 'resolver target', tone: '' },
-    {
-      label: 'PASSED / NONPASSING',
-      value: totals.outcomesAvailable
-        ? queueDnsDisplayCount(totals.passedJobs, coverage) + ' / ' + queueDnsDisplayCount(nonpassing, coverage)
-        : '-',
-      meta: totals.outcomesAvailable ? 'final outcome after observation' : 'outcome aggregate unavailable',
-      tone: outcomeTone,
-    },
+    passedScanned
+      ? {
+          label: 'PASSED / NONPASSING',
+          value: totals.outcomesAvailable
+            ? queueDnsDisplayCount(totals.passedJobs, coverage) + ' / ' + queueDnsDisplayCount(nonpassing, coverage)
+            : '-',
+          meta: totals.outcomesAvailable ? 'final outcome after observation' : 'outcome aggregate unavailable',
+          tone: outcomeTone,
+        }
+      : {
+          label: 'SOFT / HARD FAILED',
+          value: totals.outcomesAvailable
+            ? queueDnsDisplayCount(totals.softFailedJobs, coverage) + ' / ' + queueDnsDisplayCount(totals.hardFailedJobs, coverage)
+            : '-',
+          meta: totals.outcomesAvailable ? 'passed jobs are not scanned' : 'outcome aggregate unavailable',
+          tone: outcomeTone,
+        },
   ]
   const maximum = Math.max(...affectedQueues.flatMap((queue) => queue.nodes.map((node) => node.affectedJobs)), 1)
   const cards = affectedQueues.map((queueRow) => ({
@@ -710,6 +731,7 @@ export function dnsPresentation(payload: Rec, requestedWindow: string, requested
     coverage,
     freshness,
     scope,
+    passedScanned,
     affectedQueues,
     affectedNodeCount: affectedNodes.size,
     totals,
@@ -774,7 +796,7 @@ export function queueDnsNodeEvidence(
       { label: 'Affected jobs', value: queueDnsDisplayCount(nodeRow.affectedJobs, coverage) },
       { label: 'DNS episodes', value: queueDnsDisplayCount(nodeRow.episodes, coverage) },
       { label: 'Hugging Face affected jobs', value: queueDnsDisplayCount(nodeRow.huggingfaceAffectedJobs, coverage) },
-      { label: 'Passed after observation', value: nodeRow.outcomesAvailable ? queueDnsDisplayCount(nodeRow.passedJobs, coverage) : null },
+      { label: 'Passed after observation', value: nodeRow.outcomesAvailable && queueDnsScansPassed(payload) ? queueDnsDisplayCount(nodeRow.passedJobs, coverage) : null },
       { label: 'Soft-failed after observation', value: nodeRow.outcomesAvailable ? queueDnsDisplayCount(nodeRow.softFailedJobs, coverage) : null },
       { label: 'Hard-failed after observation', value: nodeRow.outcomesAvailable ? queueDnsDisplayCount(nodeRow.hardFailedJobs, coverage) : null },
       { label: 'Exact evidence shown', value: integer(rows.length) },

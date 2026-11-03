@@ -16,6 +16,11 @@ if _scripts_dir not in sys.path:
 
 import pytest  # noqa: E402
 
+from vllm import amd_queue_registry  # noqa: E402
+
+# Unit tests run against frozen ci-infra routing, never the refreshed state file.
+amd_queue_registry.REGISTRY_PATH = Path(__file__).with_name("fixtures") / "amd_queue_registry.json"
+
 # Live-data tests by the publication surfaces they read. When the selector
 # publishes every one of them as unavailable (candidate and last-known-good data
 # both failed the audit), the failure is those surfaces', not the publication's.

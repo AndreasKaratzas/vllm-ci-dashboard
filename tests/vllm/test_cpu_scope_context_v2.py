@@ -199,7 +199,7 @@ def observation(version=1, classification="amd_mi_gpu"):
     return {
         "pipeline": "ci", "build_number": 123,
         "job_id": "00000000-0000-4000-8000-000000000001",
-        "queue": "amd_mi300_1", "hardware": "MI300", "node": "node-1", "state": "passed",
+        "queue": "amd_mi300_1", "hardware": "MI300", "node": "node-1", "state": "hard",
         "started_at": "2026-10-12T00:00:00Z", "finished_at": "2026-10-12T00:30:00Z",
         "execution_proof": proof(version, classification),
     }

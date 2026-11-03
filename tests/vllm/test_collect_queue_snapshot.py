@@ -495,7 +495,7 @@ class TestQueueExclusions:
         assert not cqs.is_excluded_queue("amd_mi250_8")
         assert not cqs.is_excluded_queue("amd_mi355_8")
         assert not cqs.is_excluded_queue("amd_mi250_4")
-        assert all(not cqs.is_excluded_queue(queue) for queue in cqs.TRACKED_QUEUES)
+        assert all(not cqs.is_excluded_queue(queue) for queue in cqs.tracked_queues())
 
     def test_amd_scope_includes_cpu_and_excludes_mi355b(self):
         assert cqs.is_amd_queue("AMD_MI250_1")
@@ -1197,7 +1197,7 @@ class TestCollectSnapshot:
         )
 
         snap = cqs.collect_snapshot("fake-token")
-        for q in cqs.TRACKED_QUEUES:
+        for q in cqs.tracked_queues():
             assert q in snap["queues"]
             row = snap["queues"][q]
             assert row["waiting"] == 0
@@ -1223,8 +1223,8 @@ class TestCollectSnapshot:
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "queue_timeseries.jsonl", raising=False)
         monkeypatch.setattr(
             cqs,
-            "TRACKED_QUEUES",
-            frozenset({"amd_mi250_1", "amd_mi250_2", "amd_mi300_1", "amd_mi355_1"}),
+            "tracked_queues",
+            lambda: frozenset({"amd_mi250_1", "amd_mi250_2", "amd_mi300_1", "amd_mi355_1"}),
         )
         monkeypatch.setattr(
             cqs,
@@ -1285,8 +1285,8 @@ class TestCollectSnapshot:
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "queue_timeseries.jsonl", raising=False)
         monkeypatch.setattr(
             cqs,
-            "TRACKED_QUEUES",
-            frozenset({"amd_mi250_1", "amd_mi300_1"}),
+            "tracked_queues",
+            lambda: frozenset({"amd_mi250_1", "amd_mi300_1"}),
         )
         monkeypatch.setattr(
             cqs,
@@ -1351,7 +1351,7 @@ class TestCollectSnapshot:
         self, monkeypatch, tmp_path
     ):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "queue_timeseries.jsonl", raising=False)
-        monkeypatch.setattr(cqs, "TRACKED_QUEUES", frozenset({"amd_mi250_1"}))
+        monkeypatch.setattr(cqs, "tracked_queues", lambda: frozenset({"amd_mi250_1"}))
         monkeypatch.setattr(
             cqs,
             "fetch_cluster_queue_metrics",
@@ -1391,8 +1391,8 @@ class TestCollectSnapshot:
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "queue_timeseries.jsonl", raising=False)
         monkeypatch.setattr(
             cqs,
-            "TRACKED_QUEUES",
-            frozenset({"amd_mi250_1", "amd_mi300_1"}),
+            "tracked_queues",
+            lambda: frozenset({"amd_mi250_1", "amd_mi300_1"}),
         )
         monkeypatch.setattr(
             cqs,
@@ -1438,8 +1438,8 @@ class TestCollectSnapshot:
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "queue_timeseries.jsonl", raising=False)
         monkeypatch.setattr(
             cqs,
-            "TRACKED_QUEUES",
-            frozenset({"amd_mi250_1", "amd_mi300_1"}),
+            "tracked_queues",
+            lambda: frozenset({"amd_mi250_1", "amd_mi300_1"}),
         )
         monkeypatch.setattr(
             cqs,
@@ -1789,15 +1789,57 @@ class TestCollectSnapshot:
         snap = cqs.collect_snapshot("fake-token")
 
         scope = snap["target_queue_scope"]
-        assert scope["queue_ids"] == list(cqs.AMD_METRIC_TARGET_QUEUES)
-        assert scope["queue_count"] == 12
+        assert scope["queue_ids"] == list(cqs.target_queues())
+        assert scope["queue_count"] == len(cqs.target_queues())
         assert scope["families"] == ["MI250", "MI300", "MI355"]
         assert scope["gpu_widths"] == [1, 2, 4, 8]
         assert scope["all_rows_present"] is True
-        assert snap["scope_totals"]["target"]["queue_count"] == 12
+        assert scope["registry"]["repository"] == "vllm-project/ci-infra"
+        assert snap["scope_totals"]["target"]["queue_count"] == len(cqs.target_queues())
         assert "amd_mi325_1" in snap["queues"]
         assert "wait_sample_reconciliation" not in snap["queues"]["amd_mi325_1"]
         assert cqs.normalize_history_snapshot(snap) == snap
+
+    def test_target_totals_count_live_shared_and_dpx_queues_not_retired_width_rows(
+        self, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
+        metrics = {
+            queue: {"graphql_id": f"id-{queue}", "waiting": waiting, "running": running}
+            for queue, waiting, running in (
+                ("amd_mi250", 55, 14),
+                ("amd_mi250_1", 0, 0),
+                ("amd_mi355_dpx", 0, 71),
+                ("amd_mi300_1", 0, 0),
+            )
+        }
+        monkeypatch.setattr(cqs, "fetch_cluster_queue_metrics", lambda token: metrics)
+        monkeypatch.setattr(
+            cqs, "fetch_active_cluster_jobs", lambda token, queue_ids_by_key=None: []
+        )
+
+        snap = cqs.collect_snapshot("fake-token")
+
+        assert snap["scope_totals"]["target"]["waiting"] == 55
+        assert snap["scope_totals"]["target"]["running"] == 85
+        assert "amd_mi250_1" not in snap["queues"]
+        scope = snap["target_queue_scope"]
+        assert {"amd_mi250", "amd_mi355_dpx"} <= set(scope["queue_ids"])
+        assert "amd_mi355_8" in scope["cluster_absent_queue_ids"]
+        assert scope["unregistered_active_queue_ids"] == []
+
+    def test_history_snapshot_keeps_the_target_scope_it_was_collected_under(self):
+        legacy_ids = [f"amd_mi250_{width}" for width in (1, 2, 4, 8)]
+        snapshot = {
+            "ts": "2026-10-01T00:00:00Z",
+            "queues": {"amd_mi250_1": {"waiting": 3, "running": 1}},
+            "target_queue_scope": {"queue_ids": legacy_ids},
+        }
+
+        normalized = cqs.normalize_history_snapshot(snapshot)
+
+        assert normalized["target_queue_scope"]["queue_ids"] == legacy_ids
+        assert normalized["scope_totals"]["target"]["waiting"] == 3
 
     def test_official_max_never_becomes_p99_or_sample_only_metrics(self, monkeypatch, tmp_path):
         monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
@@ -2270,8 +2312,8 @@ class TestJobsJsonSideEffect:
 
 
 def test_physical_mi_scope_excludes_foreign_dynamic_and_cpu_job_routes():
-    assert cqs.TRACKED_QUEUES
-    assert all(cqs.amd_gpu_hardware(queue) for queue in cqs.TRACKED_QUEUES)
+    assert cqs.tracked_queues()
+    assert all(cqs.amd_gpu_hardware(queue) for queue in cqs.tracked_queues())
     def node(queue, label="GPU workload"):
         return {**_current_ci_node(label=label), "clusterQueue": {"key": queue}, "state": "RUNNING"}
     assert cqs._graphql_job_record(node("amd_mi300_1", "CPU Offload with CUDA model preset")) is not None
@@ -2657,7 +2699,7 @@ def test_complete_scan_without_waiting_jobs_publishes_zero_workload_split(
     assert row["waiting_by_workload"] == {"vllm": 0, "omni": 0}
     assert row["waiting_by_workload_provenance"]["status"] == status
     assert row["running_by_workload"] == {"vllm": 0, "omni": 1}
-    assert snapshot["queues"]["amd_mi250_1"]["running_by_workload"] == {"vllm": 0, "omni": 0}
+    assert snapshot["queues"]["amd_mi250"]["running_by_workload"] == {"vllm": 0, "omni": 0}
 
 
 def test_page_capped_scan_publishes_no_workload_split(monkeypatch, tmp_path):

@@ -27,6 +27,7 @@ RETRY_HOTSPOT_LIMIT = 30
 HEADLINE_MAX_CHARS = 160
 AMD_COUNT_KEYS = ("passed", "soft", "hard", "unknown", "not_run", "retried")
 FAILING_CODES = {"f": "hard", "s": "soft"}
+FAILING_RESULTS = {"f": "failed", "s": "soft_fail"}
 # A window's hard jobs are concentrated when at most CONCENTRATED_MAX_BUILDS
 # builds carry at least CONCENTRATED_MIN_SHARE of them and the newest
 # CONCENTRATED_GREEN_BUILDS AMD builds have no hard job and every group that
@@ -65,8 +66,8 @@ def _amd_counts(build: dict) -> dict | None:
     return result
 
 
-def _final_attempt_url(group: dict, number: int, build_url: str) -> str:
-    """The job page of the group's final attempt in one build, while its observations still hold it."""
+def _final_attempt_url(group: dict, number: int, build_url: str, result: str) -> str:
+    """The job page of the step's failing final attempt in one build, while its observations still hold it."""
     attempts = [
         row
         for row in group.get("observations") or []
@@ -75,7 +76,8 @@ def _final_attempt_url(group: dict, number: int, build_url: str) -> str:
     finals = [row for row in attempts if not (row.get("retry_evidence") or {}).get("retried")]
     if not finals or not build_url:
         return ""
-    return observation_job_url(build_url, max(finals, key=lambda row: str(row.get("observed_at") or "")))
+    final = max(finals, key=lambda row: (row.get("result") == result, str(row.get("observed_at") or "")))
+    return observation_job_url(build_url, final)
 
 
 def _failing_groups(reliability: dict) -> tuple[dict[int, list[dict]], dict[str, dict]]:
@@ -99,7 +101,7 @@ def _failing_groups(reliability: dict) -> tuple[dict[int, list[dict]], dict[str,
             if code not in FAILING_CODES:
                 continue
             row = {"group_id": group_id, "severity": FAILING_CODES[code]}
-            job_url = _final_attempt_url(group, number, urls.get(number, ""))
+            job_url = _final_attempt_url(group, number, urls.get(number, ""), FAILING_RESULTS[code])
             if job_url:
                 row["job_url"] = job_url
             failing[number].append(row)
@@ -245,7 +247,7 @@ def _series(rows: list[dict], now: datetime) -> dict:
     hour_end = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     return {
         "basis": (
-            "final AMD MI job attempt per strict group in each completed main build, "
+            "final AMD MI outcome per test step (worst shard) in each completed main build, "
             "bucketed by build creation time (UTC); pass_rate = passed / (passed + soft + hard)"
         ),
         "daily": _bucket(rows, day_end - timedelta(days=DAILY_SERIES_DAYS), timedelta(days=1), DAILY_SERIES_DAYS),

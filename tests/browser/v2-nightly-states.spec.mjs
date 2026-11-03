@@ -39,15 +39,15 @@ for (const [kind, title, body] of STATES) {
 
     test('Home keeps its health numbers from the newest nightly with results', async ({ page }) => {
       await page.goto('/#/');
-      await expect(page.getByTestId('kpi-pass-rate')).toContainText('66.7%');
-      await expect(page.getByTestId('kpi-nightly')).toContainText('#30005 - 4 pass - 0 soft - 2 hard');
+      await expect(page.getByTestId('kpi-pass-rate')).toContainText('60.0%');
+      await expect(page.getByTestId('kpi-nightly')).toContainText('#30005 - 3 pass - 0 soft - 2 hard');
       const first = page.getByTestId('nightly-table').locator('tbody tr').first();
       if (kind === 'amd-complete') {
         await expect(page.getByTestId('kpi-nightly')).toContainText('AMD jobs complete · build still running');
         await expect(first.locator('td').first()).toContainText('AMD jobs complete');
         // The note sits under the build, so the AMD-complete row's pass rate lines up with the rows below.
         const rates = page.getByTestId('nightly-table').locator('tbody tr td:nth-child(3)');
-        await expect(rates.first()).toHaveText(/^66\.7%\s*4 \/ 6$/);
+        await expect(rates.first()).toHaveText(/^60\.0%\s*3 \/ 5$/);
         const right = async (row) => {
           const box = await rates.nth(row).locator('[data-slot="cell"] > :first-child').boundingBox();
           return box.x + box.width;

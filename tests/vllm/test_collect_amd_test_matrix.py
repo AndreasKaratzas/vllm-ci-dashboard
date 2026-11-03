@@ -1102,6 +1102,7 @@ steps:
     commands: [pytest -v -s kernels/attention]
   - label: ":amd: (MI355) Attention Kernels Shard"
     agent_pool: mi355_1
+    definition_id: .buildkite/test_areas/attention.yaml#v1-attention-b200
     commands: [pytest -v -s kernels/attention]
   - label: Generic Test
     agent_pool: mi300_1
@@ -1268,10 +1269,11 @@ def test_removed_policy_titles_are_not_published_as_required_rules():
     assert matrix["best_hardware_policy"]["mi355_sensitive_rules"] == []
 
 
-def test_sensitive_gate_survives_label_rename_with_reviewed_execution():
+def test_sensitive_gate_follows_definition_id_across_label_and_command_changes():
     matrix = _execution_matrix([
-        {"label": f":amd: ({architecture}) Renamed Quantization Suite", "agent_pool": f"{architecture.lower()}_1", "working_dir": "/vllm-workspace/tests", "commands": ["pytest -v -s kernels/quantization"]}
-        for architecture in ["MI300", "MI355"]
+        {"label": ":amd: (MI300) Renamed Quantization Suite", "agent_pool": "mi300_1", "commands": ["pytest -v -s kernels/quantization"]},
+        {"label": ":amd: (MI355 DPX) Renamed Quantization Suite", "agent_pool": "mi355_dpx", "commands": ["pytest -v -s kernels/quantization"],
+         "definition_id": ".buildkite/test_areas/kernels.yaml#amd-native-quantization-kernels-mi355"},
     ])
     assert len(matrix["health_groups"]) == 2
     sensitive = next(group for group in matrix["health_groups"] if group["gate_kind"] == "mi355_sensitive")
@@ -1282,13 +1284,31 @@ def test_sensitive_gate_survives_label_rename_with_reviewed_execution():
     }]
 
 
-def test_sensitive_execution_proof_does_not_ignore_model_or_topology_changes():
-    from vllm.collect_amd_test_matrix import _mi355_sensitive_reason
-
+def test_sensitive_gate_is_not_inferred_from_a_reviewed_title():
     matrix = _execution_matrix([
-        {"label": ":amd: (MI355) Newly Named Quantization", "agent_pool": "mi355_4", "working_dir": "/vllm-workspace/tests", "commands": ["pytest -v -s kernels/quantization --model different"]},
+        {"label": f":amd: ({architecture}) Kernels", "agent_pool": f"{architecture.lower()}_1", "commands": ["pytest -v -s kernels/core"],
+         "definition_id": f".buildkite/test_areas/kernels.yaml#kernels-core-{architecture.lower()}"}
+        for architecture in ["MI300", "MI355"]
     ])
-    assert _mi355_sensitive_reason(matrix["rows"][0]) is None
+    assert len(matrix["health_groups"]) == 1
+    assert matrix["health_groups"][0]["gate_kind"] == "generic_best_hardware"
+    assert matrix["best_hardware_policy"]["mi355_sensitive_rules"] == []
+
+
+def test_unmatched_sensitive_rules_are_published_as_diagnostics(caplog):
+    from vllm.collect_amd_test_matrix import MI355_SENSITIVE_RULES
+
+    matched = ".buildkite/test_areas/attention.yaml#v1-attention-b200"
+    with caplog.at_level("WARNING", logger="vllm.collect_amd_test_matrix"):
+        matrix = _execution_matrix([
+            {"label": ":amd: (MI355 DPX) V1 Attention", "agent_pool": "mi355_dpx", "commands": ["pytest -v -s v1/attention"], "definition_id": matched},
+        ])
+    diagnostics = matrix["best_hardware_policy"]["mi355_sensitive_rule_diagnostics"]
+    expected = [definition_id for definition_id in MI355_SENSITIVE_RULES if definition_id != matched]
+    assert [item["definition_id"] for item in diagnostics] == expected
+    assert all(item["status"] == "matches_no_mi355_definition" and item["reason"] for item in diagnostics)
+    assert all(definition_id in caplog.text for definition_id in expected)
+    assert matched not in caplog.text
 
 
 def test_multimodal_area_survives_current_label_spelling():
@@ -1347,55 +1367,17 @@ def test_execution_route_hash_is_stable_across_label_changes_and_unique_aliases(
     assert {entry["execution_sha256"] for entry in variant["entries"]} == {variant["execution_sha256"]}
 
 
-def test_best_hardware_policy_declares_exactly_fifteen_mi355_sensitive_rules():
+def test_current_decorated_labels_materialize_every_sensitive_rule_and_alias():
     from vllm.collect_amd_test_matrix import MI355_SENSITIVE_RULES
 
-    expected_titles = {
-        "Attention Benchmark Smoke",
-        "Distributed Features",
-        "GPQA Eval (GPT-OSS)",
-        "LM Eval Qwen3-5 Models",
-        "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
-        "LM Eval Large Models",
-        "Kernels",
-        "MLA Kernels",
-        "Attention Kernels Shard",
-        "MoE Kernels Shard",
-        "Quantization Kernels",
-        "DeepEP FP8 MoE Kernels",
-        "Quantized Models",
-        "Quantization",
-        "V1 Attention Shard",
-    }
-    assert len(MI355_SENSITIVE_RULES) == 15
-    assert {title for title, _ in MI355_SENSITIVE_RULES} == expected_titles
-    assert all(reason for _, reason in MI355_SENSITIVE_RULES)
-
-
-def test_current_decorated_labels_materialize_every_sensitive_rule_and_alias():
-    sensitive_titles = (
-        "Attention Benchmark Smoke",
-        "Distributed Features",
-        "GPQA Eval (GPT-OSS)",
-        "LM Eval Qwen3-5 Models",
-        "Qwen3-30B-A3B-FP8-block Sync EPLB Accuracy",
-        "LM Eval Large Models",
-        "Kernels",
-        "MLA Kernels",
-        "Attention Kernels Shard",
-        "MoE Kernels Shard",
-        "Quantization Kernels",
-        "DeepEP FP8 MoE Kernels",
-        "Quantized Models",
-        "Quantization",
-        "V1 Attention Shard",
-    )
+    sensitive_titles = tuple(f"Reviewed Gate {index}" for index in range(len(MI355_SENSITIVE_RULES)))
     lines = ["steps:"]
-    for index, title in enumerate(sensitive_titles):
+    for index, (title, definition_id) in enumerate(zip(sensitive_titles, MI355_SENSITIVE_RULES)):
         for architecture in ("MI300", "MI355"):
             lines.extend((
                 f"  - label: {json.dumps(f':amd: ({architecture}) {title}')}",
                 f"    agent_pool: {architecture.lower()}_1",
+                f"    definition_id: {definition_id}",
                 f"    commands: [pytest tests/current_sensitive_gate_{index}_{architecture.lower()}.py]",
             ))
     lines.extend((
@@ -1426,6 +1408,7 @@ def test_current_decorated_labels_materialize_every_sensitive_rule_and_alias():
         if item["classification"] == "separate_gate"
     }
     assert separate == set(sensitive_titles)
+    assert matrix["best_hardware_policy"]["mi355_sensitive_rule_diagnostics"] == []
     assert all(
         item["label"].startswith(":amd: (MI355) ")
         for item in classification

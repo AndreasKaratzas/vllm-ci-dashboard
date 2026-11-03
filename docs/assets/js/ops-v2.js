@@ -5686,6 +5686,10 @@
     return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : 0;
   }
 
+  function queueDnsScansPassed(payload) {
+    return isPlainObject(payload.scope) && Array.isArray(payload.scope.states) && payload.scope.states.includes('passed');
+  }
+
   function queueDnsOutcomeCounts(raw) {
     const source = raw || {};
     const keys = ['passed_jobs', 'soft_failed_jobs', 'hard_failed_jobs'];
@@ -6220,7 +6224,7 @@
         {label: 'Affected jobs', value: queueDnsDisplayCount(nodeRow.affectedJobs, coverage)},
         {label: 'DNS episodes', value: queueDnsDisplayCount(nodeRow.episodes, coverage)},
         {label: 'Hugging Face affected jobs', value: queueDnsDisplayCount(nodeRow.huggingfaceAffectedJobs, coverage)},
-        {label: 'Passed after observation', value: nodeRow.outcomesAvailable ? queueDnsDisplayCount(nodeRow.passedJobs, coverage) : null},
+        {label: 'Passed after observation', value: nodeRow.outcomesAvailable && queueDnsScansPassed(payload) ? queueDnsDisplayCount(nodeRow.passedJobs, coverage) : null},
         {label: 'Soft-failed after observation', value: nodeRow.outcomesAvailable ? queueDnsDisplayCount(nodeRow.softFailedJobs, coverage) : null},
         {label: 'Hard-failed after observation', value: nodeRow.outcomesAvailable ? queueDnsDisplayCount(nodeRow.hardFailedJobs, coverage) : null},
         {label: 'Exact evidence shown', value: integer(rows.length)},
@@ -6248,10 +6252,13 @@
     control.type = 'button';
     const renderedCount = queueDnsDisplayCount(nodeRow.affectedJobs, coverage);
     const nonpassing = outcomes.softFailed + outcomes.hardFailed;
-    const outcomeText = outcomes.available
-      ? queueDnsDisplayCount(outcomes.passed, coverage) + ' passed, '
-        + queueDnsDisplayCount(nonpassing, coverage) + ' nonpassing'
-      : 'job outcomes unavailable';
+    const outcomeText = !outcomes.available
+      ? 'job outcomes unavailable'
+      : queueDnsScansPassed(payload)
+        ? queueDnsDisplayCount(outcomes.passed, coverage) + ' passed, '
+          + queueDnsDisplayCount(nonpassing, coverage) + ' nonpassing'
+        : queueDnsDisplayCount(outcomes.softFailed, coverage) + ' soft-failed, '
+          + queueDnsDisplayCount(outcomes.hardFailed, coverage) + ' hard-failed';
     control.setAttribute('aria-label', queueRow.queue + ', ' + nodeRow.node + ': ' + renderedCount
       + ' jobs with DNS observations; ' + outcomeText + '. Open exact Buildkite evidence.');
     control.addEventListener('click', function () {
@@ -6419,9 +6426,13 @@
       queueDnsSummaryItem('AFFECTED QUEUES', queueDnsDisplayCount(affectedQueues.length, coverage), dnsScope === 'canonical' ? 'canonical AMD' : 'active AMD GPU'),
       queueDnsSummaryItem('PHYSICAL NODES', queueDnsDisplayCount(affectedNodes.size, coverage), 'including unidentified'),
       queueDnsSummaryItem('HUGGING FACE JOBS', queueDnsDisplayCount(totals.huggingfaceAffectedJobs, coverage), 'resolver target'),
-      queueDnsSummaryItem('PASSED / NONPASSING', totals.outcomesAvailable
-        ? queueDnsDisplayCount(totals.passedJobs, coverage) + ' / ' + queueDnsDisplayCount(nonpassing, coverage)
-        : '-', totals.outcomesAvailable ? 'final outcome after observation' : 'outcome aggregate unavailable', outcomeTone),
+      queueDnsScansPassed(payload)
+        ? queueDnsSummaryItem('PASSED / NONPASSING', totals.outcomesAvailable
+          ? queueDnsDisplayCount(totals.passedJobs, coverage) + ' / ' + queueDnsDisplayCount(nonpassing, coverage)
+          : '-', totals.outcomesAvailable ? 'final outcome after observation' : 'outcome aggregate unavailable', outcomeTone)
+        : queueDnsSummaryItem('SOFT / HARD FAILED', totals.outcomesAvailable
+          ? queueDnsDisplayCount(totals.softFailedJobs, coverage) + ' / ' + queueDnsDisplayCount(totals.hardFailedJobs, coverage)
+          : '-', totals.outcomesAvailable ? 'passed jobs are not scanned' : 'outcome aggregate unavailable', outcomeTone),
     ]);
     host.append(summary);
 
@@ -6431,7 +6442,7 @@
       ['is-passed', 'Passed after observation'],
       ['is-soft', 'Soft-failed after observation'],
       ['is-hard', 'Hard-failed after observation'],
-    ].forEach(function (entry) {
+    ].filter(function (entry) { return entry[0] !== 'is-passed' || queueDnsScansPassed(payload); }).forEach(function (entry) {
       const item = n('span', 'ops-dns-legend-item');
       add(item, [n('span', 'ops-dns-legend-swatch ' + entry[0]), n('span', '', entry[1])]);
       legend.append(item);

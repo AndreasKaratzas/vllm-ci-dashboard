@@ -64,6 +64,16 @@ jobs:
       - name: Install dependencies
         run: pip install -c constraints.txt requests pyyaml
 
+      - name: Resolve AMD queue registry from ci-infra
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin \
+            +refs/heads/dashboard-state:refs/remotes/origin/dashboard-state \
+            || echo "::warning::dashboard-state is unavailable; using the checked-in registry."
+          python scripts/vllm/amd_queue_registry.py --fallback-git-ref origin/dashboard-state
+
       - name: Restore immutable runtime source indexes
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:

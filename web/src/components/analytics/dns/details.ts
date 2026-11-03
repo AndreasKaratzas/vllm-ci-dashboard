@@ -30,9 +30,11 @@ export const windowLabel = (windowId: string) => QUEUE_DNS_WINDOW_OPTIONS.find((
 export function nodeSummary(bar: DnsNodeBar, coverage: DnsPresentation['coverage']): string[] {
   const count = (raw: number) => shownCount(queueDnsDisplayCount(raw, coverage))
   const node = bar.resolved
-  const outcomes = node.outcomesAvailable
-    ? [`${count(node.passedJobs)} passed`, `${count(node.softFailedJobs + node.hardFailedJobs)} nonpassing`]
-    : ['job outcomes unavailable']
+  const outcomes = !node.outcomesAvailable
+    ? ['job outcomes unavailable']
+    : bar.passedScanned
+      ? [`${count(node.passedJobs)} passed`, `${count(node.softFailedJobs + node.hardFailedJobs)} nonpassing`]
+      : [`${count(node.softFailedJobs)} soft-failed`, `${count(node.hardFailedJobs)} hard-failed`]
   return [...outcomes, `${count(node.episodes)} episodes`]
 }
 
