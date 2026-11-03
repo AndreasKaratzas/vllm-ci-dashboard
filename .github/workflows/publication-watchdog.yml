@@ -156,7 +156,8 @@ jobs:
               return 90
             fi
             if ! GIT_NO_LAZY_FETCH=1 git cat-file -e "$object_id"; then
-              if ! git fetch --no-tags --filter=blob:none origin "$object_id"; then
+              if ! git -c fetch.negotiationAlgorithm=noop fetch --no-tags --filter=blob:none \
+                origin "$object_id"; then
                 echo "::error::Could not fetch size-proven $label object $object_id."
                 return 90
               fi
@@ -692,11 +693,15 @@ jobs:
             dns-health) WORKFLOW_FILE=dns-health.yml ;;
             *) echo "::error::Unknown recovery target: $RECOVERY_TARGET"; exit 1 ;;
           esac
-          gh api \
-            -H "Accept: application/vnd.github+json" \
-            "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_FILE/runs?branch=main&per_page=100" \
-            --jq '{workflow_runs: [.workflow_runs[] | {id, head_branch, head_sha, status, created_at, run_started_at, updated_at, conclusion, display_title}]}' \
-            > "$RUNNER_TEMP/selected-recovery-runs.json"
+          for i in 1 2 3; do
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_FILE/runs?branch=main&per_page=100" \
+              --jq '{workflow_runs: [.workflow_runs[] | {id, head_branch, head_sha, status, created_at, run_started_at, updated_at, conclusion, display_title}]}' \
+              > "$RUNNER_TEMP/selected-recovery-runs.json" && break
+            [ "$i" -lt 3 ] || exit 1
+            sleep $((i * 5))
+          done
 
       - name: Plan deduplicated targeted recovery
         id: recovery-plan
@@ -725,7 +730,7 @@ jobs:
           fi
           if [ "$RECOVERY_TARGET" = dns-health ]; then
             CURRENT_CODE_SHA=$(git rev-parse --verify 'HEAD^{commit}')
-            ARGS+=(--retry-cooldown-minutes 70 --current-code-sha "$CURRENT_CODE_SHA")
+            ARGS+=(--retry-cooldown-minutes 50 --current-code-sha "$CURRENT_CODE_SHA")
           else
             ARGS+=(--retry-cooldown-minutes 15)
           fi
@@ -800,11 +805,15 @@ jobs:
             --config config/docker_builds_attempt_budget.json observe \
             --github-output "$OUTPUTS"
           DOCKER_BUILDS_DUE=$(awk -F= '$1 == "required" {print $2}' "$OUTPUTS")
-          gh api \
-            -H "Accept: application/vnd.github+json" \
-            "repos/$GITHUB_REPOSITORY/actions/workflows/docker-builds.yml/runs?branch=main&per_page=100" \
-            --jq '{workflow_runs: [.workflow_runs[] | {id, head_branch, head_sha, status, created_at, run_started_at, updated_at, conclusion, display_title}]}' \
-            > "$RUNNER_TEMP/docker-builds-runs.json"
+          for i in 1 2 3; do
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "repos/$GITHUB_REPOSITORY/actions/workflows/docker-builds.yml/runs?branch=main&per_page=100" \
+              --jq '{workflow_runs: [.workflow_runs[] | {id, head_branch, head_sha, status, created_at, run_started_at, updated_at, conclusion, display_title}]}' \
+              > "$RUNNER_TEMP/docker-builds-runs.json" && break
+            [ "$i" -lt 3 ] || exit 1
+            sleep $((i * 5))
+          done
           python scripts/vllm/plan_publication_watchdog.py \
             --recovery-target docker-builds \
             --docker-builds-due "$DOCKER_BUILDS_DUE" \
@@ -840,11 +849,15 @@ jobs:
           LISTINGS=()
           for run_status in queued in_progress waiting requested pending; do
             listing="$RUNNER_TEMP/active-workflow-runs-$run_status.json"
-            gh api \
-              -H "Accept: application/vnd.github+json" \
-              "repos/$GITHUB_REPOSITORY/actions/runs?status=$run_status&per_page=100" \
-              --jq '{workflow_runs: [.workflow_runs[] | {id, name, path, status, created_at, run_started_at}]}' \
-              > "$listing"
+            for i in 1 2 3; do
+              gh api \
+                -H "Accept: application/vnd.github+json" \
+                "repos/$GITHUB_REPOSITORY/actions/runs?status=$run_status&per_page=100" \
+                --jq '{workflow_runs: [.workflow_runs[] | {id, name, path, status, created_at, run_started_at}]}' \
+                > "$listing" && break
+              [ "$i" -lt 3 ] || exit 1
+              sleep $((i * 5))
+            done
             LISTINGS+=(--runs "$listing")
           done
           python scripts/vllm/plan_stuck_run_cancellation.py \
@@ -856,10 +869,14 @@ jobs:
           while read -r run_id; do
             if gh api --method POST \
               -H "Accept: application/vnd.github+json" \
-              "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/force-cancel" > /dev/null; then
+              "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/force-cancel" \
+              > /dev/null 2> "$RUNNER_TEMP/force-cancel.err"; then
               cancelled=$((cancelled + 1))
               echo "::notice::Force-cancelled stuck workflow run $run_id."
+            elif grep -q 'HTTP 409' "$RUNNER_TEMP/force-cancel.err"; then
+              echo "::notice::Run $run_id is an orphaned GitHub record; force-cancel not applicable"
             else
+              cat "$RUNNER_TEMP/force-cancel.err" >&2
               failed=$((failed + 1))
               echo "::warning::Could not force-cancel stuck workflow run $run_id."
             fi

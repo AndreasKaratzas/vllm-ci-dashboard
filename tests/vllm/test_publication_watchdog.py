@@ -1218,6 +1218,17 @@ def test_watchdog_force_cancels_stuck_runs_and_skips_the_orphans_seen_live(tmp_p
     assert "Force-cancelled 2 stuck workflow run(s); 0 failed." in (tmp_path / "summary").read_text()
 
 
+def test_watchdog_janitor_treats_github_409_as_an_orphaned_record(tmp_path) -> None:
+    listings = {"in_progress": [_active(1, hours=20), _active(2, hours=10)]}
+    result, posts = _run_janitor_step(tmp_path, listings, orphaned_id=1)
+
+    assert result.returncode == 0, result.stderr
+    assert "Run 1 is an orphaned GitHub record; force-cancel not applicable" in result.stdout
+    assert "warning" not in result.stdout
+    assert len(posts) == 2
+    assert "Force-cancelled 1 stuck workflow run(s); 0 failed." in (tmp_path / "summary").read_text()
+
+
 def test_watchdog_janitor_reports_a_failed_cancel(tmp_path) -> None:
     listings = {"in_progress": [_active(1, hours=20), _active(2, hours=10)]}
     result, posts = _run_janitor_step(tmp_path, listings, failing_id=1)

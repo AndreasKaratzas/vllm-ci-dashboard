@@ -87,3 +87,27 @@ def test_loop_never_wakes_daily_or_weekly_profiles():
     assert not profiles & {"deployment-retention.yml", "scheduler-activity.yml"}
 
 
+def test_workflow_is_a_single_self_dispatching_chain_with_an_hourly_reviver():
+    workflow = yaml.safe_load(WORKFLOW.read_text())
+    triggers = workflow[True]
+    assert triggers["schedule"] == [{"cron": "7 * * * *"}]
+    assert "workflow_dispatch" in triggers
+    assert set(triggers) == {"schedule", "workflow_dispatch"}
+    assert workflow["concurrency"] == {"group": "dashboard-clock", "cancel-in-progress": False}
+    assert workflow["permissions"] == {}
+
+    (job,) = workflow["jobs"].values()
+    assert job["if"] == "github.ref == 'refs/heads/main'"
+    assert job["permissions"] == {"actions": "write", "contents": "read"}
+    loop, handoff = job["steps"][-2:]
+    assert "--github-actions-loop --duration-seconds 19800" in loop["run"]
+    assert loop["timeout-minutes"] * 60 > 19800
+    assert job["timeout-minutes"] > loop["timeout-minutes"]
+    assert handoff["if"] == "always()"
+    assert job["steps"][0]["run"] == 'echo "CLOCK_STARTED=$(date +%s)" >> "$GITHUB_ENV"'
+    assert handoff["env"]["LOOP_OUTCOME"] == "${{ steps.loop.outcome }}"
+    assert loop["id"] == "loop"
+    assert "CLOCK_STARTED + 1200" in handoff["run"]
+    assert "actions/workflows/dashboard-clock.yml/dispatches" in handoff["run"]
+    assert "-f ref=main" in handoff["run"]
+    assert handoff["run"].rstrip().endswith("exit 1")

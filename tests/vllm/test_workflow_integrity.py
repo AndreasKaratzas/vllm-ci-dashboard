@@ -669,16 +669,16 @@ class TestPrimaryCIWorkflow:
     def test_pytest_pipeline_propagates_the_pytest_exit_code(self):
         data = _load_workflow("ci.yml")
         job = data["jobs"]["test"]
-        assert job["timeout-minutes"] == 15
+        assert job["timeout-minutes"] == 20
         assert data["permissions"] == {"contents": "read"}
         assert job["permissions"] == {"contents": "read", "pull-requests": "write"}
         steps = job["steps"]
         run_tests = next(step for step in steps if step.get("name") == "Run tests")
         assert run_tests.get("id") == "run-tests"
-        assert run_tests["timeout-minutes"] == 7
+        assert run_tests["timeout-minutes"] == 13
         assert "set -o pipefail" in run_tests.get("run", "")
         assert (
-            "pytest tests/ -m 'not live_data' -v --tb=short -o faulthandler_timeout=60 2>&1 | tee test-output.txt"
+            "pytest tests/ -m 'not live_data' -n auto -v --tb=short -o faulthandler_timeout=60 2>&1 | tee test-output.txt"
             in run_tests.get("run", "")
         )
 
@@ -3392,6 +3392,7 @@ class TestNoOrphanedCronSchedules:
             "publication-watchdog.yml",
             "scheduler-activity.yml",
             "deployment-retention.yml",
+            "dashboard-clock.yml",
         }
         for f in WORKFLOWS.glob("*.yml"):
             data = yaml.safe_load(f.read_text())
@@ -3609,7 +3610,7 @@ class TestPublicationWatchdogWorkflow:
         assert '--recovery-target "$RECOVERY_TARGET"' in plan["run"]
         assert "--max-age-minutes 75" in plan["run"]
         assert "--retry-cooldown-minutes 15" in plan["run"]
-        assert "--retry-cooldown-minutes 70" in plan["run"]
+        assert "--retry-cooldown-minutes 50" in plan["run"]
         assert "--force-recovery-reason" in plan["run"]
         assert "--active-run-max-age-minutes 75" in plan["run"]
         assert '--github-output "$GITHUB_OUTPUT"' in plan["run"]
@@ -4026,7 +4027,7 @@ class TestSiteHealthWorkflow:
         assert liveness["continue-on-error"] is True
         for token in (
             "$runs?event=workflow_dispatch&branch=main&per_page=100",
-            '.triggering_actor.login == \\"$GITHUB_REPOSITORY_OWNER\\"',
+            'select(.triggering_actor.login == "github-actions[bot]")',
             "$runs?branch=main&status=completed&per_page=20",
             "actions/workflows?per_page=100",
             'select(.state != "active")',
