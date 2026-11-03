@@ -7249,6 +7249,13 @@ class DashboardAudit:
                 relpath,
             )
 
+        for rule in policy.get("mi355_sensitive_rule_diagnostics") or []:
+            self.warning(
+                "matrix-mi355-sensitive-rule-unmatched",
+                f"MI355-sensitive rule {_mapping(rule).get('definition_id')} matches no MI355 definition",
+                relpath,
+            )
+
         raw_sensitive_rules = policy.get("mi355_sensitive_rules")
         raw_alias_rules = policy.get("generic_alias_rules")
         if not isinstance(raw_sensitive_rules, list) or not isinstance(

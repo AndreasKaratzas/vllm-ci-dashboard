@@ -20,6 +20,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from vllm.amd_queue_registry import physical_queue  # noqa: E402
 from vllm.bounded_json import atomic_write_bytes  # noqa: E402
 from vllm.constants import amd_gpu_hardware, is_excluded_queue  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
@@ -3382,6 +3383,7 @@ def _omni(
             and row.get("id")
             and _is_amd_queue(row.get("id"))
         }
+    allowed_queues |= {physical_queue(name) for name in allowed_queues}
     omni_pipelines = {
         str(name)
         for name in (

@@ -20,6 +20,7 @@ from vllm import build_queue_section as queue_section_module
 from vllm import collect_queue_lifecycle as queue_lifecycle
 from vllm.collect_amd_test_matrix import (
     AMD_TEST_MATRIX_MAX_BYTES,
+    MI355_SENSITIVE_RULES,
     bounded_matrix_payload,
     pretty_json_bytes,
 )
@@ -367,6 +368,8 @@ def test_execution_alias_audit_preserves_sensitive_gate_after_rename(tmp_path):
     audit = DashboardAudit(tmp_path)
     audit.audit_best_hardware_health_groups(matrix, matrix["rows"], matrix["summary"])
     assert not audit.report.errors
+    unmatched = [f for f in audit.report.warnings if f.code == "matrix-mi355-sensitive-rule-unmatched"]
+    assert len(unmatched) == len(MI355_SENSITIVE_RULES) - 1
     matrix["best_hardware_policy"]["mi355_classification"][0]["classification"] = "generic_replica"
     audit = DashboardAudit(tmp_path)
     audit.audit_best_hardware_health_groups(matrix, matrix["rows"], matrix["summary"])
