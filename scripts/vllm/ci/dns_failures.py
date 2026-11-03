@@ -83,6 +83,10 @@ PIPELINES = ("amd-ci", "ci")
 # public denominators are exclusively the MI hardware population on ``ci``.
 CURRENT_PIPELINES = ("ci",)
 JOB_STATES = ("passed", "soft", "hard")
+# Only failed and soft-failed attempts are scanned. Legacy state may still
+# contain passed rows; they are dropped on the next collection.
+SCANNED_JOB_STATES = ("soft", "hard")
+SCOPED_DISCOVERY_VERSION = 2
 OUTCOME_COUNT_FIELD_BY_STATE = {
     "passed": "passed_jobs",
     "soft": "soft_failed_jobs",
@@ -971,7 +975,7 @@ def validate_state(payload: object) -> dict:
         _validate_exact_keys(scoped, frozenset({
             "version", "hardware_scope", "pipelines", "start", "end_exclusive", "complete",
         }), "scoped_discovery")
-        if (type(scoped.get("version")) is not int or scoped["version"] != 1
+        if (type(scoped.get("version")) is not int or scoped["version"] not in {1, SCOPED_DISCOVERY_VERSION}
                 or scoped.get("hardware_scope") != "amd_mi_gpu"
                 or scoped.get("pipelines") != list(CURRENT_PIPELINES)
                 or not isinstance(scoped.get("complete"), bool)):
@@ -1317,6 +1321,11 @@ def merge_state_jobs(*collections: Iterable[dict]) -> list[dict]:
     return sort_state_jobs(merged.values())
 
 
+def in_scope_jobs(rows: Iterable[dict]) -> list[dict]:
+    return [row for row in rows
+            if row["pipeline"] in CURRENT_PIPELINES and row["state"] in SCANNED_JOB_STATES]
+
+
 def _status_counts(rows: Iterable[dict]) -> dict[str, int]:
     counts = {status: 0 for status in SCAN_STATUSES}
     for row in rows:
@@ -1445,11 +1454,12 @@ def build_public_output(state: object) -> dict:
     end = parse_timestamp(payload["generated_at"], "generated_at")
     retention_start = end - timedelta(hours=RETENTION_HOURS)
     scoped = payload.get("scoped_discovery")
+    scoped_jobs = in_scope_jobs(payload["jobs"])
     # Legacy records remain private evidence. Until the same jobs are freshly
     # attested under literal source labels, they cannot prove hardware coverage.
     scope_complete = bool(scoped and scoped["complete"] and all(
         "source_unavailable_commit" not in row and row.get("execution_proof", {}).get("version") == 2
-        for row in payload["jobs"] if row["pipeline"] in CURRENT_PIPELINES
+        for row in scoped_jobs
     ))
     discovery_start = parse_timestamp(scoped["start"], "scoped_discovery.start") if scoped else end
     if not scope_complete:
@@ -1457,8 +1467,8 @@ def build_public_output(state: object) -> dict:
         # attempted query bounds privately, but advertise no complete public
         # window when discovery stopped before proving exhaustive coverage.
         discovery_start = end - timedelta(seconds=1)
-    jobs = [row for row in payload["jobs"] if row["pipeline"] in CURRENT_PIPELINES
-            and "source_unavailable_commit" not in row
+    jobs = [row for row in scoped_jobs
+            if "source_unavailable_commit" not in row
             and row.get("execution_proof", {}).get("version") == 2
             and row.get("execution_proof", {}).get("classification") == "amd_mi_gpu"]
 
@@ -1601,7 +1611,7 @@ def build_public_output(state: object) -> dict:
             "hardware_scope": "amd_mi_gpu",
             "branches": "all",
             "job_types": ["script"],
-            "states": list(JOB_STATES),
+            "states": list(SCANNED_JOB_STATES),
             "queue_scope": "active_amd_gpu",
             "retried_jobs": "included",
         },

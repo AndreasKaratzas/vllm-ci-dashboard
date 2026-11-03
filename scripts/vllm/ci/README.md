@@ -736,9 +736,13 @@ horizons remain invalid.
 
 ### DNS health observations
 
-`collect_dns_failures.py` discovers terminal script-job attempts across the
-`amd-ci` and `ci` pipelines, including retries and passing jobs, then scans each
-bounded log sample for strong DNS signatures. The workflow gets an hourly
+`collect_dns_failures.py` discovers failed and soft-failed MI GPU script-job
+attempts on the `ci` pipeline, including retries, then scans each bounded log
+for strong DNS signatures. Passed jobs, `amd-ci`, and vLLM-Omni
+(`vllm-omni-amd-ci`) jobs are out of scope; the first collection on this scope
+drops their rows from the encrypted state. Buildkite filters the recent-job
+stream to failed jobs (`passed: false`), which leaves room for the active-build
+sweep on every scan, so discovery can complete. The workflow gets an hourly
 recovery opportunity and retains a three-hour scanner interval, but the hard
 cross-run limit comes from the separate parentless `dns-request-budget` branch.
 Before an eligible attempt receives a Buildkite token, the workflow atomically

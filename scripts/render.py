@@ -156,7 +156,7 @@ def render_readme(config, data):
         "status 78 unless the workflow has supplied a complete durable request-guard",
         "reservation; exporting a token alone is not a supported local run mode.",
         "",
-        "DNS Health discovers current AMD jobs before its daily active-build sweep.",
+        "DNS Health discovers failed and soft-failed `ci` AMD GPU jobs before its active-build sweep.",
         "Each scan keeps the 110-request limit, reserves 40 request starts for log",
         "classification, and gives discovery half the collection time budget. When",
         "discovery reaches its budget, validated observations are saved as an encrypted",

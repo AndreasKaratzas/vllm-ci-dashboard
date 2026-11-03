@@ -37,6 +37,7 @@ from vllm.ci.dns_failures import (  # noqa: E402
     PUBLICATION_RETENTION_COUNT_KEYS as DNS_PUBLICATION_RETENTION_COUNT_KEYS,
     PUBLICATION_RETENTION_KEYS as DNS_PUBLICATION_RETENTION_KEYS,
     PUBLICATION_RETENTION_POLICY as DNS_PUBLICATION_RETENTION_POLICY,
+    SCANNED_JOB_STATES as DNS_SCANNED_JOB_STATES,
 )
 from vllm.ci.docker_builds import (  # noqa: E402
     MAX_FRESH_AGE_HOURS as DOCKER_BUILDS_MAX_FRESH_AGE_HOURS,
@@ -9148,15 +9149,18 @@ class DashboardAudit:
             "pipelines": list(DNS_PIPELINES),
             "branches": "all",
             "job_types": ["script"],
-            "states": ["passed", "soft", "hard"],
+            "states": list(DNS_SCANNED_JOB_STATES),
             "queue_scope": "active_amd_gpu",
             "hardware_scope": "amd_mi_gpu",
             "retried_jobs": "included",
         }
-        if scope != expected_scope:
+        # A generation published before the failed-job scope stays valid
+        # until the next DNS run republishes it from migrated state.
+        legacy_scope = {**expected_scope, "states": ["passed", "soft", "hard"]}
+        if scope not in (expected_scope, legacy_scope):
             self.error(
                 "dns-health-scope",
-                "DNS health scope must remain all branches, terminal script attempts, and active AMD GPU queues",
+                "DNS health scope must remain all branches, failed script attempts, and active AMD GPU queues",
                 path,
             )
 

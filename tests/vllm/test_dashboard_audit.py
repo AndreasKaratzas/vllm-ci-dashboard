@@ -1761,7 +1761,7 @@ def test_dns_backend_window_coverage_tracks_window_relative_positives(tmp_path):
                 "queue": "amd_mi300_1",
                 "node": "node-3",
                 "hardware": "MI300",
-                "state": "passed",
+                "state": "hard",
                 "started_at": iso_timestamp(now - timedelta(hours=3)),
                 "finished_at": iso_timestamp(now - timedelta(minutes=10)),
                 "execution_proof": {

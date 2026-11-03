@@ -252,7 +252,7 @@ jobs:
             --now "${{ steps.dns-request-budget.outputs.decision_at }}"
             # Discovery gets half the wall budget and reserves 40 of the 110
             # request starts for logs. Validated partial discovery is saved,
-            # with explicit incomplete coverage, when the daily sweep is large.
+            # with explicit incomplete coverage, when the sweep hits its budget.
             --time-budget-seconds 1200
             --classification-cache data/vllm/ci/.cache/dns-classifications-v1
             --failure-diagnostics "$RUNNER_TEMP/dns-collection-failure.json"
