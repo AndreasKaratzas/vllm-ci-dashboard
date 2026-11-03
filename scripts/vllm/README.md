@@ -474,9 +474,14 @@ bounded by the durable ledgers.
 
 `main` is the source of truth. `collect_analytics.py` keeps every completed
 `ci` branch=main build for 30 days; each catalog build records its final AMD MI
-job outcomes (`amd_jobs`) and each strict group records its per-build final
-outcome (`outcome_history`, with `r` marking a pass reached only by retrying a
-hard failure, and `wall_mins` holding each passing final attempt's wall time).
+step outcomes (`amd_jobs`). A group is one Buildkite step key on one hardware
+and queue (the label without its `Shard k/t` suffix only when a job has no step
+key), so automatic shard re-plans keep one history. Each group records its
+per-build final outcome, the worst of its shards' final attempts
+(`outcome_history`, with `r` marking a pass reached only by retrying a hard
+failure, `wall_mins` holding the summed wall time of a passing build's shards,
+and `jobs` its shard count). `group_identity_version` names this identity; the
+failure watcher re-keys held incidents once when it changes.
 From that one cohort:
 
 - `ci_main_failure_watcher.py` confirms incidents (hard immediately, soft after

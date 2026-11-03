@@ -29,6 +29,7 @@ from vllm.pipelines import SKIP_JOB_PATTERNS
 
 
 SCHEMA_VERSION = 2
+GROUP_IDENTITY_VERSION = 2
 OBSERVED_FAILURE_MOVEMENT_ID = "observed-failure-movement-v1"
 OBSERVATION_LIMIT = 60
 BUILD_MESSAGE_MAX_CHARS = 4096
@@ -66,6 +67,7 @@ RECOVERED_OUTCOME_CODE = "r"
 NOT_RUN_JOB_STATES = frozenset({"blocked", "skipped", "not_run"})
 
 _HW_PREFIX_RE = re.compile(r"^(mi\d+[a-z]?_\d+|gpu_\d+|amd_\w+):\s*", re.IGNORECASE)
+_SHARD_SUFFIX_RE = re.compile(r"\s+shard(?:\s+\d+(?:\s*/\s*\d+)?)?$", re.IGNORECASE)
 _UPSTREAM_HW_RE = re.compile(
     r"(?<![a-z0-9])(h100|h200|b100|b200|a100|l4|t4|cpu|npu|tpu)(?![a-z0-9])",
     re.IGNORECASE,
@@ -482,6 +484,12 @@ def _canonical_label(raw_label: str) -> str:
     return re.sub(r"\s+", " ", _HW_PREFIX_RE.sub("", raw_label or "")).strip() or raw_label or "unknown"
 
 
+def _step_label(raw_label: str) -> str:
+    """The canonical label without its runtime ``Shard k/t`` suffix."""
+    label = _canonical_label(raw_label)
+    return _SHARD_SUFFIX_RE.sub("", label) or label
+
+
 def _step_key(job: dict) -> str:
     return str(job.get("step_key") or (job.get("step") or {}).get("key") or "")
 
@@ -531,6 +539,31 @@ def _identity(job: dict, pipeline_slug: str = "amd-ci") -> dict[str, str]:
 def _group_id(identity: dict[str, str]) -> str:
     encoded = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()[:20]
+
+
+def group_id_for(step_key: str, hardware: str, queue: str, label: str) -> str:
+    """One main-CI group per Buildkite step on one queue; the label only without a step key."""
+    key = {"step_key": step_key} if step_key else {"step_label": _step_label(label)}
+    encoded = json.dumps(
+        {**key, "hardware": hardware, "queue": queue},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()[:20]
+
+
+def _step_identity(job: dict, pipeline_slug: str) -> dict[str, str]:
+    identity = _identity(job, pipeline_slug)
+    return {**identity, "canonical_label": _step_label(identity["raw_label"])}
+
+
+def _step_group_id(identity: dict[str, str]) -> str:
+    return group_id_for(
+        identity["step_key"],
+        identity["hardware"],
+        identity["queue"],
+        identity["canonical_label"],
+    )
 
 
 def nightly_signal_identity(
@@ -625,6 +658,53 @@ def _retry_depth(job_id: str, predecessors: dict[str, set[str]]) -> int:
     return visit(job_id, {job_id}) if job_id else 0
 
 
+_OUTCOME_RANK = {"hard": 3, "soft": 2, "passed": 1, "indeterminate": 0}
+
+
+def _final_attempt(attempts: list[dict]) -> dict:
+    by_id = {
+        _attempt_id(job): job
+        for job in attempts
+        if _attempt_id(job)
+    }
+    predecessors: dict[str, set[str]] = defaultdict(set)
+    for job in attempts:
+        source_id = _attempt_id(job)
+        target_id = str(job.get("retried_in_job_id") or "")
+        if source_id and target_id and target_id in by_id:
+            predecessors[target_id].add(source_id)
+    has_retry_evidence = any(bool(_retry_evidence(job)) for job in attempts)
+
+    def attempt_rank(job: dict) -> tuple:
+        outcome = nightly_job_outcome(job)
+        job_id = _attempt_id(job)
+        if not has_retry_evidence:
+            return (
+                _OUTCOME_RANK[outcome],
+                _attempt_time_rank(job),
+                job_id,
+            )
+        retry_count = _retry_count(job)
+        explicit_retry_attempt = bool(
+            retry_count
+            or job.get("retry_source")
+            or job.get("retry_type")
+            or job_id in predecessors
+        )
+        return (
+            _retry_depth(job_id, predecessors),
+            retry_count,
+            explicit_retry_attempt,
+            not bool(job.get("retried")),
+            not bool(job.get("retried_in_job_id")),
+            _attempt_time_rank(job),
+            _OUTCOME_RANK[outcome],
+            job_id,
+        )
+
+    return max(attempts, key=attempt_rank)
+
+
 def collapse_nightly_attempts(
     jobs: list[dict],
     pipeline_slug: str = "amd-ci",
@@ -648,54 +728,43 @@ def collapse_nightly_attempts(
         group["attempts"].append(job)
 
     selected: dict[str, dict] = {}
-    outcome_rank = {"hard": 3, "soft": 2, "passed": 1, "indeterminate": 0}
     for group_id, group in grouped.items():
-        attempts = group["attempts"]
-        by_id = {
-            _attempt_id(job): job
-            for job in attempts
-            if _attempt_id(job)
-        }
-        predecessors: dict[str, set[str]] = defaultdict(set)
-        for job in attempts:
-            source_id = _attempt_id(job)
-            target_id = str(job.get("retried_in_job_id") or "")
-            if source_id and target_id and target_id in by_id:
-                predecessors[target_id].add(source_id)
-        has_retry_evidence = any(bool(_retry_evidence(job)) for job in attempts)
-
-        def attempt_rank(job: dict) -> tuple:
-            outcome = nightly_job_outcome(job)
-            job_id = _attempt_id(job)
-            if not has_retry_evidence:
-                return (
-                    outcome_rank[outcome],
-                    _attempt_time_rank(job),
-                    job_id,
-                )
-            retry_count = _retry_count(job)
-            explicit_retry_attempt = bool(
-                retry_count
-                or job.get("retry_source")
-                or job.get("retry_type")
-                or job_id in predecessors
-            )
-            return (
-                _retry_depth(job_id, predecessors),
-                retry_count,
-                explicit_retry_attempt,
-                not bool(job.get("retried")),
-                not bool(job.get("retried_in_job_id")),
-                _attempt_time_rank(job),
-                outcome_rank[outcome],
-                job_id,
-            )
-
-        final = max(attempts, key=attempt_rank)
+        final = _final_attempt(group["attempts"])
         selected[group_id] = {
             "identity": group["identity"],
             "job": final,
             "outcome": nightly_job_outcome(final),
+        }
+    return selected
+
+
+def _collapse_step_attempts(
+    jobs: list[dict],
+    pipeline_slug: str,
+) -> dict[str, dict]:
+    """One main-CI outcome per step: each shard's final attempt, then the worst shard."""
+    shards: dict[str, dict[tuple, list[dict]]] = {}
+    for job in jobs:
+        index = job.get("parallel_group_index")
+        shards.setdefault(_step_group_id(_step_identity(job, pipeline_slug)), {}).setdefault(
+            (nightly_signal_id(job, pipeline_slug), index if type(index) is int else -1), []
+        ).append(job)
+
+    selected: dict[str, dict] = {}
+    for group_id, attempts in shards.items():
+        finals = [_final_attempt(rows) for rows in attempts.values()]
+        final = max(
+            finals,
+            key=lambda job: (
+                _OUTCOME_RANK[nightly_job_outcome(job)],
+                _attempt_time_rank(job),
+                _attempt_id(job),
+            ),
+        )
+        selected[group_id] = {
+            "job": final,
+            "outcome": nightly_job_outcome(final),
+            "shards": finals,
         }
     return selected
 
@@ -902,13 +971,15 @@ def build_all_main_reliability(
                 continue
             seen_jobs.add(dedupe_key)
             build_jobs.append(job)
-            identity = _identity(job, pipeline_slug)
-            group_id = _group_id(identity)
+            identity = _step_identity(job, pipeline_slug)
+            group_id = _step_group_id(identity)
             group = grouped.setdefault(group_id, {
                 "group_id": group_id,
                 "identity": identity,
+                "identity_build": catalog_build["number"],
                 "final_outcomes": {},
                 "final_walls": {},
+                "final_jobs": {},
                 "observations": [],
                 "result_counts": Counter(),
                 "excluded_counts": Counter(),
@@ -916,6 +987,11 @@ def build_all_main_reliability(
                 "retry_evidence_observations": 0,
                 "source_family_keys": set(),
             })
+            if (
+                group["identity_build"] == catalog_build["number"]
+                and identity["raw_label"] < group["identity"]["raw_label"]
+            ):
+                group["identity"] = identity
             observation = _observation(pipeline_slug, build, job, test_durations)
             if job_id in source_families:
                 group["source_family_keys"].add(source_families[job_id])
@@ -939,11 +1015,11 @@ def build_all_main_reliability(
                     group["durations"][key].append(float(observation[key]))
         job_counts = Counter()
         failed_groups = {
-            _group_id(_identity(job, pipeline_slug))
+            _step_group_id(_step_identity(job, pipeline_slug))
             for job in build_jobs
             if _result(job)[0] == "failed"
         }
-        for group_id, selected in collapse_nightly_attempts(build_jobs, pipeline_slug).items():
+        for group_id, selected in _collapse_step_attempts(build_jobs, pipeline_slug).items():
             outcome = selected["outcome"]
             if outcome in FINAL_OUTCOME_CODES:
                 job_counts[outcome] += 1
@@ -951,9 +1027,13 @@ def build_all_main_reliability(
                 if outcome == "passed" and group_id in failed_groups:
                     code = RECOVERED_OUTCOME_CODE
                 grouped[group_id]["final_outcomes"][catalog_build["number"]] = code
-                wall = duration_mins(selected["job"].get("started_at"), selected["job"].get("finished_at"))
-                if outcome == "passed" and wall is not None and wall > 0:
-                    grouped[group_id]["final_walls"][catalog_build["number"]] = round(wall, 1)
+                grouped[group_id]["final_jobs"][catalog_build["number"]] = len(selected["shards"])
+                walls = [
+                    duration_mins(job.get("started_at"), job.get("finished_at"))
+                    for job in selected["shards"]
+                ]
+                if outcome == "passed" and all(wall is not None and wall > 0 for wall in walls):
+                    grouped[group_id]["final_walls"][catalog_build["number"]] = round(sum(walls), 1)
             elif str(selected["job"].get("state") or "").lower() in NOT_RUN_JOB_STATES:
                 job_counts["not_run"] += 1
             else:
@@ -1041,6 +1121,11 @@ def build_all_main_reliability(
                     for number in catalog_order
                     if number in group["final_outcomes"]
                 ],
+                "jobs": [
+                    group["final_jobs"][number]
+                    for number in catalog_order
+                    if number in group["final_outcomes"]
+                ],
             },
         })
     groups.sort(key=lambda row: (
@@ -1060,6 +1145,7 @@ def build_all_main_reliability(
     eligible_groups = sum(bool(group["denominator"]) for group in groups)
     return {
         "schema_version": SCHEMA_VERSION,
+        "group_identity_version": GROUP_IDENTITY_VERSION,
         **({"job_scope": "amd_gpu", "hardware_scope": "amd_mi_gpu"} if pipeline_slug == "ci" else {}),
         "generated_at": generated_at,
         "cohort": {

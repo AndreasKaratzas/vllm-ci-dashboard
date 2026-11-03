@@ -5,9 +5,10 @@ import { expect, test } from '@playwright/test';
 import { collectErrors } from './support/quality.mjs';
 
 // Fixture facts (tests/browser/build_fixture_site.py): 33 main builds, the newest #31027 passed;
-// #31026 failed Routed Beta and Broken Group hard and soft-failed Attention Kernels Shard 1;
-// two hard incidents, one pending soft failure; Attention Kernels Shard 2
-// flips and Basic Models passes only after a retry.
+// #31026 failed Routed Beta and Broken Group hard and soft-failed Attention Kernels (shard 1);
+// two hard incidents, one pending soft failure; Attention Kernels (shard 2)
+// flips and Basic Models passes only after a retry. Groups are steps, so both
+// Attention Kernels shards are one group.
 
 /** Rewrites the manifest (and optionally serves a main_ci section body with its digest). */
 async function routeMainCi(page, { shell, section }) {
@@ -55,13 +56,13 @@ test.describe('Main CI', () => {
   test('compares the 24-hour rate with the 24 hours before and opens the builds behind it', async ({ page }) => {
     await page.goto('/#/main');
     const rate = page.getByTestId('kpi-main-rate');
-    await expect(rate.locator('[data-slot=kpi-value]')).toHaveText('66.7%');
+    await expect(rate.locator('[data-slot=kpi-value]')).toHaveText('61.9%');
     await expect(rate).toContainText('Below 95%');
-    await expect(rate).toContainText('-4.2 pts');
+    await expect(rate).toContainText('-4.8 pts');
     await rate.locator('[data-kpi-action]').click();
     const sheet = page.getByRole('dialog');
     await expect(sheet).toContainText('Main builds · last 24 hours');
-    await expect(sheet.locator('[data-slot=evidence-stat-value]').first()).toHaveText('66.7%');
+    await expect(sheet.locator('[data-slot=evidence-stat-value]').first()).toHaveText('61.9%');
   });
 
   test('switches the trend window and opens the builds behind a point', async ({ page }) => {
@@ -89,7 +90,7 @@ test.describe('Main CI', () => {
     await page.goto('/#/main?view=incidents');
     const rows = page.getByTestId('main-incidents').locator('tbody tr');
     await expect(rows).toHaveCount(2);
-    await expect(page.getByTestId('main-pending')).toContainText('Attention Kernels Shard 1');
+    await expect(page.getByTestId('main-pending')).toContainText('Attention Kernels');
     await rows.filter({ hasText: 'Routed Beta' }).getByRole('cell').first().click();
     const sheet = page.getByRole('dialog');
     await expect(sheet).toContainText('Hard fail incident on main');
@@ -146,11 +147,11 @@ test.describe('Main CI', () => {
 
   test('ranks flaky and retry-recovering groups, each alerting on its own criterion', async ({ page }) => {
     await page.goto('/#/main?view=flaky');
-    await expect(page.getByTestId('main-flaky').locator('tbody tr').first()).toContainText('Attention Kernels Shard 2');
+    await expect(page.getByTestId('main-flaky').locator('tbody tr').first()).toContainText('Attention Kernels');
     await expect(page.getByTestId('main-flaky').locator('tbody tr').first()).toContainText('Alerting');
     await expect(page.getByTestId('main-flaky')).toContainText('1 alerting at 3 flips');
-    // One flip is below the flips threshold whatever the group's retries do.
-    await expect(page.getByTestId('main-flaky').locator('tbody tr').filter({ hasText: 'Attention Kernels Shard 1' })).toContainText('Below threshold');
+    // One flip is below the flips threshold.
+    await expect(page.getByTestId('main-flaky').locator('tbody tr').filter({ hasText: 'Routed Beta' })).toContainText('Below threshold');
     await expect(page.getByTestId('main-retry')).toContainText('1 alerting at 3 recoveries');
     await expect(page.getByTestId('main-retry').locator('tbody tr').first()).toContainText('Alerting');
     await expect(page.getByTestId('main-retry').locator('tbody tr').first()).toContainText('Basic Models (Other)');
@@ -182,7 +183,7 @@ test.describe('Main CI', () => {
   test('CI Health leads with the main CI headline and links to it', async ({ page }) => {
     await page.goto('/#/health');
     const signal = page.getByTestId('main-ci-signal');
-    await expect(signal).toContainText('66.7%');
+    await expect(signal).toContainText('61.9%');
     await expect(signal).toContainText('Below 95%');
     await expect(signal).toContainText('#31027');
     await signal.getByRole('link', { name: /Open Main CI/ }).click();

@@ -53,6 +53,7 @@ from vllm.ci.reliability_history import (  # noqa: E402
     OBSERVED_FAILURE_MOVEMENT_ID,
     collapse_nightly_attempts,
     compare_nightly_failures,
+    group_id_for,
     hydrate_reliability_observations,
     validate_all_main_reliability,
 )
@@ -3510,7 +3511,15 @@ def _later_scheduled_pass(build: dict, all_main: dict | None) -> dict | None:
     None when no such run exists or any main build after it hard-failed one of those groups again.
     """
     number = _strict_int(build.get("number"))
-    failed = {row.get("group_id") for row in build.get("failed_groups") or []}
+    failed = {
+        group_id_for(
+            str(row.get("step_key") or ""),
+            str(row.get("hardware") or ""),
+            str(row.get("queue") or ""),
+            str(row.get("name") or ""),
+        )
+        for row in build.get("failed_groups") or []
+    }
     if number is None or not failed or not validate_all_main_reliability(all_main, "ci"):
         return None
     passed: dict[int, set] = defaultdict(set)

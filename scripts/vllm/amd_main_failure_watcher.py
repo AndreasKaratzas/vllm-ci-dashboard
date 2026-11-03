@@ -3,9 +3,10 @@
 
 The source is ci.all_main_reliability from analytics.json: an exhaustive
 Buildkite branch=main cohort of completed passed/failed builds with exact
-terminal job evidence. A strict group is identified by label, step key,
-hardware, and queue. Within one build the latest attempt wins, so a successful
-retry does not create an incident.
+terminal job evidence. A group is one Buildkite step key on one hardware and
+queue (the label only without a step key). Within one build each shard's latest
+attempt wins and the step takes its worst shard, so a successful retry does not
+create an incident.
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from vllm.ci import main_flakiness  # noqa: E402
 from vllm.ci.incident_transitions import advance_incident  # noqa: E402
 from vllm.ci.reliability_history import (  # noqa: E402
+    GROUP_IDENTITY_VERSION,
+    group_id_for,
     hydrate_reliability_observations,
     validate_all_main_reliability,
 )
@@ -49,6 +52,7 @@ UPSTREAM_REPO_URL = "https://github.com/vllm-project/vllm"
 TIMELINE_MAX_EVENTS = 300
 TIMELINE_MAX_AGE = timedelta(days=30)
 COMMIT_RE = re.compile(r"[0-9a-f]{40}", re.IGNORECASE)
+HISTORY_RESULTS = {"p": "passed", "r": "passed", "f": "failed", "s": "soft_fail"}
 
 
 @dataclass(frozen=True)
@@ -88,6 +92,7 @@ def _default_state() -> dict:
         "last_fingerprint": "",
         "last_content_fingerprint": "",
         "signal_fingerprint_version": 2,
+        "group_identity_version": GROUP_IDENTITY_VERSION,
         "last_run": "",
     }
 
@@ -233,8 +238,57 @@ def _identity(group: dict) -> dict:
     }
 
 
+def _history_rows(
+    group: dict,
+    rows: list[dict],
+    catalog: dict[int, dict],
+) -> dict[int, dict]:
+    """The step's final outcome per build, with its best matching job as evidence."""
+    by_number: dict[int, list[dict]] = {}
+    for row in rows:
+        by_number.setdefault(row["build_number"], []).append(row)
+    result = {}
+    for number, code in main_flakiness._history(group):
+        if number not in catalog:
+            continue
+        outcome = HISTORY_RESULTS[code]
+        evidence = max(
+            by_number.get(number) or [],
+            key=lambda row: (
+                row["result"] == outcome,
+                not row["retry_evidence"].get("retried"),
+                _observation_rank(row),
+                row["job_id"],
+            ),
+            default=None,
+        )
+        if evidence is None:
+            build = catalog[number]
+            evidence = {
+                **_identity(group),
+                "build_number": number,
+                "build_url": str(build.get("url") or ""),
+                "build_commit": str(build.get("commit") or "").lower(),
+                "build_message": str(build.get("message") or ""),
+                "job_id": "",
+                "job_url": "",
+                "observed_at": str(build.get("finished_at") or ""),
+                "started_at": "",
+                "finished_at": str(build.get("finished_at") or ""),
+                "retry_evidence": {},
+            }
+        result[number] = {**evidence, "result": outcome}
+    return result
+
+
 def _observations_by_build(reliability: dict) -> dict[int, dict[str, dict]]:
     pipeline_slug = str((reliability.get("cohort") or {}).get("pipeline") or "")
+    catalog = {
+        build["number"]: build
+        for build in reliability.get("builds") or []
+        if isinstance(build, dict) and type(build.get("number")) is int
+    }
+    by_build: dict[int, dict[str, dict]] = {}
     candidates: dict[int, dict[str, list[dict]]] = {}
     for group in reliability.get("groups") or []:
         if not isinstance(group, dict):
@@ -253,6 +307,7 @@ def _observations_by_build(reliability: dict) -> dict[int, dict[str, dict]]:
                 observations,
                 pipeline_slug=pipeline_slug,
             )
+        group_rows = []
         for observation in observations:
             result = str(observation.get("result") or "")
             number = observation.get("build_number")
@@ -277,9 +332,14 @@ def _observations_by_build(reliability: dict) -> dict[int, dict[str, dict]]:
                 "finished_at": str(observation.get("finished_at") or ""),
                 "retry_evidence": dict(observation.get("retry_evidence") or {}),
             }
-            candidates.setdefault(number, {}).setdefault(group_id, []).append(row)
+            group_rows.append(row)
+        if isinstance(group.get("outcome_history"), dict):
+            for number, row in _history_rows(group, group_rows, catalog).items():
+                by_build.setdefault(number, {})[group_id] = row
+            continue
+        for row in group_rows:
+            candidates.setdefault(row["build_number"], {}).setdefault(group_id, []).append(row)
 
-    by_build: dict[int, dict[str, dict]] = {}
     for number, groups in candidates.items():
         for group_id, rows in groups.items():
             predecessor = {
@@ -583,6 +643,72 @@ def _retire_renamed(
         pending_soft.pop(label, None)
 
 
+def _migrate_group_identity(state: dict, reliability: dict) -> None:
+    """Carry held incidents to their step-keyed group, once per identity version.
+
+    Unknown rows that name their step key are re-keyed on every run, so an
+    overlay written before the migration cannot bring back a retired group id.
+    Shards of one step merge into the confirmed, then earliest-starting,
+    incident. Ordering fences restart from the processed builds.
+    """
+    migrating = state.get("group_identity_version") != GROUP_IDENTITY_VERSION
+    by_label: dict[str, set[str]] = {}
+    for group in reliability.get("groups") or []:
+        if isinstance(group, dict) and group.get("group_id"):
+            identity = _identity(group)
+            label = group_id_for("", identity["hardware"], identity["queue"], identity["name"])
+            by_label.setdefault(label, set()).add(identity["group_id"])
+    known = set().union(*by_label.values())
+
+    def target(group_id: str, row: dict) -> str:
+        if group_id in known:
+            return group_id
+        step = (row.get("step_run") or {}).get("step")
+        step_key = str(row.get("step_key") or (step[0] if isinstance(step, list) and step else ""))
+        hardware = str(row.get("hardware") or "unknown")
+        queue = str(row.get("queue") or "")
+        name = str(row.get("name") or row.get("raw_name") or "")
+        if step_key:
+            return group_id_for(step_key, hardware, queue, name)
+        if not migrating:
+            return group_id
+        label = group_id_for("", hardware, queue, name)
+        matches = by_label.get(label) or set()
+        return next(iter(matches)) if len(matches) == 1 else label
+
+    claims: dict[str, tuple[tuple, str, dict]] = {}
+    moved: dict[str, str] = {}
+    for status in ("active", "pending_soft"):
+        for group_id, row in (state.get(status) or {}).items():
+            new_id = target(group_id, row)
+            if new_id != group_id:
+                moved[group_id] = new_id
+            start = str((row.get("transition") or {}).get("incident_start_build_id") or "")
+            claim = (status != "active", int(start) if start.isdigit() else -1, group_id)
+            if new_id in claims and claims[new_id][0] <= claim:
+                continue
+            carried = {**row, "group_id": new_id}
+            if new_id != group_id:
+                carried.pop("carried_from", None)
+                if isinstance(carried.get("step_run"), dict):
+                    carried["step_run"] = {**carried["step_run"], "labels": [new_id]}
+            claims[new_id] = (claim, status, carried)
+    for status in ("active", "pending_soft"):
+        state[status] = {
+            group_id: row for group_id, (_, held, row) in sorted(claims.items()) if held == status
+        }
+    if isinstance(state.get("timeline"), list):
+        state["timeline"] = [
+            {**event, "group_id": moved[event["group_id"]]}
+            if isinstance(event, dict) and event.get("group_id") in moved
+            else event
+            for event in state["timeline"]
+        ]
+    if migrating:
+        state["group_watermarks"] = {}
+        state["group_identity_version"] = GROUP_IDENTITY_VERSION
+
+
 def advance_incidents(
     reliability: dict,
     state: dict,
@@ -605,6 +731,7 @@ def advance_incidents(
     updated = _readable_state_copy(state)
     if partial_cohort and not updated.get("initialized"):
         raise ValueError("a partial cohort needs initialized watcher state")
+    _migrate_group_identity(updated, reliability)
     catalog = [
         build
         for build in reliability.get("builds") or []
@@ -1016,6 +1143,12 @@ def run_watcher(config: WatcherConfig) -> int:
             config.pipeline,
         )
         return 0
+    if reliability.get("group_identity_version") != GROUP_IDENTITY_VERSION:
+        log.error(
+            "%s main reliability uses another group identity; leaving state untouched",
+            config.pipeline,
+        )
+        return 0
     now = datetime.now(timezone.utc)
     if not _is_fresh(reliability, now):
         log.error(
@@ -1041,7 +1174,7 @@ def run_watcher(config: WatcherConfig) -> int:
         initialize_from_history=config.initialize_from_history,
         events=events,
     )
-    state["timeline"] = _timeline_for_run(restored_state, reliability, events, config, now)
+    state["timeline"] = _timeline_for_run(state, reliability, events, config, now)
     state["schema_version"] = 2
     if config.job_scope == "amd_gpu":
         state["hardware_scope"] = "amd_mi_gpu"
