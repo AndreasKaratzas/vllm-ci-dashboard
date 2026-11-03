@@ -134,7 +134,7 @@ def test_normal_and_keyed_failed_dns_retry_keeps_exact_remote_ledger_unchanged(r
 
     assert outputs["request_mode"] == "retry_gated"
     assert outputs["reserved_request_starts"] == 0
-    assert outputs["available_at"] == "2026-09-01T07:00:01Z"
+    assert outputs["available_at"] == "2026-09-01T06:40:01Z"
     assert outputs["rolling_reserved_starts"] == 110
     assert remote_sha(checkout) == before
     assert len(budget.validate_budget_ref(checkout, before, policy).ledger["reservations"]) == 1
@@ -161,10 +161,21 @@ def test_new_code_current_running_self_or_success_does_not_block_normal_dns_admi
 
 @pytest.mark.parametrize("second, gated", [(0, True), (1, False)])
 def test_universal_dns_retry_preserves_watchdog_inclusive_boundary(second, gated):
-    now = datetime(2026, 9, 1, 7, 0, second, tzinfo=timezone.utc)
+    now = datetime(2026, 9, 1, 6, 40, second, tzinfo=timezone.utc)
     available = budget.dns_retry_available_at(dns_runs(), current_code_sha=DNS_CODE_SHA, now=now)
 
     assert (available is not None) is gated
+
+
+def test_future_github_completion_time_delays_dns_retry_instead_of_failing():
+    """GitHub served run times an hour ahead during the 2026-11-01 DST fall-back."""
+    payload = copy.deepcopy(dns_runs())
+    payload["workflow_runs"][0]["updated_at"] = "2026-09-01T07:00:00Z"
+    now = datetime(2026, 9, 1, 6, tzinfo=timezone.utc)
+
+    assert budget.dns_retry_available_at(payload, current_code_sha=DNS_CODE_SHA, now=now) == (
+        datetime(2026, 9, 1, 6, 50, 1, tzinfo=timezone.utc)
+    )
 
 
 @pytest.mark.parametrize("age_hours, expected_mode", [(1, "interval_gated"), (4, "retry_gated")])
@@ -187,7 +198,7 @@ def test_universal_retry_preserves_actual_successful_generation_interval(repo, p
 
 
 @pytest.mark.parametrize("seed_at, available_at", [
-    ("2026-08-31T05:30:00Z", "2026-09-01T07:00:01Z"),
+    ("2026-08-31T05:30:00Z", "2026-09-01T06:40:01Z"),
     ("2026-08-31T10:00:00Z", "2026-09-01T11:00:00Z"),
 ])
 def test_combined_dns_capacity_and_retry_gate_reports_later_actual_availability(repo, policy, tmp_path, seed_at, available_at):
@@ -209,7 +220,7 @@ def test_combined_dns_capacity_and_retry_gate_reports_later_actual_availability(
     ("path", ".github/workflows/other.yml"),
     ("repository", {"full_name": "someone/else"}),
     ("head_branch", "feature"), ("head_sha", None), ("head_sha", "short"),
-    ("conclusion", "unknown"), ("updated_at", "2026-09-01T07:00:00Z"),
+    ("conclusion", "unknown"), ("updated_at", "soon"),
 ])
 def test_unknown_dns_retry_identity_fails_before_remote_ledger_read_or_mutation(monkeypatch, field, value, tmp_path, policy):
     payload = copy.deepcopy(dns_runs());payload["workflow_runs"][0][field] = value

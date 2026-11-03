@@ -488,6 +488,53 @@ def test_mi_only_seed_recomputes_parent_failure_and_all_mixed_aggregates():
     assert "upstream" not in seed["current_nightly_latency"]["rows"][0]
 
 
+@pytest.mark.parametrize("failure", ["tree-schema-drift", "unbindable-attempt"])
+def test_one_unverifiable_nightly_degrades_latency_instead_of_aborting_analytics(monkeypatch, failure):
+    from vllm.ci import runtime_families
+    from vllm.main_ci_definitions import RuntimeSourceError
+    good = _raw_api_build(93522, created_at=NOW - timedelta(days=1))
+    bad = _raw_api_build(93523, created_at=NOW - timedelta(hours=20))
+    acquire = runtime_families.family_catalog_from_scope_index
+    def catalog(index, *, expected_commit):
+        if expected_commit == bad["commit"] and failure == "tree-schema-drift":
+            raise RuntimeSourceError(reason_class="schema-drift", commit_sha=expected_commit, phase="scope")
+        return acquire(index, expected_commit=expected_commit)
+    monkeypatch.setattr(runtime_families, "family_catalog_from_scope_index", catalog)
+    if failure == "unbindable-attempt":
+        bind = runtime_families.bind_source_family
+        def bind_or_drift(job, family_catalog):
+            if job["id"] == bad["jobs"][0]["id"]:
+                raise ValueError("AMD runtime key lacks an unambiguous pinned source family")
+            return bind(job, family_catalog)
+        monkeypatch.setattr(runtime_families, "bind_source_family", bind_or_drift)
+    seed = ca.reproject_current_mi_analytics(
+        {"ci": {"generated_at": _iso(NOW)}}, [good, bad], window_days=3,
+        collection_provenance={"created_from": _iso(NOW - timedelta(days=3)), "exhaustive": True})["ci"]
+    builds = {build["number"]: build for build in seed["builds"]}
+    assert set(builds) == {93522, 93523}
+    assert "source_family_catalog" in builds[93522]
+    assert "source_family_catalog" not in builds[93523]
+    assert seed["summary"]["total_jobs_tracked"] == 2
+    latency = seed["current_nightly_latency"]
+    assert latency["available"] is False and latency["rows"] == []
+    assert latency["unavailable_reason"] == ca.UNVERIFIED_FAMILY_LATENCY_REASON
+
+
+@pytest.mark.parametrize("reason_class", ["rate-limit", "timeout"])
+def test_nightly_family_acquisition_failure_still_aborts(monkeypatch, reason_class):
+    from vllm.ci import runtime_families
+    from vllm.main_ci_definitions import RuntimeSourceError
+    build = _raw_api_build(93523, created_at=NOW - timedelta(hours=20))
+    def fail(_index, *, expected_commit):
+        raise RuntimeSourceError(reason_class=reason_class, commit_sha=expected_commit, phase="scope")
+    monkeypatch.setattr(runtime_families, "family_catalog_from_scope_index", fail)
+    with pytest.raises(RuntimeSourceError) as error:
+        ca.reproject_current_mi_analytics(
+            {"ci": {"generated_at": _iso(NOW)}}, [build], window_days=3,
+            collection_provenance={"created_from": _iso(NOW - timedelta(days=3)), "exhaustive": True})
+    assert error.value.reason_class == reason_class
+
+
 def test_oversized_preserved_v1_reliability_migrates_losslessly_before_budget(
     monkeypatch, tmp_path
 ):

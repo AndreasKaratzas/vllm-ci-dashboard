@@ -1239,12 +1239,20 @@ def _cache_compatibility_message(build: dict, pipeline_slug: str) -> str:
 
 _SOURCE_SCOPE_INDEXES: dict[str, dict] = {}
 _SOURCE_SCOPE_CACHE_DIR: Path | None = None
+UNVERIFIED_FAMILY_LATENCY_REASON = "current_nightly_source_family_unverified"
 
 
-def annotate_current_nightly_families(builds: list[dict], *, generated_at: str) -> list[dict]:
-    """Bind only the fixed latest-five roster to its own authenticated source tree."""
+def annotate_current_nightly_families(
+    builds: list[dict], *, generated_at: str, unverified: list[int] | None = None,
+) -> list[dict]:
+    """Bind only the fixed latest-five roster to its own authenticated source tree.
+
+    A fresh nightly whose roster or tree cannot bind a pinned family stays
+    unannotated and its number is appended to ``unverified``. Restored claims
+    that contradict their source and source acquisition failures still raise.
+    """
     from vllm.ci.runtime_families import (
-        annotate_build_source_families, family_catalog_from_scope_index,
+        _CLAIMS, annotate_build_source_families, family_catalog_from_scope_index,
     )
     from vllm.main_ci_definitions import RuntimeSourceError
 
@@ -1264,24 +1272,34 @@ def annotate_current_nightly_families(builds: list[dict], *, generated_at: str) 
             result.append(build)
             continue
         commit = str(build.get("commit") or "").casefold()
+        restored = "source_family_catalog" in build or any(
+            key in job for job in build.get("jobs") or [] if isinstance(job, dict) for key in _CLAIMS)
         try:
             index = build.get("source_scope_index") or _SOURCE_SCOPE_INDEXES.get(commit)
             catalog = family_catalog_from_scope_index(index, expected_commit=commit)
             if "source_family_catalog" in build and build["source_family_catalog"] != catalog:
                 raise ValueError("Restored AMD family catalog contradicts its verified source tree")
             result.append(annotate_build_source_families(build, catalog))
+            continue
         except RuntimeSourceError as exc:
-            if exc.commit_sha is None:
-                raise RuntimeSourceError(
-                    "Exact nightly source family acquisition failed", reason_class=exc.reason_class,
-                    commit_sha=commit, phase=exc.phase,
-                ) from None
-            raise
+            if restored or (exc.reason_class, exc.phase) != ("schema-drift", "scope"):
+                if exc.commit_sha is None:
+                    raise RuntimeSourceError(
+                        "Exact nightly source family acquisition failed", reason_class=exc.reason_class,
+                        commit_sha=commit, phase=exc.phase,
+                    ) from None
+                raise
         except ValueError:
-            raise RuntimeSourceError(
-                "Exact nightly source family verification failed", reason_class="schema-drift",
-                commit_sha=commit, phase="scope",
-            ) from None
+            if restored:
+                raise RuntimeSourceError(
+                    "Exact nightly source family verification failed", reason_class="schema-drift",
+                    commit_sha=commit, phase="scope",
+                ) from None
+        print(f"::warning::Nightly {build.get('number')} lacks verified AMD source families; "
+              "it is retained without family annotation", file=sys.stderr)
+        if unverified is not None:
+            unverified.append(build["number"])
+        result.append(build)
     return result
 
 
@@ -2648,7 +2666,8 @@ def reproject_current_mi_analytics(
         if (created := _as_utc_datetime(build.get("created_at"))) is not None and cutoff <= created <= clock
         and ((finished := _as_utc_datetime(build.get("finished_at"))) is None or finished <= clock)
     ], "ci")
-    scoped = annotate_current_nightly_families(scoped, generated_at=generated)
+    unverified: list[int] = []
+    scoped = annotate_current_nightly_families(scoped, generated_at=generated, unverified=unverified)
     builds = summarize_pipeline_builds("ci", scoped, True, NIGHTLY_NAME_PATTERNS_BY_SLUG["ci"])
     rankings = compute_job_rankings(builds)
     windows = compute_window_blocks(builds, window_days, now=clock)
@@ -2669,7 +2688,8 @@ def reproject_current_mi_analytics(
         "queue_stats": compute_queue_stats(rankings), "default_window": default, "windows": windows,
         "nightly_change_history": compute_nightly_change_history(builds, pipeline_slug="ci"),
         "current_nightly_latency": build_current_nightly_latency(
-            builds, generated_at=generated, source_available=True,
+            builds, generated_at=generated, source_available=not unverified,
+            unavailable_reason=UNVERIFIED_FAMILY_LATENCY_REASON if unverified else None,
             source_identity_basis="commit_pinned_amd_definition_family",
         ),
     }
@@ -2812,11 +2832,13 @@ def main():
             slug,
             previous_all_main,
         )
+        unverified_nightlies: list[int] = []
         if slug == "ci":
             reliability_raw_builds = _current_mi_builds(reliability_raw_builds, slug)
             if token and collection_provenance.get("exhaustive") is True:
                 reliability_raw_builds = annotate_current_nightly_families(
                     reliability_raw_builds, generated_at=generated_at,
+                    unverified=unverified_nightlies,
                 )
         buildkite_builds = (
             collect_pipeline(
@@ -2898,7 +2920,9 @@ def main():
             all_data[slug]["current_nightly_latency"] = build_current_nightly_latency(
                 buildkite_builds,
                 generated_at=generated_at,
-                source_available=bool(token) and collection_provenance.get("exhaustive") is True,
+                source_available=(bool(token) and collection_provenance.get("exhaustive") is True
+                                  and not unverified_nightlies),
+                unavailable_reason=UNVERIFIED_FAMILY_LATENCY_REASON if unverified_nightlies else None,
                 source_identity_basis="commit_pinned_amd_definition_family",
             )
         preserved_retry_analysis = None

@@ -239,13 +239,13 @@ def test_scope_version_migration_never_changes_an_exact_source_identity(field, v
     with pytest.raises(dns.StateValidationError) as raised:
         collector._refresh_record(old, current)
     assert raised.value.diagnostic_code == "execution_proof_conflict"
+    assert raised.value.differing_fields == (field,)
     assert old["execution_proof"] == proof(1, "amd_mi_gpu")
 
 
 @pytest.mark.parametrize("field,value", [
     ("pipeline", "amd-ci"), ("build_number", 124),
     ("job_id", "00000000-0000-4000-8000-000000000002"),
-    ("queue", "amd_mi300_2"), ("hardware", "MI355"),
     ("finished_at", "2026-10-12T00:31:00Z"),
 ])
 def test_scope_version_migration_requires_the_same_observed_job_metadata(field, value):
@@ -254,24 +254,54 @@ def test_scope_version_migration_requires_the_same_observed_job_metadata(field, 
     with pytest.raises(dns.StateValidationError) as raised:
         collector._refresh_record(old, current)
     assert raised.value.diagnostic_code == "execution_proof_job_mismatch"
+    assert raised.value.differing_fields == (field,)
 
 
-def test_same_version_scope_disagreement_remains_a_hard_failure():
-    for version in (1, 2):
-        old, current = observation(version), observation(version, "excluded_cpu")
-        with pytest.raises(dns.StateValidationError) as raised:
-            collector._refresh_record(old, current)
-        assert raised.value.diagnostic_code == "execution_proof_conflict"
+def test_scope_version_migration_adopts_a_reclassified_queue():
+    old = {**observation(1), "queue": "amd_mi250", "hardware": "MI250"}
+    current = {**observation(2, "excluded_cpu"), "queue": "amd_mi250_1", "hardware": "MI250"}
+    refreshed = collector._refresh_record(old, current)
+    assert refreshed["queue"] == "amd_mi250_1"
+    assert refreshed["execution_proof"] == {**proof(2, "excluded_cpu"), "legacy_classification": "amd_mi_gpu"}
 
 
-def test_two_conflicting_legacy_states_fail_before_any_provider_work(monkeypatch, tmp_path):
+@pytest.mark.parametrize("version", [1, 2])
+def test_same_version_scope_disagreement_adopts_the_fresh_classification(version):
+    old = dns.scan_record(observation(version), dns.classify_dns_log(
+        "getaddrinfo failed", job_finished_at="2026-10-12T00:30:00Z",
+    ), attempted_at="2026-10-12T01:00:00Z")
+    refreshed = collector._refresh_record(old, observation(version, "excluded_cpu"))
+    assert refreshed["execution_proof"] == proof(version, "excluded_cpu")
+    assert {key: value for key, value in refreshed.items() if key != "execution_proof"} == {
+        key: value for key, value in old.items() if key != "execution_proof"}
+
+
+def test_migrated_proof_reclassified_again_drops_the_stale_legacy_trail():
+    migrated = collector._refresh_record(observation(1, "excluded_cpu"), observation(2))
+    assert migrated["execution_proof"]["legacy_classification"] == "excluded_cpu"
+    refreshed = collector._refresh_record(migrated, observation(2, "excluded_cpu"))
+    assert refreshed["execution_proof"] == proof(2, "excluded_cpu")
+
+
+def test_state_merge_keeps_the_proof_of_the_ranked_record():
+    scanned = dns.scan_record(observation(2), dns.classify_dns_log(
+        "getaddrinfo failed", job_finished_at="2026-10-12T00:30:00Z",
+    ), attempted_at="2026-10-12T01:00:00Z")
+    pending = dns.pending_record({**observation(2, "excluded_cpu"), "queue": "amd_mi250_1", "hardware": "MI250"})
+    for collections in (([scanned], [pending]), ([pending], [scanned])):
+        assert dns.merge_state_jobs(*collections) == [scanned]
+
+
+def test_two_states_with_different_source_commits_fail_before_any_provider_work(monkeypatch, tmp_path):
     from datetime import datetime, timedelta, timezone
 
     clock = datetime(2026, 10, 12, 2, tzinfo=timezone.utc)
     local = dns.empty_state(clock - timedelta(hours=1), clock - timedelta(days=30))
     restored = copy.deepcopy(local)
-    local["jobs"] = [dns.pending_record(observation(1, "amd_mi_gpu"))]
-    restored["jobs"] = [dns.pending_record(observation(1, "excluded_cpu"))]
+    local["jobs"] = [dns.pending_record(observation(2))]
+    changed = observation(2)
+    changed["execution_proof"]["source_commit"] = "c" * 40
+    restored["jobs"] = [dns.pending_record(changed)]
     monkeypatch.setattr(collector, "load_state", lambda path: local)
     monkeypatch.setattr(collector, "load_state_from_git_ref", lambda *args, **kwargs: restored)
 
@@ -285,7 +315,8 @@ def test_two_conflicting_legacy_states_fail_before_any_provider_work(monkeypatch
                           minimum_interval_hours=0, merge_state_git_ref="checkpoint",
                           repo_root=tmp_path, dry_run=True)
     assert raised.value.diagnostic_code == "execution_proof_conflict"
-    assert local["jobs"][0]["execution_proof"]["version"] == 1
+    assert raised.value.differing_fields == ("source_commit",)
+    assert local["jobs"][0]["execution_proof"]["source_commit"] == PIN
     assert not (tmp_path / "public.json").exists()
 
 
@@ -341,6 +372,24 @@ def test_state_failure_artifact_contains_only_fixed_type_and_code(tmp_path, monk
     assert private not in caplog.text + path.read_text()
     assert path.stat().st_mode & 0o777 == 0o600
     assert path.stat().st_size <= collector.FAILURE_DIAGNOSTICS_MAX_BYTES
+
+
+def test_state_failure_artifact_names_only_allowlisted_differing_fields(tmp_path, monkeypatch):
+    def fail(**kwargs):
+        raise dns.StateValidationError("private", diagnostic_code="execution_proof_conflict",
+                                       differing_fields=["source_commit", "private-node-token"])
+
+    monkeypatch.setenv("BUILDKITE_TOKEN", "memory-only-token")
+    monkeypatch.setattr(collector, "read_runtime_source_indexes", lambda path: {})
+    monkeypatch.setattr(collector, "collect", fail)
+    path = tmp_path / "failure.json"
+    assert collector.main(["--failure-diagnostics", str(path)]) == 1
+    import json
+
+    assert json.loads(path.read_text()) == {
+        "schema_version": 1, "error_type": "StateValidationError",
+        "diagnostic_code": "execution_proof_conflict", "differing_fields": ["source_commit"],
+    }
 
 
 @pytest.mark.parametrize("unknown", ["private-value", True, None, [], {}])

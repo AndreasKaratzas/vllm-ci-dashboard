@@ -566,13 +566,16 @@ def _amd_source_definition_catalog(report: dict) -> tuple[str, dict[str, tuple[s
 def _attest_amd_source_results(
     rows: list[TestResult], build: dict, commit: str,
     definitions: dict[str, tuple[str, str, str, str]],
+    unattested: dict[str, dict] | None = None,
 ) -> list[TestResult]:
     """Join exact attempts to source steps, preserving observed queue routing.
 
     A provider may execute a declared DPX step on an MI355_1 physical queue.
     Its step key and immutable source commit establish configuration identity;
     the observed queue continues to establish the hardware denominator.
-    Cached result annotations never authorize this join.
+    Cached result annotations never authorize this join. A row whose attempt
+    cannot bind one pinned definition keeps empty source claims and is
+    reported in ``unattested``; identity contradictions still raise.
     """
     if build.get("commit") != commit:
         raise ValueError("AMD source identity must match the exact runtime commit")
@@ -613,7 +616,10 @@ def _attest_amd_source_results(
             candidates = [identity for identity in by_step.get(keys[0], [])
                           if definitions[identity][0] == label]
             if len(candidates) != 1:
-                raise ValueError("AMD runtime step lacks an unambiguous pinned source definition")
+                _record_unattested(unattested, clean, job, keys[0],
+                                   "AMD runtime step lacks an unambiguous pinned source definition")
+                attested.append(clean)
+                continue
             identity = candidates[0]
             if _amd_declared_label_signature(str(job.get("name") or ""))[1] and not _amd_declared_label_matches(str(job.get("name") or ""), definitions[identity]):
                 raise ValueError("AMD runtime source key contradicts its declared label")
@@ -636,31 +642,45 @@ def _attest_amd_source_results(
                                 source_agent_pool=definitions[identity][1], source_commit=commit,
                                 step_id=raw_step["id"], source_binding_basis="pinned_declared_label")
             elif len(routes.get((label, pool), ())) != 1 or _amd_declared_label_signature(str(job.get("name") or ""))[1]:
-                raise ValueError("AMD rerouted runtime attempt requires a pinned declared source identity")
+                _record_unattested(unattested, clean, job, "",
+                                   "AMD rerouted runtime attempt requires a pinned declared source identity")
         attested.append(clean)
     return attested
+
+
+def _record_unattested(unattested: dict[str, dict] | None, row: TestResult, job: dict, step_key: str, reason: str) -> None:
+    if unattested is not None:
+        unattested.setdefault(row.job_id, {"job_id": row.job_id, "label": row.job_name, "queue": _job_queue(job),
+                                           "step_key": step_key, "reason": reason})
 
 
 def _attest_amd_source_shards(
     results_dir: Path, build: dict, commit: str,
     definitions: dict[str, tuple[str, str, str, str]],
+    unattested: dict[str, dict] | None = None,
 ) -> dict[int, list[TestResult]]:
     """Validate every same-build row before atomically writing its source proof."""
     replacements = []
     selected = {}
+    if unattested is None:
+        unattested = {}
     for path in sorted(results_dir.glob("*_amd.jsonl")):
         rows = _load_cached_results(path)
         if not any(row.build_number == build.get("number") for row in rows):
             continue
         if any(row.build_number != build.get("number") for row in rows):
             raise ValueError("AMD result shard mixes runtime builds")
-        attested = _attest_amd_source_results(rows, build, commit, definitions)
+        attested = _attest_amd_source_results(rows, build, commit, definitions, unattested)
         replacements.append((path, rows, attested))
         selected.setdefault(int(build["number"]), []).extend(attested)
     for path, rows, attested in replacements:
         if attested != rows:
             if write_test_results(attested, path.name.rsplit("_", 1)[0], "amd", results_dir) is None:
                 raise ValueError("AMD source-attested result shard could not be retained")
+    if unattested:
+        print(f"::warning::{len(unattested)} AMD jobs in build {build.get('number')} lack a pinned "
+              "source definition; their results keep label grouping without source attribution", file=sys.stderr)
+        log.warning("Unattested AMD source jobs: %s", json.dumps(list(unattested.values())[:50], sort_keys=True))
     return selected
 
 
@@ -2053,9 +2073,11 @@ def main():
     # Authenticate old shards before retiring their out-of-scope runtime
     # evidence. Only MI rows may be retained by the current generation.
     _purge_unproved_result_scope(results_dir, all_builds.get("amd", []))
+    unattested_sources: dict[str, dict] | None = None
     if runtime_definitions and evidence_verified_complete and evidence_build.get("commit") == runtime_group_commit:
+        unattested_sources = {}
         all_results.setdefault("amd", {}).update(_attest_amd_source_shards(
-            results_dir, evidence_build, runtime_group_commit, runtime_definitions,
+            results_dir, evidence_build, runtime_group_commit, runtime_definitions, unattested_sources,
         ))
     try:
         synchronize_current_mi_shards(backfill_checkpoint_dir, results_dir)
@@ -2173,7 +2195,10 @@ def main():
     log.info("=== Generating reports ===")
 
     # CI Health
-    write_ci_health(amd_summaries, amd_health, output_dir)
+    write_ci_health(
+        amd_summaries, amd_health, output_dir,
+        unattested_sources=None if unattested_sources is None else list(unattested_sources.values()),
+    )
 
     # Flaky tests
     if amd_health:

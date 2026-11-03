@@ -17,15 +17,20 @@ requests.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import itertools
 import json
 from pathlib import Path
+import re
 import sys
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.ci.perf_eval_webhook import (  # noqa: E402
+    ARTIFACT_INDEX_EVENT,
+    ARTIFACT_MARKER_EVENT,
+    PERF_EVAL_MAX_ARTIFACT_LOOKBACK_DAYS,
     PERF_EVAL_MAX_BYTES,
     _event_datetime,
     _result_identity,
@@ -46,6 +51,74 @@ _ARTIFACT_FIELDS = frozenset(
         "buildkite_artifact_sha1",
     }
 )
+_PERF_ARTIFACT_PATH_RE = re.compile(r"^results/[^/]+/bench-(?P<config>.+)\.json$")
+_PERF_CONFIG_RE = re.compile(r"^(?P<name>.+?)(?:-conc-(?P<conc>\d+))?$")
+_SIZED_CONFIG_RE = re.compile(r"^(\d+)k-in-(\d+)k-out$")
+
+
+def split_perf_config(tail: str) -> tuple[str, Optional[int]]:
+    """Split a bench artifact suffix into its recipe config name and concurrency."""
+    match = _PERF_CONFIG_RE.match(tail)
+    if match is None:
+        return tail, None
+    conc = match.group("conc")
+    return match.group("name"), int(conc) if conc else None
+
+
+def sized_config_lengths(name: str) -> tuple[Optional[int], Optional[int]]:
+    """Input/output lengths encoded by a ``<n>k-in-<m>k-out`` config name."""
+    match = _SIZED_CONFIG_RE.match(name)
+    if match is None:
+        return None, None
+    return int(match.group(1)) * 1024, int(match.group(2)) * 1024
+
+
+def migrate_perf_identities(events: list[dict], *, now: datetime) -> list[dict]:
+    """Revalidate or re-key perf results stored before artifact config names were parsed.
+
+    Such results carry no ISL/OSL, so different workloads at one concurrency
+    shared an identity and all but one were recorded only as ingested
+    artifacts. They were also never checked for failed benchmark runs, so those
+    the collector can still list are dropped to be downloaded and validated
+    again; older ones are re-keyed from their artifact path. The compact
+    artifact index keeps no paths, so it is dropped once when anything changes
+    to let the collector download those artifacts again within its request
+    allowance.
+    """
+    revalidate_from = now - timedelta(days=PERF_EVAL_MAX_ARTIFACT_LOOKBACK_DAYS - 1)
+    migrated: list[dict] = []
+    changed = False
+    for event in events:
+        if (
+            event.get("event") == "perf_result"
+            and event.get("isl") is None
+            and event.get("osl") is None
+        ):
+            path = str(event.get("buildkite_artifact_path") or "")
+            match = _PERF_ARTIFACT_PATH_RE.match(path)
+            if match is not None:
+                observed_at = _event_datetime(event)
+                if observed_at is not None and observed_at >= revalidate_from:
+                    changed = True
+                    continue
+                name, conc = split_perf_config(match.group("config"))
+                isl, osl = sized_config_lengths(name)
+                if isl is not None:
+                    event = {
+                        **event,
+                        "isl": isl,
+                        "osl": osl,
+                        "conc": event.get("conc") if conc is None else conc,
+                    }
+                    changed = True
+        migrated.append(event)
+    if not changed:
+        return migrated
+    return [
+        event
+        for event in migrated
+        if event.get("event") not in {ARTIFACT_INDEX_EVENT, ARTIFACT_MARKER_EVENT}
+    ]
 
 
 def _canonical_event(event: dict) -> str:
@@ -127,9 +200,11 @@ def _assert_equal_revision_compatible(left: dict, right: dict, identity: tuple) 
             )
 
 
-def reconcile_events(local_events: list[dict], remote_events: list[dict]) -> list[dict]:
+def reconcile_events(
+    local_events: list[dict], remote_events: list[dict], *, now: datetime
+) -> list[dict]:
     """Union stores with source-neutral, timestamp-monotonic result ordering."""
-    combined = [*local_events, *remote_events]
+    combined = migrate_perf_identities([*local_events, *remote_events], now=now)
     groups: dict[tuple, list[dict]] = {}
     for event in combined:
         if event.get("event") in _RESULT_EVENTS:
@@ -177,7 +252,9 @@ def merge_event_files(
 
     return write_events_atomic(
         local_path,
-        reconcile_events(local_events, remote_events),
+        reconcile_events(
+            local_events, remote_events, now=now or datetime.now(timezone.utc)
+        ),
         now=now,
         max_bytes=max_bytes,
     )

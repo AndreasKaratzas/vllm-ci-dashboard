@@ -21,6 +21,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -59,6 +60,7 @@ SAFE_REF_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,299}")
 MAX_COMMIT_RESPONSE_BYTES = 1024 * 1024
 MAX_TREE_RESPONSE_BYTES = 16 * 1024 * 1024
 MAX_COMPARE_RESPONSE_BYTES = 16 * 1024 * 1024
+NETWORK_RETRY_DELAYS = (2, 5)
 STATE_MANIFEST_PATH = "data/vllm/ci/dashboard_state.json"
 STATE_ATTESTATION_PATH = "data/vllm/ci/public_projection_attestation.json"
 PAGES_MANIFEST_PATH = "publication_manifest.json"
@@ -460,22 +462,29 @@ def _git(root: Path, *args: str, no_lazy_fetch: bool = False) -> bytes:
     env.setdefault("GIT_TERMINAL_PROMPT", "0")
     if no_lazy_fetch:
         env["GIT_NO_LAZY_FETCH"] = "1"
-    try:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=root,
-            check=True,
-            capture_output=True,
-            env=env,
-        )
-    except (OSError, subprocess.CalledProcessError) as exc:
-        detail = ""
-        if isinstance(exc, subprocess.CalledProcessError):
-            detail = exc.stderr.decode("utf-8", errors="replace").strip()[-1000:]
-        raise AmbiguousProof(
-            f"git {' '.join(args[:3])} failed" + (f": {detail}" if detail else "")
-        ) from exc
-    return result.stdout
+    command = ["git", *args]
+    if args[0] == "fetch":
+        # Default negotiation advertises local blob:none refs as haves, so the
+        # server omits a wanted blob their trees contain.
+        command[1:1] = ["-c", "fetch.negotiationAlgorithm=noop"]
+    delays = NETWORK_RETRY_DELAYS if args[0] in {"fetch", "ls-remote"} else ()
+    for delay in (*delays, None):
+        try:
+            result = subprocess.run(command, cwd=root, check=True, capture_output=True, env=env)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            # ls-remote --exit-code returns 2 only when the ref does not exist.
+            missing_ref = args[0] == "ls-remote" and getattr(exc, "returncode", None) == 2
+            if delay is not None and not missing_ref:
+                time.sleep(delay)
+                continue
+            detail = ""
+            if isinstance(exc, subprocess.CalledProcessError):
+                detail = exc.stderr.decode("utf-8", errors="replace").strip()[-1000:]
+            raise AmbiguousProof(
+                f"git {' '.join(args[:3])} failed" + (f": {detail}" if detail else "")
+            ) from exc
+        return result.stdout
+    raise AssertionError("unreachable")
 
 
 def resolve_remote_branch(root: Path, remote: str, branch: str) -> str:

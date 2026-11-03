@@ -1129,20 +1129,31 @@ def test_run_janitor_takes_the_oldest_runs_up_to_its_cap(monkeypatch) -> None:
     monkeypatch.setattr(janitor, "load_policy", lambda: janitor.JanitorPolicy(
         policy.margin_minutes, policy.default_timeout_minutes, 2, policy.workflow_timeout_minutes,
     ))
-    assert _stuck(_active(1, hours=20), _active(2, hours=90), _active(3, hours=50)) == [2, 3]
+    assert _stuck(_active(1, hours=20), _active(2, hours=60), _active(3, hours=50)) == [2, 3]
+
+
+def test_run_janitor_skips_orphaned_records_github_will_not_cancel(capsys) -> None:
+    """37655509945 and 39462175700 answered HTTP 409 on every force-cancel."""
+    policy = janitor.load_policy()
+    assert max(policy.limit(path) for path in policy.workflow_timeout_minutes) < (
+        janitor.GHOST_AGE_CEILING
+    )
+    ceiling = janitor.GHOST_AGE_CEILING.total_seconds() / 3600
+    assert _stuck(_active(1, hours=ceiling)) == [1]
+    assert _stuck(_active(37655509945, hours=ceiling + 0.01, status="queued")) == []
+    assert "37655509945" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("patch", [
     {"id": "1"}, {"id": 0}, {"status": "completed"}, {"path": None},
     {"created_at": "yesterday"}, {"run_started_at": "soon"},
-    {"created_at": (JANITOR_NOW + timedelta(hours=1)).isoformat()},
 ])
 def test_run_janitor_cancels_nothing_on_an_unreadable_listing(patch) -> None:
     with pytest.raises(ValueError, match="invalid row"):
-        _stuck(_active(1, hours=240), {**_active(2, hours=240), **patch})
+        _stuck(_active(1, hours=20), {**_active(2, hours=20), **patch})
 
 
-def _run_janitor_step(tmp_path, listings, *, failing_id=None):
+def _run_janitor_step(tmp_path, listings, *, failing_id=None, orphaned_id=None):
     root = Path(__file__).resolve().parents[2]
     workflow = yaml.safe_load((root / ".github/workflows/publication-watchdog.yml").read_text())
     step = next(s for s in workflow["jobs"]["recover"]["steps"] if s.get("id") == "run-janitor")
@@ -1159,7 +1170,12 @@ def _run_janitor_step(tmp_path, listings, *, failing_id=None):
         for arg in "$@"; do case "$arg" in repos/*) url="$arg" ;; esac; done
         if [[ " $* " == *" --method POST "* ]]; then
           echo "POST $url" >> "$TEST_CALLS"
-          [[ "$url" != */"$TEST_FAILING_ID"/force-cancel ]]
+          case "$url" in
+            */"$TEST_FAILING_ID"/force-cancel) echo "gh: Server Error (HTTP 500)" >&2; return 1 ;;
+            */"$TEST_ORPHANED_ID"/force-cancel)
+              echo "gh: Cannot cancel a workflow run that is not in progress. (HTTP 409)" >&2
+              return 1 ;;
+          esac
           return
         fi
         local status="${url##*status=}"
@@ -1171,7 +1187,8 @@ def _run_janitor_step(tmp_path, listings, *, failing_id=None):
     env = dict(os.environ, RUNNER_TEMP=str(tmp_path), GITHUB_OUTPUT=str(tmp_path / "out"),
                GITHUB_STEP_SUMMARY=str(tmp_path / "summary"), GITHUB_REPOSITORY="o/r",
                GITHUB_RUN_ID="41030000000", TEST_CALLS=str(calls), TEST_FIXTURES=str(tmp_path),
-               TEST_FAILING_ID=str(failing_id or "none"), TEST_PYTHON=sys.executable,
+               TEST_FAILING_ID=str(failing_id or "none"),
+               TEST_ORPHANED_ID=str(orphaned_id or "none"), TEST_PYTHON=sys.executable,
                TEST_NOW=JANITOR_NOW.isoformat())
     result = subprocess.run(["bash", "-c", fake + step["run"]], cwd=root, env=env,
                             capture_output=True, text=True)
@@ -1179,28 +1196,30 @@ def _run_janitor_step(tmp_path, listings, *, failing_id=None):
     return result, posts
 
 
-def test_watchdog_force_cancels_the_stuck_runs_seen_live(tmp_path) -> None:
+def test_watchdog_force_cancels_stuck_runs_and_skips_the_orphans_seen_live(tmp_path) -> None:
     """Live on 2026-10-30: 37655509945 queued since 10-07, 39462175700 in progress since 10-20."""
     listings = {
         "queued": [_active(37655509945, hours=543, status="queued",
-                           path=".github/workflows/publication-watchdog.yml")],
+                           path=".github/workflows/publication-watchdog.yml"),
+                   _active(41000000000, hours=30, status="queued")],
         "in_progress": [_active(41023173701, hours=0.1), _active(39462175700, hours=231),
-                        _active(41030000000, hours=999,
+                        _active(41010000000, hours=10),
+                        _active(41030000000, hours=50,
                                 path=".github/workflows/publication-watchdog.yml")],
     }
     result, posts = _run_janitor_step(tmp_path, listings)
 
     assert result.returncode == 0, result.stderr
     assert posts == [
-        "POST repos/o/r/actions/runs/37655509945/force-cancel",
-        "POST repos/o/r/actions/runs/39462175700/force-cancel",
+        "POST repos/o/r/actions/runs/41000000000/force-cancel",
+        "POST repos/o/r/actions/runs/41010000000/force-cancel",
     ]
     assert (tmp_path / "out").read_text() == "cancelled=2\n"
     assert "Force-cancelled 2 stuck workflow run(s); 0 failed." in (tmp_path / "summary").read_text()
 
 
 def test_watchdog_janitor_reports_a_failed_cancel(tmp_path) -> None:
-    listings = {"in_progress": [_active(1, hours=100), _active(2, hours=90)]}
+    listings = {"in_progress": [_active(1, hours=20), _active(2, hours=10)]}
     result, posts = _run_janitor_step(tmp_path, listings, failing_id=1)
 
     assert result.returncode != 0

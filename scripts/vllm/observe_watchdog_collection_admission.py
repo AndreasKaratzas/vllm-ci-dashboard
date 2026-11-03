@@ -33,11 +33,17 @@ PROOF_MAX_BYTES = 4096
 PROOF_MAX_AGE_SECONDS = 360
 OBSERVE_TIMEOUT_SECONDS = 60
 PROCESS_CLEANUP_SECONDS = 5
+MAX_CONSECUTIVE_FAILURES = 3
+STDERR_TAIL_BYTES = 1000
 GATED_MODES = frozenset({"success_gated", "retry_gated", "cap_gated"})
 GATED_REASONS = frozenset({
     "collection-success-gated", "collection-retry-gated", "collection-cap-gated",
     "collection-admission-shifted", "collection-admission-deadline",
 })
+
+
+class ObservationReadError(ValueError):
+    """The read-only ledger observation exited unsuccessfully."""
 
 
 @dataclass(frozen=True)
@@ -121,7 +127,11 @@ def _observe_subprocess(
         ], timeout=timeout)
     except subprocess.TimeoutExpired as exc:
         raise ValueError("durable collector observation exceeded its deadline") from exc
-    if result.returncode != 0 or not result.stdout or len(result.stdout) > PROOF_MAX_BYTES:
+    if result.returncode != 0:
+        detail = re.sub(r"[\x00-\x1f\x7f-\x9f]+", " ", (result.stderr or b"")[-STDERR_TAIL_BYTES:]
+                        .decode("utf-8", errors="replace")).strip()
+        raise ObservationReadError("durable collector observation failed" + (f": {detail}" if detail else ""))
+    if not result.stdout or len(result.stdout) > PROOF_MAX_BYTES:
         raise ValueError("durable collector observation failed or exceeded its bound")
     values: dict[str, object] = {}
     for line in result.stdout.decode("utf-8", errors="strict").splitlines():
@@ -154,6 +164,7 @@ def observe_admission(
     previous_clock = started_clock
     previous_mono = started_mono
     waiting = False
+    failures = 0
     while True:
         observed_at = _utc(clock())
         before = monotonic()
@@ -162,11 +173,25 @@ def observe_admission(
         remaining = observation_deadline - before - PROCESS_CLEANUP_SECONDS
         if remaining <= 0:
             raise ValueError("durable collector observation exceeded its deadline")
-        value = (
-            observe(root, policy, now=observed_at, remote=remote) if observe is not None
-            else _observe_subprocess(root, policy, now=observed_at, remote=remote,
-                                     timeout=min(OBSERVE_TIMEOUT_SECONDS, remaining))
-        )
+        try:
+            value = (
+                observe(root, policy, now=observed_at, remote=remote) if observe is not None
+                else _observe_subprocess(root, policy, now=observed_at, remote=remote,
+                                         timeout=min(OBSERVE_TIMEOUT_SECONDS, remaining))
+            )
+        except (ObservationReadError, budget.AttemptBudgetError) as exc:
+            failures += 1
+            failed = monotonic()
+            if (
+                failures >= MAX_CONSECUTIVE_FAILURES or not math.isfinite(failed)
+                or failed + POLL_SECONDS >= observation_deadline - PROCESS_CLEANUP_SECONDS
+            ):
+                raise
+            print(f"::warning::collector admission observation {failures} failed; retrying: {exc}")
+            sleep(POLL_SECONDS)
+            previous_clock, previous_mono = observed_at, before
+            continue
+        failures = 0
         required, mode, available, sha = _validated_observation(
             value, observed_at=observed_at, policy=policy,
         )
@@ -264,6 +289,7 @@ def main(argv: list[str] | None = None) -> int:
         })
         print(f"Collector admission: {decision.reason}; next availability {decision.available_at or 'open'}; waited {decision.waited_seconds}s")
     except (budget.AttemptBudgetError, OSError, ValueError) as exc:
+        print(f"::warning::{exc}")
         print(f"collector admission failed closed: {exc}", file=sys.stderr)
         return 1
     return 0

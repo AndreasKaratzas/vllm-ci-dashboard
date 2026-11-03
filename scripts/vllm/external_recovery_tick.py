@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # cspell:ignore geteuid
-"""Wake guarded dashboard workflows from a clock outside GitHub Actions.
+"""Wake guarded dashboard workflows from an independent clock.
 
 This standalone standard-library client dispatches only fixed main-branch
 workflow profiles. It cannot collect source data or change quota ledgers.
-Run it with the accompanying timers on an always-on host. Successful dispatches
+Run it with the accompanying timers on an always-on host, or with
+--github-actions-loop inside the Dashboard Clock workflow. Successful dispatches
 are locally serialized and bounded by the selected profile's interval; failures
 retain the last successful timestamp so the next activation can retry.
 """
@@ -13,11 +14,13 @@ from __future__ import annotations
 
 import argparse
 import fcntl
+import http.client
 import json
 import os
 import re
 import stat
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -36,7 +39,17 @@ WORKFLOW_INTERVALS = {
     "health-check.yml": 3600,
     "deployment-retention.yml": 86400,
     "scheduler-activity.yml": 604800,
+    "dashboard-clock.yml": 3600,
 }
+ACTIONS_LOOP_PROFILES = (
+    (WORKFLOW, 1200, 0),
+    ("queue-monitor.yml", 600, 300),
+    ("queue-lifecycle.yml", 1800, 420),
+    ("docker-builds.yml", 1800, 540),
+    ("dns-health.yml", 3600, 660),
+    ("health-check.yml", 3600, 900),
+)
+ACTIONS_LOOP_POLL_SECONDS = 60
 STATE_MAX_BYTES = 4096
 RESPONSE_MAX_BYTES = 16 * 1024
 REQUEST_TIMEOUT_SECONDS = 30
@@ -122,9 +135,14 @@ def read_state(path: Path, repository: str, workflow: str) -> datetime | None:
     return parse_time(state["last_dispatched_at"])
 
 
-def dispatch_workflow(repository: str, token: str, workflow: str = WORKFLOW) -> int | None:
+def token_value(token: str) -> str:
     if not token or len(token) > 4096 or any(character.isspace() for character in token):
         raise RecoveryTickError("Set GH_TOKEN to a valid repository Actions token")
+    return token
+
+
+def dispatch_workflow(repository: str, token: str, workflow: str = WORKFLOW) -> int | None:
+    token = token_value(token)
     repository = repository_name(repository)
     workflow = workflow_name(workflow)
     endpoint = f"https://api.github.com/repos/{repository}/actions/workflows/{workflow}/dispatches"
@@ -154,7 +172,7 @@ def dispatch_workflow(repository: str, token: str, workflow: str = WORKFLOW) -> 
             raw = response.read(RESPONSE_MAX_BYTES + 1)
     except urllib.error.HTTPError as exc:
         raise RecoveryTickError(f"GitHub dispatch returned HTTP {exc.code}") from None
-    except (urllib.error.URLError, TimeoutError, OSError):
+    except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError):
         raise RecoveryTickError("GitHub dispatch transport failed; next tick will retry") from None
     if len(raw) > RESPONSE_MAX_BYTES:
         raise RecoveryTickError("GitHub dispatch response exceeds its size bound")
@@ -243,12 +261,63 @@ def tick(
         }
 
 
+def run_actions_loop(
+    repository: str,
+    token: str,
+    duration_seconds: float,
+    *,
+    monotonic: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+    dispatch: Callable[[str, str, str], int | None] = dispatch_workflow,
+) -> int:
+    repository = repository_name(repository)
+    token = token_value(token)
+    start = monotonic()
+    due = {workflow: start + offset for workflow, _, offset in ACTIONS_LOOP_PROFILES}
+    while (now := monotonic()) - start < duration_seconds:
+        for workflow, interval, _ in ACTIONS_LOOP_PROFILES:
+            if now < due[workflow]:
+                continue
+            try:
+                run_id = dispatch(repository, token, workflow)
+            except RecoveryTickError as exc:
+                print(
+                    f"::warning::{workflow} dispatch failed; retrying next pass: {exc}",
+                    flush=True,
+                )
+                continue
+            while due[workflow] <= now:
+                due[workflow] += interval
+            print(json.dumps({
+                "status": "dispatched", "repository": repository,
+                "workflow": workflow, "workflow_run_id": run_id,
+            }), flush=True)
+        remaining = duration_seconds - (monotonic() - start)
+        if remaining > 0:
+            sleep(min(ACTIONS_LOOP_POLL_SECONDS, remaining))
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", default=DEFAULT_REPOSITORY)
     parser.add_argument("--workflow", choices=tuple(WORKFLOW_INTERVALS), default=WORKFLOW)
-    parser.add_argument("--state-directory", type=Path, required=True)
+    parser.add_argument("--state-directory", type=Path)
+    parser.add_argument("--github-actions-loop", action="store_true")
+    parser.add_argument("--duration-seconds", type=float, default=19800)
     args = parser.parse_args()
+    if args.github_actions_loop:
+        try:
+            return run_actions_loop(
+                os.environ.get("GITHUB_REPOSITORY", ""),
+                os.environ.get("GITHUB_TOKEN", ""),
+                args.duration_seconds,
+            )
+        except RecoveryTickError as exc:
+            print(json.dumps({"status": "failed", "reason": str(exc)}))
+            return 1
+    if args.state_directory is None:
+        parser.error("--state-directory is required")
     try:
         result = tick(
             args.state_directory, args.repository, os.environ.get("GH_TOKEN", ""),

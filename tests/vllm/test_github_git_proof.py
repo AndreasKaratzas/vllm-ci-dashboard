@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -630,3 +631,60 @@ def test_hydrate_ref_refuses_update_when_branch_moves_during_proof(
     )
     assert updates == []
     assert not (tmp_path / "proof.json").exists()
+
+
+def test_blob_fetch_by_oid_survives_a_local_blobless_ref_containing_it(
+    monkeypatch, tmp_path
+) -> None:
+    """Default negotiation omitted the blob: 'did not send all necessary objects'."""
+
+    def git(cwd: Path, *args: str) -> str:
+        return subprocess.run(
+            ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    remote, work, client = tmp_path / "remote.git", tmp_path / "work", tmp_path / "client"
+    git(tmp_path, "init", "-q", "--bare", str(remote))
+    git(remote, "config", "uploadpack.allowFilter", "true")
+    git(remote, "config", "uploadpack.allowAnySHA1InWant", "true")
+    git(tmp_path, "init", "-q", str(work))
+    (work / "index.html").write_text("<html></html>\n")
+    git(work, "add", "index.html")
+    git(work, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pages")
+    git(work, "push", "-q", remote.as_uri(), "HEAD:refs/heads/gh-pages")
+    commit_sha = git(work, "rev-parse", "HEAD")
+    blob_sha = git(work, "rev-parse", "HEAD:index.html")
+    git(tmp_path, "init", "-q", str(client))
+    git(client, "remote", "add", "origin", remote.as_uri())
+    git(client, "fetch", "-q", "--depth=1", "--filter=blob:none", "origin", commit_sha)
+    git(client, "update-ref", "refs/remotes/origin/gh-pages", commit_sha)
+    monkeypatch.setenv("GIT_NO_LAZY_FETCH", "1")
+    monkeypatch.setattr(proof, "NETWORK_RETRY_DELAYS", ())
+
+    payload = proof._hydrate_proven_blob(
+        client, "origin", path="index.html", descriptor={"oid": blob_sha, "bytes": 14}
+    )
+
+    assert payload == b"<html></html>\n"
+
+
+@pytest.mark.parametrize("command, returncode, attempts", [
+    (("fetch", "origin", COMMIT_SHA), 128, 3), (("ls-remote", "origin"), 128, 3),
+    (("ls-remote", "--exit-code", "origin"), 2, 1), (("cat-file", "-e", COMMIT_SHA), 128, 1),
+])
+def test_only_network_git_reads_retry_before_failing_closed(
+    monkeypatch, tmp_path, command, returncode, attempts
+) -> None:
+    calls: list[list[str]] = []
+    sleeps: list[float] = []
+
+    def failing_run(argv, **kwargs):
+        calls.append(argv)
+        raise subprocess.CalledProcessError(returncode, argv, stderr=b"transient")
+
+    monkeypatch.setattr(proof.subprocess, "run", failing_run)
+    monkeypatch.setattr(proof.time, "sleep", sleeps.append)
+    with pytest.raises(proof.AmbiguousProof, match="transient"):
+        proof._git(tmp_path, *command)
+    assert len(calls) == attempts
+    assert sleeps == list(proof.NETWORK_RETRY_DELAYS)[: attempts - 1]

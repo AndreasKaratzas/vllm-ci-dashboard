@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from vllm.plan_dns_publication_reconcile import (  # noqa: E402
-    FUTURE_SKEW,
+    RUN_CLOCK_SKEW,
     _load_bounded_json,
     _parse_timestamp,
 )
@@ -30,6 +30,10 @@ POLICY_PATH = Path(__file__).resolve().parents[2] / "config/run_janitor.json"
 POLICY_MAX_BYTES = 64 * 1024
 RUNS_MAX_BYTES = 4 * 1024 * 1024
 ACTIVE_STATUSES = frozenset({"queued", "in_progress", "waiting", "requested", "pending"})
+# GitHub ends a job after 6 h and a queued run after 24 h, and no workflow's
+# bound comes near this. A run active longer is an orphaned record GitHub will
+# not cancel (HTTP 409), e.g. 37655509945 and 39462175700.
+GHOST_AGE_CEILING = timedelta(hours=72)
 
 
 @dataclass(frozen=True)
@@ -113,17 +117,20 @@ def select_stuck_runs(
             or not isinstance(path, str)
             or status not in ACTIVE_STATUSES
             or created_at is None
-            or created_at > now + FUTURE_SKEW
+            or created_at > now + RUN_CLOCK_SKEW
             or (started_value is not None and started_at is None)
-            or (started_at is not None and started_at > now + FUTURE_SKEW)
+            or (started_at is not None and started_at > now + RUN_CLOCK_SKEW)
         ):
             raise ValueError("active run listing contains an invalid row")
         if run_id == exclude_run_id:
             continue
-        # A re-run attempt restarts the clock at its own start time.
-        active_since = max(created_at, started_at) if started_at else created_at
+        # A re-run attempt restarts the clock at its own start time; bounded
+        # future skew reads as "just started".
+        active_since = min(max(created_at, started_at) if started_at else created_at, now)
         limit = policy.limit(path)
-        if now - active_since > limit:
+        if now - active_since > GHOST_AGE_CEILING:
+            print(f"Skipping orphaned run record {run_id} ({name}, {path})", file=sys.stderr)
+        elif now - active_since > limit:
             stuck[run_id] = StuckRun(run_id, name, path, status, active_since, limit)
     ordered = sorted(stuck.values(), key=lambda run: (run.active_since, run.run_id))
     return ordered[: policy.max_cancellations]

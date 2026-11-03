@@ -66,6 +66,10 @@ from vllm.ci.perf_eval_webhook import (  # noqa: E402
     read_events_strict,
     utcnow_iso,
 )
+from vllm.merge_perf_eval_events import (  # noqa: E402
+    sized_config_lengths,
+    split_perf_config,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
 log = logging.getLogger(__name__)
@@ -109,6 +113,9 @@ _RESULT_ARTIFACT_PATHS = ("*results/*/bench-*.json", "*results/*/*/results_*.jso
 _RESULT_ARTIFACT_MAX_PAGES = 10
 # A download is one API request plus a possible same-origin redirect hop.
 _DOWNLOAD_MAX_REQUEST_STARTS = 2
+# A benchmark that lost more requests than this measured a broken server, not
+# the workload, so it never becomes a comparable perf point.
+_MAX_FAILED_REQUEST_RATIO = 0.05
 
 # Result events retain the exact Buildkite artifact that produced them. Legacy
 # result rows predate these fields, so once such a row is encountered again we
@@ -265,6 +272,21 @@ def classify_artifact(path: str) -> Optional[tuple[str, str, str]]:
     return None
 
 
+def perf_config(tail: str, configs: dict) -> dict:
+    """Resolve a ``<config>[-conc-<n>]`` artifact suffix to its workload identity.
+
+    Lengths come from the recipe config of that name, falling back to the
+    ``<n>k-in-<m>k-out`` naming convention. Concurrency comes only from the
+    suffix because a recipe may list several values.
+    """
+    name, conc = split_perf_config(tail)
+    recipe = configs.get(tail) or configs.get(name) or {}
+    isl, osl = recipe.get("isl"), recipe.get("osl")
+    if not (isinstance(isl, int) and isinstance(osl, int)):
+        isl, osl = sized_config_lengths(name)
+    return {"isl": isl, "osl": osl, "conc": conc}
+
+
 def _to_float(value: Any) -> Optional[float]:
     try:
         f = float(value)
@@ -273,6 +295,15 @@ def _to_float(value: Any) -> Optional[float]:
     if f != f or f in (float("inf"), float("-inf")):
         return None
     return f
+
+
+def bench_run_failed(raw: dict) -> bool:
+    """Whether a ``vllm bench serve`` result lost too many requests to compare."""
+    completed = _to_float(raw.get("completed"))
+    if completed is None:
+        return False
+    failed = _to_float(raw.get("failed")) or 0.0
+    return completed <= 0 or failed / (completed + failed) > _MAX_FAILED_REQUEST_RATIO
 
 
 def transform_perf(raw: dict, *, tp: int) -> dict[str, float]:
@@ -320,8 +351,8 @@ def perf_event(
     if not metrics:
         return None
     conc = config.get("conc")
-    if conc is None:
-        conc = raw.get("max_concurrency")
+    if conc is None and isinstance(raw.get("max_concurrency"), int):
+        conc = raw["max_concurrency"]
     return {
         "event": "perf_result",
         "received_at": utcnow_iso(),
@@ -673,9 +704,25 @@ def collect(store_path: Path, *, days: int, bk_token: str, gh_token: str) -> int
             payload = _bk_download_json(art.get("download_url") or "", bk_token)
             if payload is None:
                 continue
+            if kind[0] == "perf" and bench_run_failed(payload):
+                log.warning(
+                    "Rejecting failed benchmark %s (build #%s): completed=%s failed=%s",
+                    provenance["buildkite_artifact_path"],
+                    number,
+                    payload.get("completed"),
+                    payload.get("failed"),
+                )
+                if source_key is not None:
+                    pending_events.append(artifact_marker(provenance))
+                    markers_appended += 1
+                    known_artifacts.add(source_key)
+                continue
             if kind[0] == "perf":
                 event = perf_event(
-                    payload, entry=entry, config=configs.get(tail, {}), identity=identity
+                    payload,
+                    entry=entry,
+                    config=perf_config(tail, configs),
+                    identity=identity,
                 )
             else:
                 event = accuracy_event(

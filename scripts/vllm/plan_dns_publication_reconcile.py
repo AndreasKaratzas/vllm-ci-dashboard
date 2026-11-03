@@ -13,6 +13,9 @@ from typing import Any
 
 DEFAULT_MAX_PUBLICATION_AGE_HOURS = 3.0
 FUTURE_SKEW = timedelta(minutes=5)
+# GitHub has served run times up to an hour ahead (2026-11-01 DST fall-back).
+# Clamp skew up to this bound to "now"; reject anything further ahead.
+RUN_CLOCK_SKEW = timedelta(hours=2)
 STATUS_MAX_BYTES = 64 * 1024
 DNS_DATA_MAX_BYTES = 8 * 1024 * 1024
 PUBLICATION_MODES = frozenset({"current", "degraded", "fallback", "mixed", "blocked"})

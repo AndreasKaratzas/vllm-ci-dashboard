@@ -281,7 +281,6 @@ def test_rest_org_cohort_union_is_paginated_deduplicated_and_documented():
         "scheduled",
         "running",
         "failing",
-        "blocked",
         "canceling",
     ]
     assert active["created_from"] == "2026-08-01T20:00:00Z"
@@ -291,6 +290,74 @@ def test_rest_org_cohort_union_is_paginated_deduplicated_and_documented():
     assert finished["created_from"] == "2026-08-01T20:00:00Z"
     assert finished["created_to"] == "2026-08-04T20:00:00Z"
     assert list(coverage["cohorts"])[-1] == "older_finished"
+
+
+def test_older_cohorts_skip_finished_blocked_builds_and_recapture_unblocked_ones():
+    """A parked block step must not cost a re-read on every incremental run.
+
+    Buildkite's state[]=blocked matches terminal builds with an unreleased
+    block step. Unblocking re-runs the build and advances finished_at, so the
+    older_finished cohort recaptures it.
+    """
+    query_start = NOW - timedelta(hours=7)
+    older = "2026-08-05T12:00:00Z"
+    parked = {
+        "state": "passed",
+        "blocked": True,
+        "created_at": older,
+        "finished_at": "2026-08-05T13:00:00Z",
+        "jobs": [
+            _rest_job(
+                uuid="parked",
+                runnable_at="2026-08-05T12:10:00Z",
+                started_at="2026-08-05T12:20:00Z",
+                finished_at="2026-08-05T12:50:00Z",
+            )
+        ],
+    }
+    unblocked = {
+        "state": "passed",
+        "blocked": False,
+        "created_at": older,
+        "finished_at": "2026-08-11T19:30:00Z",
+        "jobs": [
+            _rest_job(
+                uuid="late",
+                runnable_at="2026-08-11T18:10:00Z",
+                started_at="2026-08-11T18:20:00Z",
+                finished_at="2026-08-11T19:20:00Z",
+            )
+        ],
+    }
+
+    def fetch(path, token, params):
+        rows = [
+            build
+            for build in (parked, unblocked)
+            if params["created_from"] <= build["created_at"] < params["created_to"]
+        ]
+        if "state[]" in params:
+            rows = [
+                build
+                for build in rows
+                if ("blocked" if build["blocked"] else build["state"]) in params["state[]"]
+            ]
+        if "finished_from" in params:
+            rows = [build for build in rows if build["finished_at"] >= params["finished_from"]]
+        return rows
+
+    jobs, coverage = lifecycle.fetch_rest_lifecycle_jobs(
+        "secret",
+        query_start=query_start,
+        query_end=NOW,
+        active_created_from=NOW - timedelta(days=10),
+        queue_by_id=_queue_by_id(),
+        page_fetcher=fetch,
+    )
+
+    assert coverage["cohorts"]["older_active"]["builds"] == 0
+    assert coverage["cohorts"]["older_finished"]["builds"] == 1
+    assert list(jobs) == ["late"]
 
 
 def test_rest_org_cohort_pagination_cap_fails_closed():

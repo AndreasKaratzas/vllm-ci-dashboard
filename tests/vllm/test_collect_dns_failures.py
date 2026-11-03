@@ -661,9 +661,12 @@ def test_merge_keeps_exact_proof_without_replacing_final_dns_classification():
     observed = dns.pending_record(_metadata(1))
     merged = dns.merge_state_jobs([final], [observed])
     assert merged[0] == {**final, "execution_proof": _proof()}
-    conflict = {**observed, "execution_proof": _proof("excluded_cpu")}
-    with pytest.raises(dns.StateValidationError, match="conflicting exact"):
+    reclassified = {**observed, "execution_proof": _proof("excluded_cpu")}
+    assert dns.merge_state_jobs(merged, [reclassified]) == merged
+    conflict = {**observed, "execution_proof": {**_proof(), "definition_tree": "d" * 40}}
+    with pytest.raises(dns.StateValidationError, match="conflicting exact") as raised:
         dns.merge_state_jobs(merged, [conflict])
+    assert raised.value.differing_fields == ("definition_tree",)
 
 
 def test_scanner_skips_unproved_and_exactly_excluded_cpu_backlog():
@@ -2055,7 +2058,7 @@ def test_discovery_bounds_active_parent_builds_and_unions_finished_cohort():
     assert next(build for build in builds if build["number"] == 101)["state"] == "passed"
     active_params, finished_params = [call["params"] for call in session.calls]
     assert active_params["state[]"] == list(collector.ACTIVE_BUILD_STATES)
-    assert "blocked" in active_params["state[]"]
+    assert "blocked" not in active_params["state[]"]
     assert active_params["created_from"] == _timestamp(hours=-24)
     assert active_params["created_to"] == _timestamp()
     assert finished_params["finished_from"] == _timestamp(hours=-2)

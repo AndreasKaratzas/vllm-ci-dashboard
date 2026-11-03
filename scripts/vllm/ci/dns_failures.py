@@ -265,11 +265,19 @@ STATE_FAILURE_CODES = frozenset({
 })
 
 
+_EXACT_SOURCE_FIELDS = ("source_commit", "definition_tree")
+_OBSERVED_JOB_FIELDS = ("pipeline", "build_number", "job_id", "finished_at")
+STATE_DIFFERING_FIELDS = frozenset(_EXACT_SOURCE_FIELDS + _OBSERVED_JOB_FIELDS + ("source_unavailable_commit",))
+
+
 class StateValidationError(ValueError):
     """The sanitized durable DNS scanner state violates its strict contract."""
 
-    def __init__(self, message: str, *, diagnostic_code: str = "invalid_state") -> None:
+    def __init__(self, message: str, *, diagnostic_code: str = "invalid_state",
+                 differing_fields: Iterable[str] = ()) -> None:
         self.diagnostic_code = diagnostic_code if isinstance(diagnostic_code, str) and diagnostic_code in STATE_FAILURE_CODES else "invalid_state"
+        self.differing_fields = tuple(sorted({field for field in differing_fields
+                                              if field in STATE_DIFFERING_FIELDS}))
         super().__init__(message)
 
 
@@ -310,16 +318,20 @@ def merge_execution_proofs(previous: dict, current: dict) -> dict | None:
     old, new = validate_execution_proof(old), validate_execution_proof(new)
     if old == new:
         return old
-    if any(old[key] != new[key] for key in ("source_commit", "definition_tree")):
-        raise StateValidationError("conflicting exact execution proofs", diagnostic_code="execution_proof_conflict")
+    differing = [key for key in _EXACT_SOURCE_FIELDS if old[key] != new[key]]
+    if differing:
+        raise StateValidationError("conflicting exact execution proofs", diagnostic_code="execution_proof_conflict",
+                                   differing_fields=differing)
     if old["version"] == new["version"]:
-        if old["version"] != 2 or old["classification"] != new["classification"]:
-            raise StateValidationError("conflicting exact execution proofs", diagnostic_code="execution_proof_conflict")
+        # Classifier code derives the classification, so the current observation re-attests it.
+        if old["classification"] != new["classification"]:
+            return new
         # A fresh v2 observation need not repeat the private migration trail.
         return old if "legacy_classification" in old else new
-    if any(previous.get(key) != current.get(key)
-           for key in ("pipeline", "build_number", "job_id", "queue", "hardware", "finished_at")):
-        raise StateValidationError("scope migration changed the exact job observation", diagnostic_code="execution_proof_job_mismatch")
+    differing = [key for key in _OBSERVED_JOB_FIELDS if previous.get(key) != current.get(key)]
+    if differing:
+        raise StateValidationError("scope migration changed the exact job observation",
+                                   diagnostic_code="execution_proof_job_mismatch", differing_fields=differing)
     authoritative, legacy = (new, old) if new["version"] == 2 else (old, new)
     authoritative = dict(authoritative)
     if authoritative["classification"] != legacy["classification"]:
@@ -1290,16 +1302,17 @@ def merge_state_jobs(*collections: Iterable[dict]) -> list[dict]:
                 and previous["status"] != row["status"]
             ):
                 raise StateValidationError(f"conflicting final DNS scans for {identity}")
-            if _record_rank(row) > _record_rank(previous):
-                merged[identity] = dict(row)
-            proof = merge_execution_proofs(previous, row)
+            chosen, other = (row, previous) if _record_rank(row) > _record_rank(previous) else (previous, row)
+            merged[identity] = dict(chosen)
+            proof = merge_execution_proofs(other, chosen)
             if proof is not None:
                 merged[identity]["execution_proof"] = proof
             unavailable = {item["source_unavailable_commit"] for item in (previous, row)
                            if "source_unavailable_commit" in item}
             if unavailable:
                 if len(unavailable) != 1 or proof is not None and proof["source_commit"] not in unavailable:
-                    raise StateValidationError("unavailable source conflicts with retained identity", diagnostic_code="execution_proof_conflict")
+                    raise StateValidationError("unavailable source conflicts with retained identity", diagnostic_code="execution_proof_conflict",
+                                               differing_fields=["source_unavailable_commit"])
                 merged[identity]["source_unavailable_commit"] = next(iter(unavailable))
     return sort_state_jobs(merged.values())
 

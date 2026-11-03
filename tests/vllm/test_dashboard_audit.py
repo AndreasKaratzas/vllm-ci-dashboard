@@ -2092,6 +2092,17 @@ def test_dashboard_audit_accepts_explicit_pass_rate_contracts(tmp_path):
     ]
 
 
+def test_unattested_amd_sources_degrade_ci_core(tmp_path):
+    health, _ = _write_rate_contract_fixtures(tmp_path)
+    health["source_attestation"] = {"unattested_job_count": 2, "unattested_jobs": []}
+    (tmp_path / "data/vllm/ci/ci_health.json").write_text(json.dumps(health))
+    audit = DashboardAudit(tmp_path)
+
+    audit.audit_ci_health()
+
+    assert [f.code for f in audit.report.degradations] == ["ci-health-unattested-sources"]
+
+
 def test_dashboard_audit_rejects_pass_rate_contract_drift(tmp_path):
     health, analytics = _write_rate_contract_fixtures(tmp_path)
     health["amd"]["builds"][0]["test_pass_rate_pct"] = 70.0
@@ -4874,6 +4885,24 @@ def test_current_latency_audit_accepts_explicit_unavailable_without_old_samples(
     audit = DashboardAudit(tmp_path)
     audit.audit_current_nightly_latency(latency, "fixture.json")
     assert not audit.report.errors
+
+
+def test_unverified_nightly_source_families_degrade_analytics(tmp_path):
+    from vllm.ci.nightly_latency import build_current_nightly_latency
+    from vllm.collect_analytics import UNVERIFIED_FAMILY_LATENCY_REASON
+
+    latency = build_current_nightly_latency(
+        [], generated_at="2026-10-08T20:00:00Z", source_available=False,
+        unavailable_reason=UNVERIFIED_FAMILY_LATENCY_REASON,
+    )
+    path = tmp_path / "data/vllm/ci/analytics.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"ci": {"builds": [], "current_nightly_latency": latency}}))
+    audit = DashboardAudit(tmp_path)
+    audit.audit_analytics()
+    assert "analytics-latency-source-family-unverified" in {
+        finding.code for finding in audit.report.degradations
+    }
 
 
 def test_current_latency_audit_rejects_an_older_global_cohort_even_when_samples_reconcile(tmp_path):

@@ -20,6 +20,8 @@ from vllm import buildkite_request_guard as guard
 from vllm.ci import perf_eval_webhook as event_store
 
 art = importlib.import_module("vllm.collect_perf_eval_artifacts")
+perf_aggregate = importlib.import_module("vllm.collect_perf_eval")
+merge_perf_eval_events = importlib.import_module("vllm.merge_perf_eval_events")
 
 
 # ── workload recipe parsing ────────────────────────────────────────────────
@@ -376,6 +378,28 @@ def test_event_key_distinguishes_configs_and_is_stable():
     assert art.event_key(a) != art.event_key(b)  # concurrency distinguishes
 
 
+@pytest.mark.parametrize(
+    ("tail", "expected"),
+    [
+        # Recipe lists several concurrencies; the suffix decides.
+        ("1k-in-1k-out-conc-64", {"isl": 1024, "osl": 1024, "conc": 64}),
+        ("8k-in-1k-out-conc-128", {"isl": 8192, "osl": 1024, "conc": 128}),
+        # No recipe entry: lengths follow the config naming convention.
+        ("2k-in-1k-out-conc-8", {"isl": 2048, "osl": 1024, "conc": 8}),
+        ("custom", {"isl": None, "osl": None, "conc": None}),
+        # A recipe whose own name ends in -conc-N still supplies the lengths.
+        ("chat-conc-64", {"isl": 2000, "osl": 500, "conc": 64}),
+    ],
+)
+def test_perf_config_resolves_recipe_name_from_artifact_suffix(tail, expected):
+    configs = {
+        "8k-in-1k-out": {"isl": 8192, "osl": 1024, "conc": 128},
+        "1k-in-1k-out": {"isl": 1024, "osl": 1024, "conc": [1, 64, 128]},
+        "chat-conc-64": {"isl": 2000, "osl": 500, "conc": 64},
+    }
+    assert art.perf_config(tail, configs) == expected
+
+
 def test_event_key_perf_vs_accuracy_differ():
     entry = {"name": "m-mi355x", "device": "mi355x", "tp": 1, "precision": "bf16", "model": "m"}
     p = art.perf_event({"total_token_throughput": 1.0}, entry=entry, config={"isl": 1, "osl": 1, "conc": 1}, identity=_IDENTITY)
@@ -405,7 +429,7 @@ _ENTRY = {
     "precision": "bf16",
     "model": "m",
 }
-_CONFIGS = {"8-in-8-out-conc-1": {"isl": 8, "osl": 8, "conc": 1}}
+_CONFIGS = {"8-in-8-out": {"isl": 8, "osl": 8, "conc": 1}}
 
 
 def _stub_collection(monkeypatch, artifacts, downloads, *, build=None):
@@ -771,3 +795,105 @@ def test_backlog_beyond_request_allowance_persists_prefix_and_resumes(tmp_path, 
     assert sorted(downloads, key=int) == [str(index) for index in range(40)]
     rows = event_store.read_events(store)
     assert {row["buildkite_artifact_id"] for row in rows} == {row["id"] for row in artifacts}
+
+
+def test_workloads_sharing_concurrency_stay_distinct_series(tmp_path, monkeypatch):
+    store = tmp_path / "events.jsonl"
+    configs = {
+        "8k-in-1k-out": {"isl": 8192, "osl": 1024, "conc": 128},
+        "1k-in-1k-out": {"isl": 1024, "osl": 1024, "conc": [1, 64, 128]},
+    }
+    artifacts = [
+        {
+            "id": f"artifact-{name}",
+            "path": f"results/m-mi355x/bench-{name}-conc-128.json",
+            "download_url": name,
+        }
+        for name in configs
+    ]
+    downloads = []
+    _stub_collection(monkeypatch, artifacts, downloads)
+    monkeypatch.setattr(
+        art, "fetch_workload_map", lambda _token: {"m-mi355x": (_ENTRY, configs)}
+    )
+
+    assert art.collect(store, days=14, bk_token="bk", gh_token="gh") == 2
+    perf_configs = perf_aggregate.aggregate(event_store.read_events_strict(store))[
+        "models"
+    ][0]["perf_configs"]
+    assert [(c["isl"], c["osl"], c["conc"]) for c in perf_configs] == [
+        (1024, 1024, 128),
+        (8192, 1024, 128),
+    ]
+
+
+def test_failed_benchmark_run_is_not_a_comparable_point(tmp_path, monkeypatch):
+    store = tmp_path / "events.jsonl"
+    artifacts = [
+        {
+            "id": "artifact-perf",
+            "path": "results/m-mi355x/bench-8-in-8-out-conc-1.json",
+            "download_url": "https://example.test/perf",
+        }
+    ]
+    downloads = []
+    _stub_collection(monkeypatch, artifacts, downloads)
+    monkeypatch.setattr(
+        art,
+        "_bk_download_json",
+        lambda url, _token: downloads.append(url)
+        or {"model_id": "m", "total_token_throughput": 0.1, "completed": 1, "failed": 255},
+    )
+
+    assert art.collect(store, days=14, bk_token="bk", gh_token="gh") == 0
+    assert art.collect(store, days=14, bk_token="bk", gh_token="gh") == 0
+    assert downloads == ["https://example.test/perf"]
+    rows = event_store.read_events_strict(store)
+    assert [row["event"] for row in rows] == [art.ARTIFACT_INDEX_EVENT]
+
+
+def test_stored_failed_run_does_not_survive_merge_and_collection(tmp_path, monkeypatch):
+    store = tmp_path / "events.jsonl"
+    path = "results/m-mi355x/bench-8-in-8-out-conc-1.json"
+    stored = {
+        "event": "perf_result",
+        "nightly": True,
+        "date": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "model": "m",
+        "device": "mi355x",
+        "precision": "bf16",
+        "tp": 1,
+        "isl": None,
+        "osl": None,
+        "conc": 1,
+        "build_number": 501,
+        "vllm_commit": "93d8f834dd8a",
+        "metrics": {"tput_per_gpu": 0.1},
+        "buildkite_artifact_id": "artifact-perf",
+        "buildkite_artifact_path": path,
+    }
+    store.write_text(json.dumps(stored) + "\n")
+    artifacts = [{"id": "artifact-perf", "path": path, "download_url": "perf"}]
+    downloads = []
+    _stub_collection(monkeypatch, artifacts, downloads)
+    monkeypatch.setattr(
+        art,
+        "_bk_download_json",
+        lambda url, _token: downloads.append(url)
+        or {"model_id": "m", "total_token_throughput": 0.1, "completed": 1, "failed": 255},
+    )
+
+    merge_perf_eval_events.merge_event_files(store)
+    assert art.collect(store, days=14, bk_token="bk", gh_token="gh") == 0
+    assert downloads == ["perf"]
+    rows = event_store.read_events_strict(store)
+    assert [row["event"] for row in rows] == [art.ARTIFACT_INDEX_EVENT]
+
+
+@pytest.mark.parametrize(
+    ("completed", "failed", "rejected"),
+    [(0, 0, True), (1, 255, True), (90, 10, True), (96, 4, False), (512, None, False)],
+)
+def test_bench_run_failed_threshold(completed, failed, rejected):
+    raw = {"completed": completed, "failed": failed}
+    assert art.bench_run_failed(raw) is rejected
