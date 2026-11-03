@@ -359,7 +359,8 @@ def test_execution_alias_audit_preserves_sensitive_gate_after_rename(tmp_path):
     from vllm.collect_amd_test_matrix import build_matrix, parse_steps
 
     steps, architectures = parse_steps(json.dumps({"steps": [
-        {"label": f":amd: ({arch}) Renamed Quantization", "agent_pool": f"{arch.lower()}_1", "working_dir": "/vllm-workspace/tests", "commands": ["pytest -v -s kernels/quantization"]}
+        {"label": f":amd: ({arch}) Renamed Quantization", "agent_pool": f"{arch.lower()}_1", "working_dir": "/vllm-workspace/tests", "commands": ["pytest -v -s kernels/quantization"],
+         "definition_id": f".buildkite/test_areas/kernels.yaml#amd-native-quantization-kernels-{arch.lower()}"}
         for arch in ["MI300", "MI355"]
     ]}))
     matrix = build_matrix(steps, architectures, {}, None, {}, {}, [], "https://example.invalid/test-amd.yaml")
