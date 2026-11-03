@@ -60,10 +60,10 @@ jobs:
         run: |
           set -euo pipefail
           runs="repos/$GITHUB_REPOSITORY/actions/workflows/publication-watchdog.yml/runs"
-          # The owner's external hourly clock dispatches the watchdog; GitHub
-          # schedules alone deliver too few ticks to keep the data fresh.
+          # The Dashboard Clock dispatches the watchdog with GITHUB_TOKEN;
+          # external revivers' dispatches must not mask a broken chain.
           clock_at="$(gh api "$runs?event=workflow_dispatch&branch=main&per_page=100" \
-            --jq "[.workflow_runs[] | select(.triggering_actor.login == \"$GITHUB_REPOSITORY_OWNER\") | .created_at][0] // \"\"")"
+            --jq '[.workflow_runs[] | select(.triggering_actor.login == "github-actions[bot]") | .created_at][0] // ""')"
           failures="$(gh api "$runs?branch=main&status=completed&per_page=20" \
             --jq '[.workflow_runs[] | select(.conclusion != "cancelled" and .conclusion != "skipped")] | .[:(map(.conclusion) | index("success") // length)] | map(.created_at) | join(",")')"
           inactive="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows?per_page=100" \

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 
@@ -126,7 +129,7 @@ def test_deploy_composes_and_certifies_bounded_previews_before_orphan_push() -> 
 
     assert "--materialize-prefix pr-preview/" in script
     assert "bound-pages-directory" in script
-    assert "preview_status" in script and "exit 90" in script
+    assert "preview_status" in script
     assert "DASHBOARD_PREVIEW_DIGEST" in script
     assert steps.index(preserve) < steps.index(deploy)
     assert "steps.preview-preservation.outcome == 'success'" in deploy["if"]
@@ -190,3 +193,53 @@ def test_hourly_canonical_publish_preserves_and_certifies_exact_previews() -> No
     redeploy = by_name["Redeploy if corrupted"]
     assert redeploy["with"]["keep_files"] is False
     assert redeploy["with"]["force_orphan"] is True
+
+
+def _preview_preservation(workflow: str) -> str:
+    jobs = _workflow(workflow)["jobs"].values()
+    return next(
+        step["run"] for job in jobs for step in job["steps"]
+        if step.get("name") == "Preserve only bounded PR previews"
+    )
+
+
+@pytest.mark.parametrize("workflow", ["hourly-master.yml", "deploy-pages.yml"])
+@pytest.mark.parametrize("ls_remote_status, hydrate_status, hydrate_calls", [
+    (0, 90, 2), (0, 2, 1), (128, 0, 0),
+])
+def test_previews_that_cannot_be_preserved_never_block_canonical_publication(
+    tmp_path, workflow, ls_remote_status, hydrate_status, hydrate_calls
+) -> None:
+    """Data Collection 41157517456 lost its publication to one preview blob fetch."""
+    calls = tmp_path / "hydrate-calls"
+    fake = r'''
+      git() { echo "abc refs/heads/gh-pages"; return "$TEST_LS_REMOTE_STATUS"; }
+      sleep() { :; }
+      python() {
+        case " $* " in
+          *" hydrate-ref "*)
+            echo hydrate >> "$TEST_CALLS"
+            mkdir -p "$PREVIEW_STAGE/pr-preview/pr-1"
+            return "$TEST_HYDRATE_STATUS" ;;
+          *" bound-pages-directory "*)
+            echo "pages_preview_digest=$(printf 'a%.0s' {1..64})" >> "$PREVIEW_BOUND_OUTPUT" ;;
+        esac
+      }
+    '''
+    site = tmp_path / "site"
+    (site / "_site").mkdir(parents=True)
+    env = dict(os.environ, GITHUB_WORKSPACE=str(site), RUNNER_TEMP=str(tmp_path),
+               GITHUB_ENV=str(tmp_path / "env"), GITHUB_REPOSITORY="o/r",
+               CANDIDATE_PYTHON="python", TRUSTED_DASHBOARD_VALIDATOR_DIR="scripts/vllm",
+               DASHBOARD_STATE_CODE_SHA="a", DASHBOARD_TRUSTED_MAIN_SHA="a",
+               TEST_CALLS=str(calls), TEST_LS_REMOTE_STATUS=str(ls_remote_status),
+               TEST_HYDRATE_STATUS=str(hydrate_status))
+    result = subprocess.run(
+        ["bash", "-c", fake + _preview_preservation(workflow)], cwd=site, env=env,
+        capture_output=True, text=True,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (len(calls.read_text().split()) if calls.exists() else 0) == hydrate_calls
+    assert not (site / "_site/pr-preview").exists()
+    assert "DASHBOARD_PREVIEW_DIGEST=" in (tmp_path / "env").read_text()

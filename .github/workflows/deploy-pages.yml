@@ -133,7 +133,8 @@ jobs:
               return 90
             fi
             if ! GIT_NO_LAZY_FETCH=1 git cat-file -e "$object_id"; then
-              if ! git fetch --no-tags --filter=blob:none origin "$object_id"; then
+              if ! git -c fetch.negotiationAlgorithm=noop fetch --no-tags --filter=blob:none \
+                origin "$object_id"; then
                 echo "::error::Could not fetch size-proven $label object $object_id."
                 return 90
               fi
@@ -1173,8 +1174,6 @@ jobs:
           set -euo pipefail
           rm -rf "$GITHUB_WORKSPACE/_site/pr-preview"
           PREVIEW_STAGE="$RUNNER_TEMP/proven-pages-previews"
-          rm -rf "$PREVIEW_STAGE"
-          mkdir -p "$PREVIEW_STAGE"
           set +e
           git ls-remote --exit-code --refs origin refs/heads/gh-pages \
             > "$RUNNER_TEMP/gh-pages-before-preservation.ls-remote"
@@ -1182,17 +1181,25 @@ jobs:
           set -e
           case "$pages_ref_status" in
             0)
-              set +e
-              "$CANDIDATE_PYTHON" \
-                "$TRUSTED_DASHBOARD_VALIDATOR_DIR/github_git_proof.py" \
-                hydrate-ref \
-                --repository "$GITHUB_REPOSITORY" \
-                --branch gh-pages --profile pages --root . --remote origin \
-                --output "$RUNNER_TEMP/predeploy-pages-proof.json" \
-                --materialize-root "$PREVIEW_STAGE" \
-                --materialize-prefix pr-preview/
-              preview_status=$?
-              set -e
+              # PR previews are optional; an ambiguous or missing proof (exit
+              # 90) drops them rather than the canonical publication.
+              for attempt in 1 2; do
+                rm -rf "$PREVIEW_STAGE"
+                mkdir -p "$PREVIEW_STAGE"
+                set +e
+                "$CANDIDATE_PYTHON" \
+                  "$TRUSTED_DASHBOARD_VALIDATOR_DIR/github_git_proof.py" \
+                  hydrate-ref \
+                  --repository "$GITHUB_REPOSITORY" \
+                  --branch gh-pages --profile pages --root . --remote origin \
+                  --output "$RUNNER_TEMP/predeploy-pages-proof.json" \
+                  --materialize-root "$PREVIEW_STAGE" \
+                  --materialize-prefix pr-preview/
+                preview_status=$?
+                set -e
+                case "$preview_status" in 0|2) break ;; 90) ;; *) exit "$preview_status" ;; esac
+                [ "$attempt" -eq 2 ] || sleep 5
+              done
               case "$preview_status" in
                 0)
                   if [ -d "$PREVIEW_STAGE/pr-preview" ]; then
@@ -1203,8 +1210,8 @@ jobs:
                   echo "::warning::Existing Pages is definitively outside the safe profile; publishing the recovered canonical root without unsafe previews."
                   ;;
                 *)
-                  echo "::error::Existing Pages proof was ambiguous; refusing publication."
-                  exit 90
+                  rm -rf "$PREVIEW_STAGE/pr-preview"
+                  echo "::error::Could not preserve PR previews; publishing canonical root without them."
                   ;;
               esac
               ;;
@@ -1216,8 +1223,7 @@ jobs:
               echo "No existing Pages branch; there are no previews to preserve."
               ;;
             *)
-              echo "::error::Could not resolve gh-pages for preview preservation."
-              exit 90
+              echo "::warning::Could not preserve PR previews; publishing canonical root without them."
               ;;
           esac
           PREVIEW_BOUND_OUTPUT="$RUNNER_TEMP/bounded-pages-directory.outputs"

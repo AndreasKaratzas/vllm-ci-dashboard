@@ -57,7 +57,7 @@ jobs:
 
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       contents: read
       pull-requests: write
@@ -77,11 +77,11 @@ jobs:
 
       - name: Run tests
         id: run-tests
-        timeout-minutes: 7
+        timeout-minutes: 13
         run: |
           set -o pipefail
-          timeout --signal=TERM --kill-after=15s 6m \
-            pytest tests/ -m 'not live_data' -v --tb=short -o faulthandler_timeout=60 2>&1 | tee test-output.txt
+          timeout --signal=TERM --kill-after=15s 11m \
+            pytest tests/ -m 'not live_data' -n auto -v --tb=short -o faulthandler_timeout=60 2>&1 | tee test-output.txt
 
       - name: Stage bounded test diagnostics
         if: always()
@@ -315,6 +315,7 @@ jobs:
     # End-to-end: assemble the exact public site, render every public route in
     # Chromium with current generated data, and fail on browser/runtime errors.
     runs-on: ubuntu-24.04
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -357,10 +358,12 @@ jobs:
 
       - name: Run dashboard browser smoke
         working-directory: tests/browser
+        # Below the job cap so a slow failure still uploads its traces.
+        timeout-minutes: 35
         run: npm test
 
       - name: Upload browser traces on failure
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dashboard-browser-traces

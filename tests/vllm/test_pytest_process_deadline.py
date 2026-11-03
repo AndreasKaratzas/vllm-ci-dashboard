@@ -37,13 +37,13 @@ def _running(pid):
 def test_workflow_deadline_propagates_status_and_stops_descendants(tmp_path, workflow, case, expected):
     job, steps = _steps(workflow)
     step = steps["Run tests" if workflow == "ci.yml" else "Run test suite"]
-    assert job["timeout-minutes"] == (15 if workflow == "ci.yml" else 75)
-    assert step["timeout-minutes"] == 7
-    assert "--signal=TERM --kill-after=15s 6m" in step["run"]
+    assert job["timeout-minutes"] == (20 if workflow == "ci.yml" else 75)
+    assert step["timeout-minutes"] == 13
+    assert "--signal=TERM --kill-after=15s 11m" in step["run"]
     assert "faulthandler_timeout=60" in step["run"]
     # Only duration literals change. The production env isolation, pipeline,
     # PIPESTATUS handling and bounded diagnostic encoding execute unchanged.
-    script = step["run"].replace("--kill-after=15s 6m", "--kill-after=0.5s 1s")
+    script = step["run"].replace("--kill-after=15s 11m", "--kill-after=0.5s 1s")
     executable = tmp_path / "pytest"
     executable.write_text('''#!/usr/bin/env python
 import os,signal,subprocess,sys,time
