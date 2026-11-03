@@ -2700,14 +2700,20 @@ def _hourly_buckets(
     return buckets
 
 
-def _summary_provenance(payload: object) -> dict:
+def _summary_provenance(payload: object, *, require_current_scope: bool = True) -> dict:
+    """Return the summary provenance; ``scope_queues`` is set when the scope differs."""
     if not isinstance(payload, dict) or payload.get("schema_version") != SCHEMA_VERSION:
         return {}
     scope = payload.get("scope")
-    if not isinstance(scope, dict) or scope.get("queues") != list(target_queues()):
+    if not isinstance(scope, dict) or not isinstance(scope.get("queues"), list):
+        return {}
+    current_scope = scope["queues"] == list(target_queues())
+    if require_current_scope and not current_scope:
         return {}
     provenance = payload.get("provenance")
-    return dict(provenance) if isinstance(provenance, dict) else {}
+    if not isinstance(provenance, dict):
+        return {}
+    return dict(provenance) if current_scope else {**provenance, "scope_queues": scope["queues"]}
 
 
 def _job_directory_generation(path: Path) -> str:
@@ -2768,7 +2774,7 @@ def validate_local_ledger_generation(*, jobs_path: Path, summary_path: Path) -> 
         summary = json.loads(summary_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise RuntimeError("queue lifecycle summary is not valid UTF-8 JSON") from exc
-    ledger = _summary_provenance(summary).get("ledger")
+    ledger = _summary_provenance(summary, require_current_scope=False).get("ledger")
     if not _ledger_manifest_complete(ledger):
         raise RuntimeError("queue lifecycle summary lacks a complete ledger manifest")
 
@@ -3655,7 +3661,7 @@ def _git_ref_summary_provenance(git_ref: str) -> dict:
     except json.JSONDecodeError as exc:
         log.warning("Ignoring malformed derived lifecycle summary at %s: %s", git_ref, exc)
         return {}
-    return _summary_provenance(payload)
+    return _summary_provenance(payload, require_current_scope=False)
 
 
 def maintain_job_ledger(
@@ -3750,6 +3756,13 @@ def restore_exact_job_ledger(
             )
         )
     )
+    scope_migration = "scope_queues" in remote_provenance
+    if scope_migration:
+        log.warning(
+            "Re-segmenting lifecycle ledger from queue scope %s to %s",
+            remote_provenance["scope_queues"],
+            list(target_queues()),
+        )
     current = _provenance_datetime(remote_provenance.get("last_successful_query_end"))
     if current is None:
         raise RuntimeError(f"established lifecycle ref {git_ref} has no safe query horizon")
@@ -3773,6 +3786,7 @@ def restore_exact_job_ledger(
     if (
         ledger["generation_sha256"] != remote_ledger["generation_sha256"]
         and not migration_requires_rewrite
+        and not scope_migration
     ):
         raise RuntimeError(f"lifecycle generation at {git_ref} changes at its bound horizon")
     _, _, output_is_legacy = _remote_ledger_read_contract(ledger)

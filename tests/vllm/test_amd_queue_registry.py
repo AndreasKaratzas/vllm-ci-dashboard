@@ -76,12 +76,37 @@ def test_unreachable_upstream_keeps_the_newest_last_good_registry(tmp_path, monk
     def unreachable():
         raise OSError("network down")
 
-    kept = registry.refresh(path, fallback_git_refs=["origin/dashboard-state"], fetch=unreachable)
+    kept = registry.refresh(
+        path,
+        fallback_git_refs=["origin/dashboard-state"],
+        fetch=unreachable,
+        now=datetime(2026, 11, 3, tzinfo=timezone.utc),
+    )
 
     assert kept["source"]["commit"] == "b" * 40
-    assert json.loads(path.read_text()) == newer
+    assert json.loads(path.read_text()) == kept
+    assert registry.registry_provenance(kept)["fallback"] == {
+        "reason": "OSError: network down", "attempted_at": "2026-11-03T00:00:00Z",
+    }
+    assert "fallback" not in registry.refresh(path, fetch=_registry)["source"]
 
     missing = tmp_path / "missing.json"
     with pytest.raises(registry.RegistryError, match="no last-good registry"):
         registry.refresh(missing, fetch=unreachable)
     assert not missing.exists()
+
+
+def test_device_queues_the_dashboard_cannot_map_are_recorded_not_dropped():
+    constants = CONSTANTS.replace(
+        '    AMD_MI355_1 = "mi355_1"\n', '    AMD_MI355_1 = "mi355_1"\n    AMD_MI355_X = "mi355_x"\n', 1
+    ) + '    AMD_MI355_X = "amd-mi355-x"\n'
+    amd = AMD.replace(
+        "}\n",
+        "    DeviceType.AMD_MI355_X.value: AmdDeviceConfig(queue=AgentQueue.AMD_MI355_X, default_gpu_count=1),\n}\n",
+    )
+
+    parsed = registry.build_registry(constants, amd, commit=SHA, fetched_at=datetime.now(timezone.utc))
+
+    assert "amd-mi355-x" not in registry.tracked_queues(parsed)
+    assert parsed["unrecognized_queues"] == [{"device": "mi355_x", "queue": "amd-mi355-x"}]
+    assert registry.registry_provenance(parsed)["unrecognized_queues"] == parsed["unrecognized_queues"]

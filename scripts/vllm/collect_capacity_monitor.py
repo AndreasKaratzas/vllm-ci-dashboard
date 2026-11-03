@@ -610,6 +610,11 @@ def _summary(
     groups: list[dict[str, Any]], queue_rollups: dict[str, dict[str, Any]]
 ) -> dict[str, Any]:
     capacity_groups = [group for group in groups if group.get("in_capacity_scope")]
+    known_capacity_groups = [
+        group
+        for group in capacity_groups
+        if CAPACITY_BY_QUEUE[str(group.get("queue"))]["max_concurrent_jobs"] is not None
+    ]
     all_dependency_files: dict[str, int] = {}
     for group in groups:
         # Dependency line totals are summed per group because that is the work
@@ -645,6 +650,7 @@ def _summary(
         },
         "gated_group_count": gated_group_count,
         "capacity_scoped_group_count": len(capacity_groups),
+        "known_capacity_group_count": len(known_capacity_groups),
         "gated_job_count": sum(int(group.get("parallelism") or 1) for group in capacity_groups),
         "gated_gpu_demand": sum(
             int(group.get("parallelism") or 1)
@@ -671,8 +677,9 @@ def _projection(
     queue_rollups: dict[str, dict[str, Any]],
     theoretical_groups: int,
 ) -> dict[str, Any]:
+    # Unknown-capacity lanes stay out of the base and totals; they are reported separately.
     base_groups = max(
-        1, int(summary.get("capacity_scoped_group_count") or summary.get("gated_group_count") or 1)
+        1, int(summary.get("known_capacity_group_count") or summary.get("gated_group_count") or 1)
     )
     scale = theoretical_groups / base_groups
     queue_rows = []
@@ -740,8 +747,10 @@ def _projection(
         key=lambda row: float(row["projected_future_capacity_ratio"] or 0),
         default=None,
     )
-    projected_total_jobs = round(sum(row["projected_jobs"] for row in queue_rows), 1)
-    projected_total_gpus = round(sum(row["projected_gpu_demand"] for row in queue_rows), 1)
+    known_rows = [row for row in queue_rows if row["max_concurrent_jobs"] is not None]
+    unknown_rows = [row for row in queue_rows if row["max_concurrent_jobs"] is None]
+    projected_total_jobs = round(sum(row["projected_jobs"] for row in known_rows), 1)
+    projected_total_gpus = round(sum(row["projected_gpu_demand"] for row in known_rows), 1)
     monitored_capacity = summary["capacity"]["monitored"]
     future_capacity = summary["capacity"]["future_eligible"]
     total_capacity = int(monitored_capacity["concurrent_jobs"])
@@ -794,12 +803,19 @@ def _projection(
             row["id"] for row in queue_rows if row["requires_migration"]
         ],
         "projected_gap_jobs": round(
-            sum(float(row["projected_gap_jobs"] or 0) for row in queue_rows),
+            sum(float(row["projected_gap_jobs"]) for row in known_rows),
             1,
         ),
         "projected_gap_gpus": round(
-            sum(float(row["projected_gap_gpus"] or 0) for row in queue_rows),
+            sum(float(row["projected_gap_gpus"]) for row in known_rows),
             1,
+        ),
+        "unknown_capacity_queues": [row["id"] for row in unknown_rows],
+        "unknown_capacity_projected_jobs": round(
+            sum(row["projected_jobs"] for row in unknown_rows), 1
+        ),
+        "unknown_capacity_projected_gpus": round(
+            sum(row["projected_gpu_demand"] for row in unknown_rows), 1
         ),
         "queues": queue_rows,
     }

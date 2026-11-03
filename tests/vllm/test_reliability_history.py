@@ -216,10 +216,13 @@ def test_one_shards_retried_pass_does_not_hide_another_shards_hard_failure():
     ]
     hidden = _dataset([_build(601, [*retried, shard("s2-fail", 1, "failed")], state="failed")])
     recovered = _dataset([_build(602, [*retried, shard("s2-pass", 1, "passed")])])
+    canceled_shard = _dataset([_build(603, [shard("s1-pass", 0, "passed"), shard("s2-cancel", 1, "canceled")])])
 
     assert hidden["groups"][0]["outcome_history"]["results"] == "f"
     assert hidden["builds"][0]["amd_jobs"]["hard"] == 1
     assert recovered["groups"][0]["outcome_history"]["results"] == "r"
+    assert canceled_shard["groups"][0]["outcome_history"]["results"] == ""
+    assert canceled_shard["builds"][0]["amd_jobs"]["passed"] == 0
 
 
 def test_reliability_denominator_excludes_non_pass_fail_soft_fail_states():

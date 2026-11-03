@@ -81,6 +81,7 @@ from vllm.constants import (  # noqa: E402
 )
 
 ROOT = Path(__file__).resolve().parent.parent.parent
+AMD_QUEUE_REGISTRY_STALE_HOURS = 48
 DATA = ROOT / "data"
 VLLM = DATA / "vllm"
 CI = VLLM / "ci"
@@ -7629,6 +7630,46 @@ class DashboardAudit:
         }
 
 
+    def _audit_queue_registry(self, scope: dict) -> None:
+        path = "data/vllm/ci/queue_timeseries.jsonl"
+        registry = _mapping(scope.get("registry"))
+        fallback = _mapping(registry.get("fallback"))
+        if fallback:
+            self.warning(
+                "amd-queue-registry-fallback",
+                f"ci-infra AMD queue routing was unavailable ({fallback.get('reason')}); "
+                f"the queue scope is the registry fetched at {registry.get('fetched_at')}",
+                path,
+            )
+        fetched_at = parse_iso(registry.get("fetched_at"))
+        if fetched_at and fetched_at.tzinfo is not None:
+            age_hours = (datetime.now(timezone.utc) - fetched_at).total_seconds() / 3600
+            if age_hours > AMD_QUEUE_REGISTRY_STALE_HOURS:
+                self.warning(
+                    "amd-queue-registry-stale",
+                    f"AMD queue registry was last fetched from ci-infra {age_hours:.1f}h ago",
+                    path,
+                )
+        for row in registry.get("unrecognized_queues") or []:
+            row = _mapping(row)
+            self.warning(
+                "amd-queue-registry-unrecognized",
+                f"ci-infra AMD device {row.get('device')} routes to queue {row.get('queue')}, "
+                "which the dashboard cannot map to AMD hardware",
+                path,
+            )
+        unregistered = [
+            queue
+            for queue in scope.get("unregistered_active_queue_ids") or []
+            if amd_gpu_hardware(str(queue)) in TARGET_HARDWARE
+        ]
+        if unregistered:
+            self.warning(
+                "amd-queue-unregistered-active",
+                "active target-family queues absent from ci-infra routing: " + ", ".join(unregistered),
+                path,
+            )
+
     def audit_queue_data(
         self, *, validate_derived: bool = False, require_current_scope: bool = False,
     ) -> None:
@@ -7659,6 +7700,7 @@ class DashboardAudit:
                     f"latest queue snapshot is {age_hours:.1f}h old",
                     "data/vllm/ci/queue_timeseries.jsonl",
                 )
+        self._audit_queue_registry(_mapping(latest.get("target_queue_scope")))
 
         workload_mismatches: list[str] = []
         retired_queue_rows = 0

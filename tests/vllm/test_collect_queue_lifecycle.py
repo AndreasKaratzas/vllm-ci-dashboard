@@ -2605,3 +2605,44 @@ def test_restore_migrates_live_shape_90mib_legacy_generation_above_current_cap(
         jobs_path=jobs_path,
         summary_path=summary_path,
     ) == (1, 1)
+
+
+def test_restore_re_segments_a_ledger_published_under_another_queue_scope(monkeypatch, tmp_path):
+    """An upstream queue change must not wedge the durable restore step."""
+    legacy_scope = [f"amd_mi{family}_{width}" for family in (250, 300, 355) for width in (1, 2, 4, 8)]
+    rows = [_observation(1), _observation(2, queue="amd_mi250_4"), _observation(3, queue="amd_mi355_8")]
+
+    def restore(scope: list[str], name: str) -> dict:
+        with monkeypatch.context() as legacy:
+            legacy.setattr(lifecycle, "physical_queue", lambda queue: queue)
+            payloads, ledger = lifecycle.encode_job_segments(
+                rows, retention_start=NOW - timedelta(days=7), end_exclusive=NOW
+            )
+        published = {
+            "schema_version": 1,
+            "scope": {"queues": scope},
+            "provenance": {
+                "last_successful_query_end": lifecycle._utc_iso(NOW),
+                "last_successful_query_mode": lifecycle.FULL_QUERY_MODE,
+                "ledger": ledger,
+            },
+        }
+        monkeypatch.setattr(
+            lifecycle,
+            "_git_ref_summary_provenance",
+            lambda ref: lifecycle._summary_provenance(published, require_current_scope=False),
+        )
+        _mock_remote_segments(monkeypatch, payloads)
+        summary = lifecycle.restore_exact_job_ledger(
+            jobs_path=tmp_path / name / "jobs", summary_path=tmp_path / name / "summary.json",
+            git_ref="origin/queue-lifecycle-data",
+        )
+        assert summary["scope"]["queues"] == list(lifecycle.target_queues())
+        return {row["queue"] for row in lifecycle.read_job_directory(tmp_path / name / "jobs")}
+
+    assert restore(legacy_scope, "lanes") == {"amd_mi300_1", "amd_mi250", "amd_mi355_8"}
+
+    monkeypatch.setattr(
+        lifecycle, "target_queues", lambda: tuple(q for q in TARGET_QUEUES if q != "amd_mi355_8")
+    )
+    assert restore(list(TARGET_QUEUES), "retired") == {"amd_mi300_1", "amd_mi250"}

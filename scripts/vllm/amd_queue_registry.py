@@ -88,8 +88,11 @@ def _enum_ref(node: ast.expr | None, enum: str, members: dict[str, str]) -> str:
     raise RegistryError(f"ci-infra AMD device config has an unresolvable {enum} reference")
 
 
-def parse_ci_infra(constants_source: str, amd_source: str) -> list[dict[str, Any]]:
-    """Return AMD GPU queues routed by ci-infra, in upstream device order."""
+def parse_ci_infra(
+    constants_source: str, amd_source: str
+) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+    """Return AMD GPU queues routed by ci-infra in upstream device order, plus the
+    device/queue pairs whose queue name the dashboard cannot map to hardware."""
     try:
         constants = ast.parse(constants_source)
         amd = ast.parse(amd_source)
@@ -114,12 +117,13 @@ def parse_ci_infra(constants_source: str, amd_source: str) -> list[dict[str, Any
         raise RegistryError("ci-infra amd.py has no AMD_DEVICE_CONFIGS mapping")
 
     rows: dict[str, dict[str, Any]] = {}
+    unrecognized: list[dict[str, str]] = []
     for key, value in zip(configs.keys, configs.values):
-        if not isinstance(value, ast.Call) or not value.args:
+        if not isinstance(value, ast.Call):
             raise RegistryError("ci-infra AMD device config is not a constructor call")
         device = _enum_ref(key, "DeviceType", devices)
-        queue = _enum_ref(value.args[0], "AgentQueue", queues)
         keywords = {kw.arg: kw.value for kw in value.keywords if kw.arg}
+        queue = _enum_ref(value.args[0] if value.args else keywords.get("queue"), "AgentQueue", queues)
         gpus_node = value.args[1] if len(value.args) > 1 else keywords.get("default_gpu_count")
         tag_node = keywords.get("gpu_size_tag")
         gpus = gpus_node.value if isinstance(gpus_node, ast.Constant) else None
@@ -128,6 +132,7 @@ def parse_ci_infra(constants_source: str, amd_source: str) -> list[dict[str, Any
             raise RegistryError(f"ci-infra AMD device {device} has an invalid GPU shape")
         hardware = amd_gpu_hardware(queue)
         if not hardware:
+            unrecognized.append({"device": device, "queue": queue})
             continue
         row = rows.setdefault(
             queue,
@@ -136,7 +141,7 @@ def parse_ci_infra(constants_source: str, amd_source: str) -> list[dict[str, Any
         if row["gpu_size_tag"] != gpu_size_tag:
             raise RegistryError(f"ci-infra queue {queue} mixes gpu_size routing modes")
         row["devices"].append({"device": device, "gpus": gpus})
-    return validate_queues(list(rows.values()))
+    return validate_queues(list(rows.values())), unrecognized
 
 
 def validate_queues(value: object) -> list[dict[str, Any]]:
@@ -207,16 +212,33 @@ def validate_registry(payload: object) -> dict[str, Any]:
         datetime.fromisoformat(source["fetched_at"].replace("Z", "+00:00"))
     except ValueError as exc:
         raise RegistryError("AMD queue registry fetched_at is invalid") from exc
+    fallback = source.get("fallback")
+    if fallback is not None and (
+        not isinstance(fallback, dict)
+        or set(fallback) != {"reason", "attempted_at"}
+        or not all(isinstance(value, str) for value in fallback.values())
+    ):
+        raise RegistryError("AMD queue registry fallback provenance is invalid")
+    unrecognized = payload.get("unrecognized_queues", [])
+    if not isinstance(unrecognized, list) or any(
+        not isinstance(row, dict)
+        or set(row) != {"device", "queue"}
+        or not all(isinstance(value, str) for value in row.values())
+        for row in unrecognized
+    ):
+        raise RegistryError("AMD queue registry unrecognized_queues is invalid")
     return {
         "schema_version": SCHEMA_VERSION,
         "source": dict(source),
         "queues": validate_queues(payload.get("queues")),
+        "unrecognized_queues": [dict(row) for row in unrecognized],
     }
 
 
 def build_registry(
     constants_source: str, amd_source: str, *, commit: str, fetched_at: datetime
 ) -> dict[str, Any]:
+    queues, unrecognized = parse_ci_infra(constants_source, amd_source)
     return validate_registry(
         {
             "schema_version": SCHEMA_VERSION,
@@ -225,11 +247,16 @@ def build_registry(
                 "ref": CI_INFRA_REF,
                 "commit": commit,
                 "paths": [CI_INFRA_CONSTANTS_PATH, CI_INFRA_AMD_PATH],
-                "fetched_at": fetched_at.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "fetched_at": _utc_iso(fetched_at),
             },
-            "queues": parse_ci_infra(constants_source, amd_source),
+            "queues": queues,
+            "unrecognized_queues": unrecognized,
         }
     )
+
+
+def _utc_iso(value: datetime) -> str:
+    return value.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _github_headers() -> dict[str, str]:
@@ -282,8 +309,9 @@ def refresh(
     fallback_git_refs: Iterable[str] = (),
     fetch: Callable[[], dict[str, Any]] = fetch_upstream,
     root: Path = ROOT,
+    now: datetime | None = None,
 ) -> dict[str, Any]:
-    """Write the live registry, else the newest valid last-good copy."""
+    """Write the live registry, else the newest valid last-good copy marked as a fallback."""
     try:
         registry = fetch()
     except Exception as exc:
@@ -303,6 +331,10 @@ def refresh(
                 "ci-infra AMD queue routing is unreachable and no last-good registry exists"
             ) from exc
         registry = max(candidates, key=lambda row: row["source"]["fetched_at"])
+        registry["source"]["fallback"] = {
+            "reason": f"{type(exc).__name__}: {exc}"[:300],
+            "attempted_at": _utc_iso(now or datetime.now(timezone.utc)),
+        }
         log.warning(
             "Using last-good AMD queue registry from ci-infra %s fetched at %s",
             registry["source"]["commit"],
@@ -329,8 +361,17 @@ def _read_registry(path: Path) -> dict[str, Any]:
 
 
 def registry_provenance(registry: dict[str, Any] | None = None) -> dict[str, Any]:
-    source = (registry or load_registry())["source"]
-    return {key: source[key] for key in ("repository", "commit", "fetched_at")}
+    registry = registry or load_registry()
+    source = registry["source"]
+    return {
+        **{key: source[key] for key in ("repository", "commit", "fetched_at")},
+        **({"fallback": source["fallback"]} if "fallback" in source else {}),
+        **(
+            {"unrecognized_queues": registry["unrecognized_queues"]}
+            if registry["unrecognized_queues"]
+            else {}
+        ),
+    }
 
 
 def tracked_queues(registry: dict[str, Any] | None = None) -> tuple[str, ...]:
@@ -411,6 +452,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     registry = refresh(args.output or REGISTRY_PATH, fallback_git_refs=args.fallback_git_ref)
+    fallback = registry["source"].get("fallback")
+    if fallback:
+        print(
+            "::warning::ci-infra AMD queue routing unavailable; using the registry fetched at "
+            f"{registry['source']['fetched_at']} ({fallback['reason']})"
+        )
+    for row in registry["unrecognized_queues"]:
+        print(
+            f"::warning::ci-infra AMD device {row['device']} routes to queue {row['queue']}, "
+            "which the dashboard cannot map to AMD hardware"
+        )
     log.info(
         "AMD queue registry: %d queues from %s@%s; target scope %s",
         len(registry["queues"]),

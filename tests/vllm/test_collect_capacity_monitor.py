@@ -161,6 +161,7 @@ def test_parse_amd_mirror_groups_allows_a_file_without_steps(tmp_path: Path) -> 
 def test_capacity_payload_projects_theoretical_group_count(tmp_path: Path) -> None:
     repo = _fake_repo(tmp_path)
 
+    baseline = ccm.build_capacity_payload(_fake_repo(tmp_path / "baseline"), theoretical_groups=4)
     payload = ccm.build_capacity_payload(repo, theoretical_groups=4)
 
     assert payload["summary"]["gated_group_count"] == 2
@@ -524,6 +525,7 @@ steps:
 """,
     )
 
+    baseline = ccm.build_capacity_payload(_fake_repo(tmp_path / "baseline"), theoretical_groups=4)
     payload = ccm.build_capacity_payload(repo, theoretical_groups=4)
 
     group = next(row for row in payload["groups"] if row["device"] == "mi355_dpx")
@@ -533,5 +535,10 @@ steps:
     assert queue["capacity_source"] == "unconfigured"
     assert queue["max_concurrent_jobs"] is None
     assert queue["projected_capacity_ratio"] is None
+    projection = payload["projection"]
+    assert projection["unknown_capacity_queues"] == ["amd_mi355_dpx"]
+    assert projection["unknown_capacity_projected_jobs"] == queue["projected_jobs"] > 0
+    for key in ("base_groups", "scale", "projected_total_jobs", "projected_capacity_ratio", "projected_gap_jobs"):
+        assert projection[key] == baseline["projection"][key]
     assert payload["scope"]["unconfigured_capacity_queues"] == ["amd_mi355_dpx"]
     assert payload["scope"]["queue_registry"]["repository"] == "vllm-project/ci-infra"

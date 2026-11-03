@@ -646,6 +646,11 @@ is parsed from ci-infra's `AgentQueue` and `AMD_DEVICE_CONFIGS` at a recorded
 commit and cached as last-good dashboard state. That includes the shared
 `amd_mi250` queue, whose widths ci-infra splits only by a `gpu_size` tag, and
 `amd_mi355_dpx`; retired per-width `amd_mi250_N` queues fold into `amd_mi250`.
+When ci-infra cannot be fetched or parsed, the cached copy is republished with
+`source.fallback`, and the audit warns on a fallback, a registry older than 48
+hours, a ci-infra device queue the dashboard cannot map to hardware, or an
+active target-family queue ci-infra does not route. A ledger published under a
+different queue scope is re-segmented under the current one on restore.
 MI325, MI355B, CPU, partner, perf-eval, and router queues are excluded from
 these totals. The collector records three event-time facts independently:
 incoming work at REST `build.jobs[].runnable_at`, served work at

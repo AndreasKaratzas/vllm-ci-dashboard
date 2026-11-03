@@ -659,6 +659,7 @@ def _retry_depth(job_id: str, predecessors: dict[str, set[str]]) -> int:
 
 
 _OUTCOME_RANK = {"hard": 3, "soft": 2, "passed": 1, "indeterminate": 0}
+_STEP_OUTCOME_RANK = {"hard": 3, "soft": 2, "indeterminate": 1, "passed": 0}
 
 
 def _final_attempt(attempts: list[dict]) -> dict:
@@ -715,6 +716,8 @@ def collapse_nightly_attempts(
     evidence, incident outcomes win ties conservatively so unrelated duplicate
     rows cannot manufacture a recovery.
     """
+    if pipeline_slug == "ci":
+        return _collapse_step_attempts(jobs, pipeline_slug)
     grouped: dict[str, dict] = {}
     for job in jobs:
         if not isinstance(job, dict):
@@ -742,11 +745,21 @@ def _collapse_step_attempts(
     jobs: list[dict],
     pipeline_slug: str,
 ) -> dict[str, dict]:
-    """One main-CI outcome per step: each shard's final attempt, then the worst shard."""
+    """One main-CI outcome per step: each shard's final attempt, then the worst shard.
+
+    A shard that did not run outranks a passed shard, so a step passes only
+    when every shard passed.
+    """
     shards: dict[str, dict[tuple, list[dict]]] = {}
+    identities: dict[str, dict[str, str]] = {}
     for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        identity = _step_identity(job, pipeline_slug)
+        group_id = _step_group_id(identity)
+        identities.setdefault(group_id, identity)
         index = job.get("parallel_group_index")
-        shards.setdefault(_step_group_id(_step_identity(job, pipeline_slug)), {}).setdefault(
+        shards.setdefault(group_id, {}).setdefault(
             (nightly_signal_id(job, pipeline_slug), index if type(index) is int else -1), []
         ).append(job)
 
@@ -756,12 +769,13 @@ def _collapse_step_attempts(
         final = max(
             finals,
             key=lambda job: (
-                _OUTCOME_RANK[nightly_job_outcome(job)],
+                _STEP_OUTCOME_RANK[nightly_job_outcome(job)],
                 _attempt_time_rank(job),
                 _attempt_id(job),
             ),
         )
         selected[group_id] = {
+            "identity": identities[group_id],
             "job": final,
             "outcome": nightly_job_outcome(final),
             "shards": finals,

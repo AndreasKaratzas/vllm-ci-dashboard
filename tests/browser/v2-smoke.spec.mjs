@@ -13,8 +13,8 @@ test.describe('Home', () => {
     await expect(page.getByTestId('kpi-nightly').locator('[data-slot=kpi-value]')).toHaveText(/^2\s*failing$/);
     await expect(page.getByTestId('kpi-nightly')).toContainText('Hard failures');
     await expect(page.getByTestId('kpi-nightly')).toContainText('No net change');
-    await expect(page.getByTestId('kpi-nightly')).toContainText('#30005 - 4 pass - 0 soft - 2 hard');
-    await expect(page.getByTestId('kpi-pass-rate')).toContainText('66.7%');
+    await expect(page.getByTestId('kpi-nightly')).toContainText('#30005 - 3 pass - 0 soft - 2 hard');
+    await expect(page.getByTestId('kpi-pass-rate')).toContainText('60.0%');
     await expect(page.getByTestId('kpi-parity')).toContainText('90.9%');
     await expect(page.getByTestId('kpi-parity')).toContainText('1 missing');
     await expect(page.getByTestId('kpi-attention')).toContainText('2');

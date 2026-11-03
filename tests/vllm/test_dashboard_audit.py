@@ -802,6 +802,29 @@ def test_queue_only_entrypoint_runs_targeted_semantic_audit(tmp_path, monkeypatc
     assert audit_module.main(["--queue-only", "--format", "json"]) == 1
 
 
+def test_queue_registry_fallback_staleness_and_drift_are_audit_warnings(tmp_path):
+    fresh = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    healthy = DashboardAudit(tmp_path)
+    healthy._audit_queue_registry({"registry": {"fetched_at": fresh}, "unregistered_active_queue_ids": ["amd_mi325_9"]})
+    assert not healthy.report.warnings
+
+    drifted = DashboardAudit(tmp_path)
+    drifted._audit_queue_registry({
+        "registry": {
+            "fetched_at": "2026-01-01T00:00:00Z",
+            "fallback": {"reason": "HTTPError: 404", "attempted_at": fresh},
+            "unrecognized_queues": [{"device": "mi355_x", "queue": "amd-mi355-x"}],
+        },
+        "unregistered_active_queue_ids": ["amd_mi355_x_1"],
+    })
+    assert {finding.code for finding in drifted.report.warnings} == {
+        "amd-queue-registry-fallback",
+        "amd-queue-registry-stale",
+        "amd-queue-registry-unrecognized",
+        "amd-queue-unregistered-active",
+    }
+
+
 def test_queue_producer_accepts_first_idle_snapshot_and_checks_derived_files(
     tmp_path,
 ):

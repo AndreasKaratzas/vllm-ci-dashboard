@@ -483,11 +483,12 @@ bounded by the durable ledgers.
 step outcomes (`amd_jobs`). A group is one Buildkite step key on one hardware
 and queue (the label without its `Shard k/t` suffix only when a job has no step
 key), so automatic shard re-plans keep one history. Each group records its
-per-build final outcome, the worst of its shards' final attempts
-(`outcome_history`, with `r` marking a pass reached only by retrying a hard
-failure, `wall_mins` holding the summed wall time of a passing build's shards,
-and `jobs` its shard count). `group_identity_version` names this identity; the
-failure watcher re-keys held incidents once when it changes.
+per-build final outcome, the worst of its shards' final attempts, where a
+shard that did not run outranks a passed one (`outcome_history`, with `r`
+marking a pass reached only by retrying a hard failure, `wall_mins` holding the summed wall time of a passing build's shards,
+and `jobs` its shard count). The operations snapshot and analytics nightly
+change history key main-CI groups the same way. `group_identity_version` names
+this identity; the failure watcher re-keys held incidents once when it changes.
 From that one cohort:
 
 - `ci_main_failure_watcher.py` confirms incidents (hard immediately, soft after
