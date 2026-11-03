@@ -14,6 +14,10 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   forbidOnly: Boolean(process.env.CI),
+  // A passed retry is reported as flaky, so the signal is kept.
+  retries: process.env.CI ? 1 : 0,
+  // A broad regression stops early with a report instead of hitting the job cap.
+  maxFailures: process.env.CI ? 10 : 0,
   timeout: 45_000,
   expect: { timeout: 25_000 },
   reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : 'list',

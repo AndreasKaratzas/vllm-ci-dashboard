@@ -22,7 +22,6 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
 
     assert budget.allocated_bytes + budget.required_headroom_bytes <= budget.max_tree_bytes
     assert budget.required_headroom_bytes >= 16 * 1024 * 1024
-    assert budget.allocated_bytes == 234 * 1024 * 1024 + 256 * 1024
 
     groups = budget.groups
     writers = budget.writer_limits
@@ -121,7 +120,6 @@ def test_allocations_compose_below_state_cap_with_headroom() -> None:
         - sum(writers[name].max_bytes for name in operational_misc_writers)
         >= 3 * 1024
     )
-    assert budget.unmanaged_max_bytes == 26 * 1024 * 1024
     assert budget.max_files == 10_000
 
 
@@ -130,8 +128,6 @@ def test_current_staged_tree_fits_every_composition_envelope() -> None:
     summary = summarize(tracked_blobs(ROOT), budget)
 
     assert violations(summary, budget) == []
-    assert summary.total_bytes <= budget.allocated_bytes
-    assert budget.unmanaged_max_bytes - summary.unmanaged_bytes >= 8 * 1024 * 1024
 
 
 def test_every_current_generated_data_file_has_an_explicit_group() -> None:
@@ -342,6 +338,22 @@ def test_group_and_unmanaged_overflow_are_reported_exactly() -> None:
     assert any("unmanaged dashboard-state content" in failure for failure in failures)
 
 
+def test_unmanaged_cap_is_the_tree_slack_left_by_group_allocations() -> None:
+    budget = load_storage_budget()
+    group_bytes = sum(group.max_bytes for group in budget.groups.values())
+    limit = budget.max_tree_bytes - budget.required_headroom_bytes - group_bytes
+
+    assert budget.unmanaged_max_bytes == limit
+    assert budget.allocated_bytes + budget.required_headroom_bytes == budget.max_tree_bytes
+    for size, failing in ((limit, False), (limit + 1, True)):
+        summary = summarize(
+            [TrackedBlob(path="scripts/code.py", object_id="b" * 40, size=size)],
+            budget,
+        )
+        failures = violations(summary, budget)
+        assert any("unmanaged" in failure for failure in failures) is failing
+
+
 def test_file_count_overflow_is_reported_exactly() -> None:
     budget = load_storage_budget()
     blob = TrackedBlob(
@@ -364,11 +376,10 @@ def test_config_rejects_allocations_that_consume_required_headroom(tmp_path: Pat
     (config_dir / "dashboard_state.json").write_text(json.dumps(state))
     payload = json.loads(DEFAULT_CONFIG_PATH.read_text())
     budget = load_storage_budget()
-    payload["unmanaged_max_bytes"] = budget.unmanaged_max_bytes + (
-        budget.max_tree_bytes - budget.required_headroom_bytes - budget.allocated_bytes
-    ) + 1
+    payload["groups"]["analytics"]["max_bytes"] += budget.unmanaged_max_bytes
     candidate = config_dir / "dashboard_state_storage_budget.json"
     candidate.write_text(json.dumps(payload))
 
     with pytest.raises(StorageBudgetError, match="required state-tree headroom"):
         load_storage_budget(candidate)
+

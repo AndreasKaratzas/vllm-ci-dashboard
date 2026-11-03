@@ -288,6 +288,7 @@ def write_ci_health(
     amd_summaries: list[BuildSummary],
     health_data: list[TestHealth],
     output_dir: Path,
+    unattested_sources: list[dict] | None = None,
 ) -> Path:
     """Write ci_health.json with overall dashboard data.
 
@@ -295,6 +296,8 @@ def write_ci_health(
         amd_summaries: AMD build summaries, newest-first
         health_data: All test health labels
         output_dir: Output directory
+        unattested_sources: AMD jobs published without source attribution,
+            or None when source attestation did not run
 
     Returns:
         Path to the written file.
@@ -356,6 +359,11 @@ def write_ci_health(
         "test_counts": label_counts,
         "total_unique_tests": len(health_data),
     }
+    if unattested_sources is not None:
+        data["source_attestation"] = {
+            "unattested_job_count": len(unattested_sources),
+            "unattested_jobs": unattested_sources[:50],
+        }
 
     path = output_dir / "ci_health.json"
     bounded = _compact_ci_health(data, max_bytes=CI_HEALTH_MAX_BYTES)

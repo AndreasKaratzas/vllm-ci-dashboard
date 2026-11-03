@@ -1,6 +1,7 @@
 """The independent clock only wakes guarded recovery and retains retry state."""
 
 import fcntl
+import http.client
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -129,6 +130,22 @@ def test_dispatch_uses_only_fixed_github_endpoint_main_and_profile(monkeypatch, 
     assert json.loads(request.data) == expected
     assert request.get_header("Authorization") == "Bearer secret"
     assert request.get_header("X-github-api-version") == "2026-03-10"
+
+
+def test_truncated_dispatch_acknowledgment_is_a_retryable_transport_failure(monkeypatch):
+    class Response:
+        status = 200
+
+        def __enter__(self): return self
+        def __exit__(self, *_): return False
+        def read(self, _bound): raise http.client.IncompleteRead(b"{")
+
+    class Opener:
+        def open(self, _request, timeout): return Response()
+
+    monkeypatch.setattr(recovery.urllib.request, "build_opener", lambda *_: Opener())
+    with pytest.raises(recovery.RecoveryTickError, match="transport failed"):
+        recovery.dispatch_workflow(REPOSITORY, "secret", recovery.WORKFLOW)
 
 
 def test_dispatch_refuses_cross_origin_redirect_without_forwarding_token():

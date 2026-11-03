@@ -789,10 +789,10 @@ def normalize_health_evidence() -> None:
                 {
                     "code": "recovery-clock-stale",
                     "message": (
-                        "The newest owner-dispatched Publication Recovery Watchdog "
-                        f"run ({recovery_clock_value or 'none of the newest 100'}) "
-                        "is older than 2.5 hours; the external recovery clock "
-                        "may have stopped."
+                        "The newest Publication Recovery Watchdog run dispatched "
+                        "by the Dashboard Clock "
+                        f"({recovery_clock_value or 'none of the newest 100'}) "
+                        "is older than 2.5 hours; the clock chain may have stopped."
                     ),
                 }
             )

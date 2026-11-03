@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from vllm.operations_bundle_contract import OPERATIONS_MANIFEST_MAX_BYTES  # noqa: E402
 from vllm.plan_dns_publication_reconcile import (  # noqa: E402
     FUTURE_SKEW,
+    RUN_CLOCK_SKEW,
     STATUS_MAX_BYTES,
     _has_valid_contract,
     _load_bounded_json,
@@ -287,11 +288,11 @@ def parse_workflow_runs(payload: object, *, now: datetime) -> tuple[WorkflowRun,
             or not isinstance(status, str)
             or status not in RUN_STATUSES
             or created_at is None
-            or created_at > now + FUTURE_SKEW
+            or created_at > now + RUN_CLOCK_SKEW
             or updated_at is None
-            or updated_at > now + FUTURE_SKEW
+            or updated_at > now + RUN_CLOCK_SKEW
             or (run_started_value is not None and run_started_at is None)
-            or (run_started_at is not None and run_started_at > now + FUTURE_SKEW)
+            or (run_started_at is not None and run_started_at > now + RUN_CLOCK_SKEW)
             or (
                 status == "completed"
                 and (not isinstance(conclusion, str) or conclusion not in COMPLETED_CONCLUSIONS)
@@ -304,9 +305,9 @@ def parse_workflow_runs(payload: object, *, now: datetime) -> tuple[WorkflowRun,
                 run_id=run_id,
                 head_branch=head_branch,
                 status=status,
-                created_at=created_at,
-                run_started_at=run_started_at,
-                updated_at=updated_at,
+                created_at=min(created_at, now),
+                run_started_at=min(run_started_at, now) if run_started_at else None,
+                updated_at=min(updated_at, now),
                 conclusion=conclusion,
                 recovery_key=parsed_recovery_key,
                 head_sha=head_sha,

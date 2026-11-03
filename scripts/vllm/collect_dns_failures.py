@@ -136,7 +136,6 @@ ACTIVE_BUILD_STATES = (
     "scheduled",
     "running",
     "failing",
-    "blocked",
     "canceling",
 )
 AMD_DISCOVERY_QUEUES = tuple(sorted(queue for queue in TRACKED_QUEUES if queue_hardware(queue)))
@@ -1376,11 +1375,12 @@ def discover_job_metadata(builds_by_pipeline: dict[str, Iterable[dict]]) -> list
 
 
 def _refresh_record(record: dict, metadata: dict) -> dict:
-    if ("source_unavailable_commit" in record or "source_unavailable_commit" in metadata) and any(
-        record.get(key) != metadata.get(key)
-        for key in ("pipeline", "build_number", "job_id", "queue", "hardware", "finished_at")
-    ):
-        raise StateValidationError("unavailable source changed the exact job", diagnostic_code="execution_proof_job_mismatch")
+    if "source_unavailable_commit" in record or "source_unavailable_commit" in metadata:
+        differing = [key for key in ("pipeline", "build_number", "job_id", "finished_at")
+                     if record.get(key) != metadata.get(key)]
+        if differing:
+            raise StateValidationError("unavailable source changed the exact job",
+                                       diagnostic_code="execution_proof_job_mismatch", differing_fields=differing)
     refreshed = dict(record)
     for key in (
         "pipeline",
@@ -1409,13 +1409,15 @@ def _refresh_record(record: dict, metadata: dict) -> dict:
             refreshed["execution_proof"] = proof
         if ("source_unavailable_commit" in record
                 and record["source_unavailable_commit"] != metadata["execution_proof"]["source_commit"]):
-            raise StateValidationError("source recovery changed the exact commit", diagnostic_code="execution_proof_conflict")
+            raise StateValidationError("source recovery changed the exact commit", diagnostic_code="execution_proof_conflict",
+                                       differing_fields=["source_commit"])
         refreshed.pop("source_unavailable_commit", None)
     elif "source_unavailable_commit" in metadata:
         commit = metadata["source_unavailable_commit"]
         if ("execution_proof" in record and record["execution_proof"]["source_commit"] != commit
                 or "source_unavailable_commit" in record and record["source_unavailable_commit"] != commit):
-            raise StateValidationError("unavailable source changed the exact commit", diagnostic_code="execution_proof_conflict")
+            raise StateValidationError("unavailable source changed the exact commit", diagnostic_code="execution_proof_conflict",
+                                       differing_fields=["source_unavailable_commit"])
         refreshed["source_unavailable_commit"] = commit
     return refreshed
 
@@ -2217,9 +2219,10 @@ def main(argv: list[str] | None = None) -> int:
     except StateValidationError as exc:
         code = (exc.diagnostic_code if isinstance(exc.diagnostic_code, str)
                 and exc.diagnostic_code in STATE_FAILURE_CODES else "invalid_state")
-        _record_failure_diagnostics({
-            "schema_version": 1, "error_type": "StateValidationError", "diagnostic_code": code,
-        }, "invalid_state", args.failure_diagnostics)
+        diagnostics = {"schema_version": 1, "error_type": "StateValidationError", "diagnostic_code": code}
+        if exc.differing_fields:
+            diagnostics["differing_fields"] = list(exc.differing_fields)
+        _record_failure_diagnostics(diagnostics, "invalid_state", args.failure_diagnostics)
         return 1
     except CollectionError as exc:
         # Fail closed without interpolating response bodies, headers, URLs, or

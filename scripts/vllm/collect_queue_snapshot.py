@@ -1830,7 +1830,7 @@ def _wait_minutes(
     anchor = parse_iso(runnable_at) or parse_iso(scheduled_at) or parse_iso(created_at)
     if anchor is None:
         return 0.0
-    return (now - anchor).total_seconds() / 60
+    return max(0.0, (now - anchor).total_seconds() / 60)
 
 
 def _started_wait_minutes(
@@ -1850,7 +1850,7 @@ def _run_minutes(now: datetime, started_at: str | None) -> float | None:
     started = parse_iso(started_at)
     if started is None:
         return None
-    return round((now - started).total_seconds() / 60, 1)
+    return max(0.0, round((now - started).total_seconds() / 60, 1))
 
 
 def fetch_cluster_queue_metrics(
@@ -2732,6 +2732,9 @@ def collect_snapshot(
         official_wait = stats.get("official_wait") or _empty_official_wait()
         sample_summary = _wait_summary(stats["wait_times"])
         sample_available = sampled_queues is None or queue in sampled_queues
+        if details_complete and sample_available:
+            row.setdefault("waiting_by_workload", {"vllm": 0, "omni": 0})
+            row.setdefault("running_by_workload", {"vllm": 0, "omni": 0})
         sample_wait = {
             "available": sample_available,
             "count": len(stats["wait_times"]) if sample_available else None,

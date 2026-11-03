@@ -2608,3 +2608,90 @@ def test_retained_proved_queue_labels_are_normalized_without_advancing_source_cl
     assert published["ts"] == source["ts"]
     assert published["pending"][0]["execution_proof"] == row["execution_proof"]
     assert source["pending"][0]["workload"] == "omni"
+
+
+def _collect_zero_waiting_snapshot(monkeypatch, tmp_path, native_waiting, active_jobs, **kwargs):
+    monkeypatch.setattr(cqs, "OUTPUT", tmp_path / "out.jsonl", raising=False)
+    monkeypatch.setattr(
+        cqs,
+        "fetch_cluster_queue_metrics",
+        lambda token, **_: {
+            "amd_mi300_1": {
+                "graphql_id": "mi300-id",
+                "counts_available": True,
+                "waiting": native_waiting,
+                "running": 1,
+                "connected_agents": 2,
+                "metrics_ts": "2026-11-03T03:58:40Z",
+                "official_wait": {},
+            }
+        },
+    )
+    monkeypatch.setattr(cqs, "fetch_active_cluster_jobs", active_jobs)
+    with patch("vllm.collect_queue_snapshot.datetime") as dt_mock:
+        dt_mock.now.return_value = datetime(2026, 11, 3, 3, 58, 43, tzinfo=timezone.utc)
+        dt_mock.fromisoformat = datetime.fromisoformat
+        return cqs.collect_snapshot("fake-token", **kwargs)
+
+
+@pytest.mark.parametrize(("native_waiting", "status"), [(0, "complete"), (3, "partial")])
+def test_complete_scan_without_waiting_jobs_publishes_zero_workload_split(
+    monkeypatch, tmp_path, native_waiting, status
+):
+    snapshot = _collect_zero_waiting_snapshot(
+        monkeypatch,
+        tmp_path,
+        native_waiting,
+        lambda *args, **kwargs: [
+            _active_job(
+                "amd_mi300_1",
+                "RUNNING",
+                started_at="2026-11-03T03:50:00Z",
+                pipeline="vllm-omni-amd-ci",
+            )
+        ],
+    )
+
+    row = snapshot["queues"]["amd_mi300_1"]
+    assert snapshot["details_status"] == "current"
+    assert row["waiting_by_workload"] == {"vllm": 0, "omni": 0}
+    assert row["waiting_by_workload_provenance"]["status"] == status
+    assert row["running_by_workload"] == {"vllm": 0, "omni": 1}
+    assert snapshot["queues"]["amd_mi250_1"]["running_by_workload"] == {"vllm": 0, "omni": 0}
+
+
+def test_page_capped_scan_publishes_no_workload_split(monkeypatch, tmp_path):
+    (tmp_path / "queue_jobs.json").write_text(json.dumps({
+        "ts": "2026-11-03T03:00:00Z",
+        "hardware_scope": "amd_mi_gpu",
+        "execution_scope_contract": cqs.EXECUTION_SCOPE_CONTRACT,
+        "zombie_threshold_min": cqs.QUEUE_ZOMBIE_THRESHOLD_MIN,
+        "pending": [],
+        "running": [],
+    }))
+
+    def page_cap(*args, **kwargs):
+        raise cqs.QueuePaginationLimitError("after 12 pages")
+
+    snapshot = _collect_zero_waiting_snapshot(
+        monkeypatch,
+        tmp_path,
+        0,
+        page_cap,
+        refresh_details=True,
+        metrics_max_pages=2,
+        details_max_pages=12,
+        bounded_workflow_mode=True,
+    )
+
+    row = snapshot["queues"]["amd_mi300_1"]
+    assert snapshot["details_status"] == "retained_due_to_page_cap"
+    assert row.get("waiting_by_workload") is None
+    assert row.get("running_by_workload") is None
+
+
+def test_job_ages_clamp_scan_clock_skew_to_zero():
+    now = datetime(2026, 11, 3, 3, 58, 43, tzinfo=timezone.utc)
+    later = "2026-11-03T03:58:49Z"
+    assert cqs._run_minutes(now, later) == 0.0
+    assert cqs._wait_minutes(now, later, None, None) == 0.0

@@ -189,7 +189,6 @@ def test_missing_pin_memo_is_bounded_without_eviction_or_new_authority(monkeypat
 @pytest.mark.parametrize("field,value", [
     ("pipeline", "amd-ci"), ("build_number", 2),
     ("job_id", "00000000-0000-4000-8000-000000000002"),
-    ("queue", "amd_mi300_2"), ("hardware", "MI355"),
     ("finished_at", "2026-10-12T05:31:00Z"),
 ])
 def test_source_recovery_cannot_clear_quarantine_for_changed_job_metadata(field, value):

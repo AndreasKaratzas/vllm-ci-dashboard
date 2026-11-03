@@ -311,6 +311,22 @@ def test_read_only_observation_never_moves_branch_and_fails_closed(
     assert remote_sha(checkout, policy) == gated_sha
 
 
+def test_observation_reports_ledger_that_moved_after_lookup_while_reserve_refuses_it(
+    repo: tuple[Path, Path], policy: budget.AttemptPolicy, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout, _ = repo
+    stale = initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    reserve(checkout, policy, 4000, BASE)
+    moved = remote_sha(checkout, policy)
+    monkeypatch.setattr(budget, "_remote_sha", lambda *args: stale)
+
+    observed = budget.observe(checkout, policy, now=BASE + timedelta(minutes=1), remote="origin")
+    assert observed["budget_sha"] == moved and observed["request_mode"] == "retry_gated"
+    with pytest.raises(budget.AttemptBudgetError, match="changed between lookup and fetch"):
+        reserve(checkout, policy, 4001, BASE + timedelta(hours=3))
+    assert remote_sha(checkout, policy) == moved
+
+
 def test_mark_success_is_exact_idempotent_and_allowance_bounded(
     repo: tuple[Path, Path], policy: budget.AttemptPolicy
 ) -> None:

@@ -42,9 +42,16 @@ class StorageBudget:
     max_tree_bytes: int
     max_files: int
     required_headroom_bytes: int
-    unmanaged_max_bytes: int
     groups: dict[str, StorageGroup]
     writer_limits: dict[str, WriterLimit]
+
+    @property
+    def unmanaged_max_bytes(self) -> int:
+        return (
+            self.max_tree_bytes
+            - self.required_headroom_bytes
+            - sum(group.max_bytes for group in self.groups.values())
+        )
 
     @property
     def allocated_bytes(self) -> int:
@@ -109,7 +116,6 @@ def load_storage_budget(path: Path = DEFAULT_CONFIG_PATH) -> StorageBudget:
         "schema_version",
         "state_policy",
         "required_headroom_bytes",
-        "unmanaged_max_bytes",
         "groups",
         "writer_limits",
     }:
@@ -197,13 +203,10 @@ def load_storage_budget(path: Path = DEFAULT_CONFIG_PATH) -> StorageBudget:
         required_headroom_bytes=_positive_int(
             payload.get("required_headroom_bytes"), label="required_headroom_bytes"
         ),
-        unmanaged_max_bytes=_positive_int(
-            payload.get("unmanaged_max_bytes"), label="unmanaged_max_bytes"
-        ),
         groups=groups,
         writer_limits=writers,
     )
-    if budget.available_headroom_bytes < budget.required_headroom_bytes:
+    if budget.unmanaged_max_bytes <= 0:
         raise StorageBudgetError(
             "storage allocations do not preserve the required state-tree headroom"
         )

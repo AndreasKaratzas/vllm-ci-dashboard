@@ -40,10 +40,10 @@ RESERVATION_KINDS = frozenset({"legacy_seed", "scan"})
 DNS_REPOSITORY = "AndreasKaratzas/vllm-ci-dashboard"
 DNS_WORKFLOW_PATH = ".github/workflows/dns-health.yml"
 DNS_WORKFLOW_NAME = "DNS Health Monitor"
-DNS_FAILED_RETRY_MINUTES = 70
+DNS_FAILED_RETRY_MINUTES = 50
 # Raw rows carry head_commit with the full squash message (up to ~37 KB), so a
 # 100-run page reached 1.7 MB of the shared 2 MiB bound that stalled the
-# watchdog in #751. Thirty rows still span about a day, far past the 70-minute
+# watchdog in #751. Thirty rows still span about a day, far past the 50-minute
 # retry window, and stay under the bound up to ~68 KiB per row.
 DNS_RUNS_PAGE_SIZE = 30
 DNS_RUNS_URL = (
@@ -103,8 +103,9 @@ def dns_retry_available_at(payload: object, *, current_code_sha: str, now: datet
     runs = workflow_contract.parse_workflow_runs(payload, now=now)
     if any(run.head_sha is None for run in runs):
         raise DnsRequestBudgetError("DNS retry observation lacks an exact run head SHA")
-    # Match the watchdog's inclusive 70-minute boundary. GitHub completion
-    # clocks and the reservation clock use whole seconds.
+    # Match the watchdog's inclusive 50-minute boundary, so the next hourly
+    # tick retries. GitHub completion clocks and the reservation clock use
+    # whole seconds.
     available = [run.updated_at + timedelta(minutes=DNS_FAILED_RETRY_MINUTES, seconds=1)
                  for run in runs if run.status == "completed"
                  and run.head_sha == current_code_sha

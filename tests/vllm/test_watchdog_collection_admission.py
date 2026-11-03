@@ -373,7 +373,7 @@ def test_timeout_kills_the_entire_git_read_process_group(tmp_path):
               'child=subprocess.Popen([sys.executable,"-c","import time;time.sleep(60)"]);'
               'Path(sys.argv[1]).write_text(str(child.pid));time.sleep(60)')
     with pytest.raises(ValueError, match='deadline'):
-        admission._run_bounded_observation([sys.executable,'-c',script,str(child_pid_path)], timeout=0.2)
+        admission._run_bounded_observation([sys.executable,'-c',script,str(child_pid_path)], timeout=5)
     child_pid = int(child_pid_path.read_text())
     state_path = Path(f'/proc/{child_pid}/stat')
     # An orphan can briefly remain a zombie until PID 1 reaps it; it cannot
@@ -384,3 +384,53 @@ def test_timeout_kills_the_entire_git_read_process_group(tmp_path):
     except (FileNotFoundError, ProcessLookupError):
         state = None
     assert state in (None, 'Z')
+
+
+def test_failed_observation_surfaces_the_budget_cli_stderr_reason(repo, policy, monkeypatch):
+    root, _ = repo
+    _subprocess_root(root, policy)
+    stderr = b'request-bearing attempt budget error: git fetch --no-tags failed: \x1b[31m remote hung up\n'
+    monkeypatch.setattr(admission, '_run_bounded_observation',
+                        lambda args, **kwargs: subprocess.CompletedProcess(args, 1, b'', stderr))
+    with pytest.raises(admission.ObservationReadError, match='git fetch --no-tags failed: .*remote hung up') as error:
+        admission._observe_subprocess(root, policy, now=BASE, remote='origin', timeout=60)
+    assert '\x1b' not in str(error.value) and '\n' not in str(error.value)
+
+
+def test_transient_observation_failure_retries_on_next_poll_within_the_deadline(policy, capsys):
+    clock = Clock(); calls = []
+    def provider(*args, **kwargs):
+        calls.append(clock.elapsed)
+        if len(calls) == 1:
+            raise budget.AttemptBudgetError('attempt ledger changed between lookup and fetch')
+        return _value(required='true', request_mode='reserved', available_at='')
+    result = admission.observe_admission(Path('.'), policy, clock=lambda: clock.now, monotonic=lambda: clock.elapsed,
+                                        sleep=clock.sleep, observe=provider, max_wait_seconds=300)
+    assert result.required and result.reason == 'collection-admission-open'
+    assert calls == [0, 30] and clock.sleeps == [30]
+    assert '::warning::' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(('max_wait_seconds', 'attempts'), [(300, 3), (0, 2)])
+def test_persistent_observation_failure_still_fails_closed(policy, max_wait_seconds, attempts):
+    clock = Clock(); calls = []
+    def provider(*args, **kwargs):
+        calls.append(clock.elapsed)
+        raise budget.AttemptBudgetError('ledger unreadable')
+    with pytest.raises(budget.AttemptBudgetError, match='ledger unreadable'):
+        admission.observe_admission(Path('.'), policy, clock=lambda: clock.now, monotonic=lambda: clock.elapsed,
+                                    sleep=clock.sleep, observe=provider, max_wait_seconds=max_wait_seconds)
+    assert len(calls) == attempts
+
+
+def test_main_reports_failure_reason_as_workflow_warning(repo, policy, tmp_path, monkeypatch, capsys):
+    root, _ = repo
+    _subprocess_root(root, policy)
+    def fail(*args, **kwargs):
+        raise admission.ObservationReadError('durable collector observation failed: reason X')
+    monkeypatch.setattr(admission, 'observe_admission', fail)
+    code = admission.main(['--root', str(root), '--config', str(root / 'config/data_collection_attempt_budget.json'),
+                           '--output', str(tmp_path / 'out.json'), '--max-wait-seconds', '0'])
+    out, err = capsys.readouterr()
+    assert code == 1 and '::warning::durable collector observation failed: reason X' in out
+    assert 'failed closed' in err

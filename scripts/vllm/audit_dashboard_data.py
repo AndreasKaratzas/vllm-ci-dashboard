@@ -5311,6 +5311,13 @@ class DashboardAudit:
                     if str(hw).startswith("mi")
                 },
             }
+        unattested = _mapping(health.get("source_attestation")).get("unattested_job_count")
+        if isinstance(unattested, int) and unattested > 0:
+            self.degradation(
+                "ci-health-unattested-sources",
+                f"{unattested} AMD jobs lack a pinned source definition and are grouped by label",
+                "data/vllm/ci/ci_health.json",
+            )
         self.report.metrics["ci_health"] = metrics
 
     def audit_ci_core(self) -> None:
@@ -6010,6 +6017,12 @@ class DashboardAudit:
             source_builds=_rows(_mapping(analytics.get("ci")).get("builds")),
             require_source_families=True,
         )
+        if current_latency.get("unavailable_reason") == "current_nightly_source_family_unverified":
+            self.degradation(
+                "analytics-latency-source-family-unverified",
+                "Current nightly latency is unavailable because a nightly lacks verified AMD source families",
+                "data/vllm/ci/analytics.json",
+            )
         self.report.metrics["analytics"] = metrics
 
     def amd_matrix_audit_view(

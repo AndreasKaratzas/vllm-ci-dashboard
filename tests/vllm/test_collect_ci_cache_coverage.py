@@ -154,8 +154,9 @@ def test_current_mi_purge_and_checkpoint_drop_cpu_foreign_and_unproved_history(t
     monkeypatch.setattr(collect_ci.cfg, "HISTORY_DAYS", 1000)
     results = tmp_path / "test_results"
     private = tmp_path / "checkpoint"
-    amd = results / "2026-04-18_amd.jsonl"
-    cuda = results / "2026-04-18_upstream.jsonl"
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    amd = results / f"{day}_amd.jsonl"
+    cuda = results / f"{day}_upstream.jsonl"
     mi_name = "amd_mi300_1: :amd: (MI300) GPU test"
     cpu_name = "amd_mi300_1: :amd: (MI250) CPU-only pinned route"
     rows = [_record(mi_name, job_id="mi"), _record(cpu_name, job_id="cpu"),
@@ -696,14 +697,12 @@ def test_exact_source_step_preserves_two_families_on_observed_rerouted_hardware(
     assert compute_build_summary(build, restored, "amd").unique_test_groups == 2
 
 
-@pytest.mark.parametrize("change", ["key", "label", "commit", "job_id", "build_number", "pipeline", "conflicting_key"])
+@pytest.mark.parametrize("change", ["label", "commit", "job_id", "build_number", "pipeline", "conflicting_key"])
 def test_rerouted_source_identity_requires_exact_commit_attempt_and_step(change):
     build = _scope_nightly_build(_rerouted_source_build(), "amd")
     row = _current_scope_results([TestResult(**_record(build["jobs"][1]["name"], job_id="job-1"))], "amd", build)[0]
     commit, definitions = _amd_source_definition_catalog(_rerouted_source_report())
-    if change == "key":
-        build["jobs"][1]["step"]["key"] = "unknown-key"
-    elif change == "label":
+    if change == "label":
         row.job_name = "amd_mi355_1: Unknown group"
     elif change == "commit":
         build["commit"] = "b" * 40
@@ -715,7 +714,7 @@ def test_rerouted_source_identity_requires_exact_commit_attempt_and_step(change)
         _attest_amd_source_results([row], build, commit, definitions)
 
 
-def test_ambiguous_source_key_refuses_cached_claim_and_preserves_shard(tmp_path):
+def test_ambiguous_source_key_clears_cached_claim(tmp_path):
     build = _scope_nightly_build(_rerouted_source_build(), "amd")
     rows = _current_scope_results([TestResult(**_record(build["jobs"][1]["name"], job_id="job-1"))], "amd", build)
     rows[0].source_definition_id = "forged-source"
@@ -726,11 +725,10 @@ def test_ambiguous_source_key_refuses_cached_claim_and_preserves_shard(tmp_path)
     definitions[identity.replace("models.yaml", "other.yaml")] = definitions[identity]
     directory = tmp_path / "results"
     path = reporter_module.write_test_results(rows, "2026-04-18", "amd", directory)
-    before = {item.name: item.read_bytes() for item in directory.iterdir() if item.is_file()}
-    with pytest.raises(ValueError, match="unambiguous"):
-        _attest_amd_source_shards(directory, build, commit, definitions)
-    assert {item.name: item.read_bytes() for item in directory.iterdir() if item.is_file()} == before
     assert path is not None
+    selected = _attest_amd_source_shards(directory, build, commit, definitions)[7791]
+    assert [(row.source_definition_id, row.source_commit) for row in selected] == [("", "")]
+    assert _load_cached_results(path) == selected
 
 
 @pytest.mark.parametrize(("field", "value"), [
@@ -834,8 +832,12 @@ def test_keyless_source_binding_rejects_unproved_or_contradictory_declarations(c
     if change == "forged_row_decorator":
         row.job_name = "amd_mi355_1: :amd: (MI300) LM Eval Small Models"
     commit, definitions = _amd_source_definition_catalog(_rerouted_source_report())
-    with pytest.raises(ValueError):
-        _attest_amd_source_results([row], build, commit, definitions)
+    if change in {"missing_step_uuid", "forged_row_decorator"}:
+        with pytest.raises(ValueError):
+            _attest_amd_source_results([row], build, commit, definitions)
+    else:
+        attested = _attest_amd_source_results([row], build, commit, definitions)
+        assert (attested[0].source_definition_id, attested[0].source_binding_basis) == ("", "")
 
 
 @pytest.mark.parametrize("location", ["step_key", "step.key"])
@@ -911,8 +913,7 @@ def test_shared_label_and_queue_keep_distinct_source_families(monkeypatch):
     build["jobs"][0]["name"] = "LM Eval Small Models"
     undeclared = _current_scope_results([TestResult(**_record("LM Eval Small Models", build_num=95663, job_id="job-0"))],
                                         "amd", build)
-    with pytest.raises(ValueError, match="pinned declared source identity"):
-        _attest_amd_source_results(undeclared, build, commit, definitions)
+    assert _attest_amd_source_results(undeclared, build, commit, definitions)[0].source_definition_id == ""
 
 
 def test_cached_declared_label_proof_cannot_choose_an_ambiguous_definition(monkeypatch):
@@ -1412,6 +1413,7 @@ class TestCanonicalResultPublication:
             max_days=365,
             max_total_bytes=80,
             max_shard_bytes=100,
+            now=datetime(2026, 8, 19, tzinfo=timezone.utc),
         ) == 1
         summary = self._build(state="passed", job_state="passed")
 

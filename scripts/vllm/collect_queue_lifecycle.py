@@ -89,6 +89,10 @@ INCREMENTAL_OVERLAP_HOURS = 6
 FULL_RECONCILIATION_INTERVAL_HOURS = 24
 FULL_QUERY_MODE = "full_retention_cohort_union"
 INCREMENTAL_QUERY_MODE = "incremental_overlap_cohort_union"
+# A Buildkite build waiting on an unreleased block step is terminal and keeps
+# matching state=blocked indefinitely. Unblocking returns it to scheduled or
+# running and re-finishing advances finished_at into the older_finished cohort.
+ACTIVE_BUILD_STATES = ("creating", "scheduled", "running", "failing", "canceling")
 # Ten thousand organization builds per cohort is already far beyond the
 # expected retained volume. Reaching this bound is an incomplete collection,
 # never a reason to publish a truncated series.
@@ -666,7 +670,6 @@ def _lifecycle_cohorts(
     """
     if active_parent_start > query_start or query_start >= query_end:
         raise ValueError("invalid lifecycle parent/event query horizon")
-    active_states = ("creating", "scheduled", "running", "failing", "blocked", "canceling")
     cohorts: list[tuple[str, dict]] = [
         (
             "recent_created",
@@ -682,7 +685,7 @@ def _lifecycle_cohorts(
                 (
                     "older_active",
                     {
-                        "state[]": list(active_states),
+                        "state[]": list(ACTIVE_BUILD_STATES),
                         "created_from": _utc_iso(active_parent_start),
                         "created_to": _utc_iso(query_start),
                     },
@@ -727,7 +730,6 @@ def fetch_rest_lifecycle_jobs(
         query_end=query_end,
         active_parent_start=active_parent_start,
     )
-    active_states = ("creating", "scheduled", "running", "failing", "blocked", "canceling")
     jobs: dict[str, dict] = {}
     cohort_coverage: dict[str, dict] = {}
     raw_builds = 0
@@ -763,7 +765,7 @@ def fetch_rest_lifecycle_jobs(
         "source": "Buildkite REST organization builds",
         "organization_wide": True,
         "cohorts": cohort_coverage,
-        "active_build_states": list(active_states),
+        "active_build_states": list(ACTIVE_BUILD_STATES),
         "parent_build_query_start": _utc_iso(active_parent_start),
         "event_cohort_query_start": _utc_iso(query_start),
         "active_parent_query_start": _utc_iso(active_parent_start),
@@ -2278,7 +2280,6 @@ def _checkpoint_source_coverage(state: dict) -> dict:
             "target_jobs": targets,
             "filters": cohort_filters,
         }
-    active_states = ("creating", "scheduled", "running", "failing", "blocked", "canceling")
     return {
         "complete": all(unit["complete"] for unit in state["units"]),
         "source": "Buildkite REST organization builds",
@@ -2287,7 +2288,7 @@ def _checkpoint_source_coverage(state: dict) -> dict:
         "cohorts": cohort_coverage,
         "split_probe_requests": state["split_requests"],
         "accepted_query_units": len(state["units"]),
-        "active_build_states": list(active_states),
+        "active_build_states": list(ACTIVE_BUILD_STATES),
         "parent_build_query_start": state["query"]["active_parent_query_start"],
         "event_cohort_query_start": state["query"]["query_start"],
         "active_parent_query_start": state["query"]["active_parent_query_start"],

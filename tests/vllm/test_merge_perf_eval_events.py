@@ -233,3 +233,60 @@ def test_empty_established_remote_store_fails_before_local_replacement(tmp_path)
         merge.merge_event_files(local_path, remote_path, now=now)
 
     assert local_path.read_bytes() == original
+
+
+def test_migration_rekeys_path_bearing_results_and_drops_artifact_index_once(
+    tmp_path,
+):
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    path = tmp_path / "events.jsonl"
+    events = []
+    for name, artifact_id in (("8k-in-1k-out", "a"), ("1k-in-1k-out", "b")):
+        event = _result("c", now - timedelta(days=40), 1.0, artifact_id)
+        event.update(
+            isl=None,
+            osl=None,
+            conc=128,
+            buildkite_artifact_path=f"results/m-mi355x/bench-{name}-conc-128.json",
+        )
+        events.append(event)
+    legacy = _result("c", now - timedelta(days=1), 1.0, "")
+    legacy.update(isl=None, osl=None, conc=64)
+    index = {
+        "event": store.ARTIFACT_INDEX_EVENT,
+        "schema_version": store.ARTIFACT_INDEX_SCHEMA_VERSION,
+        "generated_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "identities": [["id", "dropped-duplicate", "2026-08-31T00:00:00Z"]],
+    }
+    _write_jsonl(path, [*events, legacy, index])
+
+    merge.merge_event_files(path, now=now)
+    rows = store.read_events_strict(path)
+    assert [(r["event"], r["isl"], r["osl"], r["conc"]) for r in rows] == [
+        ("perf_result", 8192, 1024, 128),
+        ("perf_result", 1024, 1024, 128),
+        ("perf_result", None, None, 64),
+    ]
+
+    _write_jsonl(path, [*rows, index])
+    merge.merge_event_files(path, now=now)
+    assert store.read_events_strict(path)[-1]["event"] == store.ARTIFACT_INDEX_EVENT
+
+
+def test_migration_drops_unvalidated_results_the_collector_can_download_again(
+    tmp_path,
+):
+    now = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    path = tmp_path / "events.jsonl"
+    recent = _result("c", now - timedelta(days=2), 0.01, "failed-run")
+    recent.update(
+        isl=None,
+        osl=None,
+        buildkite_artifact_path="results/m-mi355x/bench-1k-in-1k-out-conc-64.json",
+    )
+    validated = _result("d", now - timedelta(days=1), 1.0, "validated")
+    _write_jsonl(path, [recent, validated])
+
+    merge.merge_event_files(path, now=now)
+    rows = store.read_events_strict(path)
+    assert [row.get("buildkite_artifact_id") for row in rows] == ["validated"]

@@ -220,8 +220,11 @@ def normalize_historical_collection_evidence(value: object, *, durable_ref: str)
 
 def _git(root: Path, *args: str) -> bytes:
     try:
+        # Default negotiation advertises local blob:none refs as haves, so the
+        # server omits a wanted blob their trees contain.
+        config = ["-c", "fetch.negotiationAlgorithm=noop"] if args[0] == "fetch" else []
         return subprocess.run(
-            ["git", *args], cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            ["git", *config, *args], cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             check=True, timeout=60,
             env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_NO_LAZY_FETCH": "1"},
         ).stdout

@@ -644,13 +644,13 @@ def _remote_sha(root: Path, remote: str, policy: AttemptPolicy) -> str | None:
 def _fetch_observed(
     root: Path,
     remote: str,
-    observed_sha: str,
+    observed_sha: str | None,
     policy: AttemptPolicy,
 ) -> ValidatedLedger:
     ref = f"refs/heads/{policy.branch}"
-    _git(root, "fetch", "--no-tags", "--depth=1", remote, ref)
+    _git(root, "fetch", "--no-tags", "--depth=1", _safe_remote(remote), ref)
     fetched = _resolve_commit(root, "FETCH_HEAD")
-    if fetched != observed_sha:
+    if observed_sha is not None and fetched != observed_sha:
         raise AttemptBudgetError("attempt ledger changed between lookup and fetch")
     return validate_ledger_ref(root, fetched, policy)
 
@@ -1065,12 +1065,7 @@ def observe(
     call :func:`reserve` after its concurrency serialization and immediately
     before token exposure.
     """
-    observed_sha = _remote_sha(root, remote, policy)
-    if observed_sha is None:
-        raise AttemptBudgetError(
-            "attempt ledger branch is absent; initialize it from verified 25-hour telemetry"
-        )
-    established = _fetch_observed(root, remote, observed_sha, policy)
+    established = _fetch_observed(root, remote, None, policy)
     attempts = _active_attempts(established.ledger, now=now, policy=policy)
     collection, _ = _collection_context(
         root, policy, attempts, remote=remote, prior_attempts=established.ledger["attempts"],
