@@ -560,6 +560,19 @@ def test_org_summary_daily_wait_projection_fails_closed(case: str) -> None:
     assert daily["days"] == []
 
 
+def test_org_summary_withholds_daily_waits_from_a_lifecycle_in_another_queue_scope() -> None:
+    lifecycle = _lifecycle()
+    lifecycle["scope"]["queues"] = [*lifecycle["scope"]["queues"], "amd_mi250_1"]
+
+    daily = ops.build_org_summary(_payload(), lifecycle)["queues"][
+        "daily_served_job_waits"
+    ]
+
+    assert daily["available"] is False
+    assert daily["reason"] == "queue_scope_mismatch"
+    assert daily["days"] == []
+
+
 def test_org_summary_fails_closed_when_amd_builds_do_not_align() -> None:
     payload = _payload()
     logical = payload["amd_test_health"]["summary"]["latest_test_group_counts"]
@@ -777,12 +790,17 @@ def test_published_org_summary_has_consistent_denominators() -> None:
     assert current["running_jobs"] == sum(row["running_jobs"] for row in queue_rows)
 
     wait = summary["queues"]["daily_served_job_waits"]
+    source_path = path.parent / wait["source"]["path"]
+    source = json.loads(source_path.read_text())
+    if wait["reason"] == "queue_scope_mismatch":
+        assert set(source["scope"]["queues"]) != set(summary["queues"]["scope"]["queue_ids"])
+        assert wait["available"] is False
+        assert wait["days"] == []
+        return
     assert wait["available"] is True
     assert wait["unit"] == "seconds"
     assert wait["sample_order"] == "ascending"
     assert wait["days"]
-    source_path = path.parent / wait["source"]["path"]
-    source = json.loads(source_path.read_text())
     assert wait["source"] == {
         "path": ops.QUEUE_LIFECYCLE_NAME,
         "schema_version": source["schema_version"],

@@ -28,7 +28,7 @@ def _running(pid):
     # A killed grandchild can briefly remain a zombie awaiting init's reap.
     try:
         return Path(f"/proc/{pid}/stat").read_text().split(") ", 1)[1][0] != "Z"
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return False
 
 
