@@ -746,6 +746,7 @@ def _attempt_complete(row: Mapping[str, Any], policy: AttemptPolicy) -> bool:
 def _request_mode(
     attempts: list[dict[str, Any]], *, now: datetime, policy: AttemptPolicy,
     collection_retry_required: bool = False, queue_scope_migration: bool = False,
+    code_change: bool = False,
 ) -> tuple[str, datetime | None]:
     """Return the authoritative mode without mutating the durable ledger.
 
@@ -764,12 +765,17 @@ def _request_mode(
 
     A lifecycle published under an older queue scope waits only the failed-retry
     interval, so it migrates on its next tick instead of after two hours.
+
+    The first attempt of a run started by a merge to main that changed
+    collection code or config skips both cadence gates, so refresh-only
+    publication does not audit an older generation against new rules for
+    hours; the rolling cap still applies.
     """
     newest_first = sorted(
         (row for row in attempts if "superseded_at" not in row),
         key=lambda row: (row["reserved_at"], row["id"]), reverse=True,
     )
-    if newest_first:
+    if newest_first and not code_change:
         latest = newest_first[0]
         reserved_at = _timestamp(latest["reserved_at"], label="latest reserved_at")
         inherited_retry = policy.producer == "data_collection" and collection_retry_required
@@ -1044,6 +1050,7 @@ def reserve(
         attempts, now=now, policy=policy,
         collection_retry_required=collection["collection_retry_required"] == "true",
         queue_scope_migration=queue_scope_migration,
+        code_change=event_name == "push" and workflow_run_attempt == 1,
     )
     if request_mode != "reserved":
         return {

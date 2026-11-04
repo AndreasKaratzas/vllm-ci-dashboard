@@ -259,6 +259,21 @@ def test_schedules_and_manual_runs_reach_reserve_independent_of_publication_age(
     assert "publication_status" not in cadence_run
 
 
+def test_collection_code_merges_start_a_full_collection_through_the_ledger() -> None:
+    workflow = load("hourly-master.yml")
+    assert workflow[True]["push"] == {
+        "branches": ["main"],
+        "paths": [
+            "scripts/**", "!scripts/**/*.md", "config/**", ".github/workflows/hourly-master.yml",
+        ],
+    }
+    assert "'data-collection-full'" in workflow["concurrency"]["group"]
+    collect = workflow["jobs"]["collect-and-deploy"]
+    assert "github.event_name == 'push' ||" in collect["if"]
+    reserve = next(step for step in collect["steps"] if step.get("id") == "request-attempt")
+    assert '--event-name "${{ github.event_name }}"' in reserve["run"]
+
+
 def test_watchdog_uses_attempt_success_freshness_not_publication_generated_at() -> None:
     hourly = load("hourly-master.yml")
     preflight = hourly["jobs"]["publication-watchdog-preflight"]
