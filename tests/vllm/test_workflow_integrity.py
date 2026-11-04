@@ -3488,8 +3488,9 @@ class TestSchedulerActivityKeepalive:
         assert ".github/scheduler-activity.txt" in script
         assert "check_git_blob_sizes.py" in script
         assert "git worktree add --detach" in script
-        assert "push origin HEAD:main" in script
-        assert "push --force" not in script
+        assert "github_write.py push --root \"$HEARTBEAT_ROOT\"" in script
+        assert "--ref refs/heads/main;" in script
+        assert "push --force" not in script and "--ref refs/heads/main --force" not in script
         assert "push -f" not in script
         assert "BUILDKITE" not in _load_workflow_text("scheduler-activity.yml")
         assert 'git -C "$HEARTBEAT_ROOT" add .github/scheduler-activity.txt' in script
@@ -3551,6 +3552,7 @@ class TestPublicationWatchdogWorkflow:
         assert '--docker-builds-due "$DOCKER_BUILDS_DUE"' in plan["run"]
         assert "steps.docker-builds-plan.outputs.required == 'true'" in dispatch["if"]
         assert "actions/workflows/docker-builds.yml/dispatches" in dispatch["run"]
+        assert "github_write.py gh-api -- --method POST" in dispatch["run"]
         assert "-f ref=main" in dispatch["run"]
 
     def test_uses_trusted_main_and_bounded_canonical_state(self):
@@ -3696,6 +3698,7 @@ class TestPublicationWatchdogWorkflow:
             assert "steps.recovery-plan.outputs.required == 'true'" in dispatch["if"]
             assert f"steps.recovery-route.outputs.target == '{target}'" in dispatch["if"]
             assert f"{workflow_file}/dispatches" in dispatch["run"]
+            assert "github_write.py gh-api -- --method POST" in dispatch["run"]
             assert "main" in dispatch["run"]
             assert dispatch["env"]["RECOVERY_KEY"] == (
                 "${{ steps.recovery-plan.outputs.recovery_key }}"
@@ -3873,6 +3876,7 @@ class TestDnsHealthWorkflow:
         assert "DNS_DATA_STATUS" in restore
         assert '"$DNS_DATA_STATUS" -eq 2' in restore
         assert "+refs/heads/dns-health-data:refs/remotes/origin/dns-health-data" in restore
+        assert 'echo "DNS_DATA_BASELINE_SHA=$DNS_DATA_BASELINE_SHA" >> "$GITHUB_ENV"' in restore
         assert (
             "origin/dns-health-data:data/vllm/ci/dns_health/scan_state.fernet"
             in restore
@@ -3943,7 +3947,7 @@ class TestDnsHealthWorkflow:
         assert "data/vllm/ci/dns_health/scan_state.fernet" in publish
         assert "data/vllm/ci/dns_health/scan_state.json.gz" not in publish
         assert "DNS_STATE_ENCRYPTION_KEY" not in publish
-        assert "push --force origin HEAD:dns-health-data" in publish
+        assert '--ref refs/heads/dns-health-data --expect "$DNS_DATA_BASELINE_SHA"' in publish
         assert "gh-pages" not in publish
         assert "data/vllm/ci/dns_health/" in (
             REPO_ROOT / ".gitignore"
@@ -3986,6 +3990,7 @@ class TestDnsHealthWorkflow:
         assert "workflow_runs" not in dispatch["run"]
         assert "hourly-master.yml/dispatches" in dispatch["run"]
         assert "inputs: {dns_generation: $dns_generation}" in dispatch["run"]
+        assert "github_write.py gh-api -- --method POST" in dispatch["run"]
         assert "--input -" in dispatch["run"]
 
     def test_canonical_workflows_import_only_the_validated_public_aggregate(self):

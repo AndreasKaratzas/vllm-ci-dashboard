@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from . import dashboard_state as state
+from . import github_write
 from . import public_projection as projection
 
 
@@ -249,12 +250,16 @@ def publish_rewrite(
     if remote_heads(root, upstream_remote).get("refs/heads/main") != plan["upstream_main"]:
         raise state.DashboardStateError("upstream main changed after preparation; prepare again")
     updates = plan["updates"]
-    leases = [f"--force-with-lease={ref}:{update['before']}" for ref, update in updates.items()]
-    targets = [f"{update['after']}:{ref}" for ref, update in updates.items()]
-    _git(root, "push", "--atomic", *leases, remote, *targets)
-    actual = remote_heads(root, remote)
-    if any(actual.get(ref) != value["after"] for ref, value in updates.items()):
-        raise state.DashboardStateError("published rewrite refs differ from the checked plan")
+    try:
+        github_write.push_refs(
+            root,
+            remote,
+            {ref: update["after"] for ref, update in updates.items()},
+            leases={ref: update["before"] for ref, update in updates.items()},
+            atomic=True,
+        )
+    except github_write.GitPushError as exc:
+        raise state.DashboardStateError(str(exc)) from exc
 
 
 def main(argv: Sequence[str] | None = None) -> int:

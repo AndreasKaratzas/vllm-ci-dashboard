@@ -745,9 +745,11 @@ jobs:
           RECOVERY_KEY: ${{ steps.recovery-plan.outputs.recovery_key }}
         run: |
           set -euo pipefail
+          # A retried dispatch whose 5xx had already landed queues at most one
+          # extra deploy of the same exact state; deploy-pages is idempotent.
           jq -n --arg recovery_key "$RECOVERY_KEY" \
             '{ref: "main", inputs: {recovery_key: $recovery_key}}' | \
-            gh api --method POST \
+            python scripts/vllm/github_write.py gh-api -- --method POST \
             -H "Accept: application/vnd.github+json" \
             "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-pages.yml/dispatches" \
             --input -
@@ -763,7 +765,7 @@ jobs:
           set -euo pipefail
           jq -n --arg recovery_key "$RECOVERY_KEY" \
             '{ref: "main", inputs: {recovery_key: $recovery_key}}' | \
-            gh api --method POST \
+            python scripts/vllm/github_write.py gh-api -- --method POST \
             -H "Accept: application/vnd.github+json" \
             "repos/$GITHUB_REPOSITORY/actions/workflows/dns-health.yml/dispatches" \
             --input -
@@ -782,7 +784,7 @@ jobs:
             --arg watchdog_generation "$OBSERVED_GENERATION" \
             --arg recovery_key "$RECOVERY_KEY" \
             '{ref: "main", inputs: {watchdog_generation: $watchdog_generation, recovery_key: $recovery_key}}' | \
-          gh api --method POST \
+          python scripts/vllm/github_write.py gh-api -- --method POST \
             -H "Accept: application/vnd.github+json" \
             "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
             --input -
@@ -829,7 +831,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh api --method POST \
+          python scripts/vllm/github_write.py gh-api -- --method POST \
             -H "Accept: application/vnd.github+json" \
             "repos/$GITHUB_REPOSITORY/actions/workflows/docker-builds.yml/dispatches" \
             -f ref=main

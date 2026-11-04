@@ -10,6 +10,7 @@ import pytest
 import yaml
 
 from vllm import dashboard_state as state
+from vllm import github_write
 from vllm import public_projection as projection
 
 
@@ -1905,23 +1906,40 @@ def test_rotation_classifies_only_workflow_permission_push_rejection(
 ) -> None:
     repo, _remote, code_sha = _repo_with_workflow_on_main(tmp_path)
     snapshot = make_state(repo, policy, code_sha, generation="run-111.1", value=2)
-    real_git = state._git
+    real_git = github_write._git
+    pushes = []
 
-    def rejecting_push(root: Path, *args: str, **kwargs: object) -> bytes:
+    def rejecting_push(root: Path, *args: str) -> subprocess.CompletedProcess[bytes]:
         if args[0] == "push":
-            raise state.DashboardStateError(
-                f"git push --atomic failed: {WORKFLOW_PERMISSION_REJECTION}"
-            )
-        return real_git(root, *args, **kwargs)
+            pushes.append(args)
+            stderr = WORKFLOW_PERMISSION_REJECTION.encode()
+            return subprocess.CompletedProcess(args, 1, b"", stderr)
+        return real_git(root, *args)
 
     # Main changes workflows between the preflight and the push.
-    monkeypatch.setattr(state, "_git", rejecting_push)
+    monkeypatch.setattr(github_write, "_git", rejecting_push)
     monkeypatch.setattr(state, "check_workflow_drift", lambda *a, **k: {})
     kwargs = dict(new_state_sha=snapshot.state_sha, expected_current_sha=None,
                   expected_previous_sha=None, default_branch=default_branch)
     with pytest.raises(state.DashboardStateError) as raised:
         state.rotate_state_refs(repo, policy, **kwargs)
     assert isinstance(raised.value, state.WorkflowSupersededError) == (default_branch == "main")
+    assert len(pushes) == 1
+
+
+def test_rotation_retries_a_transient_commit_refs_failure_under_the_same_leases(
+    tmp_path: Path, policy: state.StatePolicy, failing_git_pushes
+) -> None:
+    repo, _remote, code_sha = _repo_with_workflow_on_main(tmp_path)
+    snapshot = make_state(repo, policy, code_sha, generation="run-113.1", value=2)
+    pushes = failing_git_pushes(2)
+    state.rotate_state_refs(
+        repo, policy, new_state_sha=snapshot.state_sha, expected_current_sha=None,
+        expected_previous_sha=None,
+    )
+    assert pushes() == 3
+    assert remote_sha(repo, policy.branch) == snapshot.state_sha
+    assert remote_sha(repo, policy.previous_branch) == snapshot.state_sha
 
 
 def test_rotate_cli_exits_three_only_for_workflow_supersession(

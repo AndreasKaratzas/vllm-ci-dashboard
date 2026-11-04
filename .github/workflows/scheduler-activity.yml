@@ -70,7 +70,8 @@ jobs:
             git -C "$HEARTBEAT_ROOT" add .github/scheduler-activity.txt
             python scripts/vllm/check_git_blob_sizes.py --root "$HEARTBEAT_ROOT"
             git -C "$HEARTBEAT_ROOT" commit -m "chore: keep scheduled workflows active"
-            if git -C "$HEARTBEAT_ROOT" push origin HEAD:main; then
+            if python scripts/vllm/github_write.py push --root "$HEARTBEAT_ROOT" \
+              --ref refs/heads/main; then
               echo "Advanced the bounded scheduler-activity heartbeat."
               exit 0
             fi

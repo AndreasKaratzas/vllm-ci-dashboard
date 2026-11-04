@@ -5,6 +5,7 @@ instead of scripts/vllm/ where the CI modules live.
 """
 
 # cspell:ignore nodeid
+import os
 import sys
 from pathlib import Path
 
@@ -129,3 +130,44 @@ def pytest_runtest_makereport(item, call):
             item.location[1] or 0,
             f"Skipped: publication surface(s) {', '.join(sorted(excused))} are published as unavailable",
         )
+
+
+@pytest.fixture
+def failing_git_pushes(tmp_path_factory, monkeypatch):
+    """Arm the next ``count`` ``git push`` calls to fail like GitHub's commit_refs 5xx.
+
+    A fake ``git`` on PATH intercepts every caller, so a push site that bypasses
+    ``github_write`` fails instead of silently passing.
+    """
+    import shutil
+
+    from vllm import github_write
+
+    monkeypatch.setattr(github_write, "PUSH_RETRY_DELAYS", (0, 0, 0))
+    bin_dir = tmp_path_factory.mktemp("fake-git")
+    log, budget = bin_dir / "pushes", bin_dir / "failures"
+    budget.write_text("0")
+    (bin_dir / "git").write_text(f"""#!/bin/sh
+skip=; sub=
+for arg do
+  if [ -n "$skip" ]; then skip=; continue; fi
+  case "$arg" in -C|-c) skip=1 ;; -*) ;; *) sub=$arg; break ;; esac
+done
+if [ "$sub" = push ]; then
+  echo push >> '{log}'
+  if [ "$(wc -l < '{log}')" -le "$(cat '{budget}')" ]; then
+    printf 'remote: fatal error in commit_refs\\n ! [remote rejected] HEAD -> x (failure)\\n' >&2
+    exit 1
+  fi
+fi
+exec '{shutil.which("git")}' "$@"
+""")
+    (bin_dir / "git").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+
+    def arm(count: int):
+        log.write_text("")
+        budget.write_text(str(count))
+        return lambda: len(log.read_text().splitlines())
+
+    return arm

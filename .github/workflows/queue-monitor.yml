@@ -466,15 +466,9 @@ jobs:
           python "$GITHUB_WORKSPACE/scripts/vllm/check_git_blob_sizes.py" --root "$LIVE_ROOT"
           git -C "$LIVE_ROOT" commit -m "queue: live snapshot $(date -u +%Y-%m-%dT%H:%M)"
           QUEUE_SOURCE_SHA=$(git -C "$LIVE_ROOT" rev-parse --verify 'HEAD^{commit}')
-          git -C "$LIVE_ROOT" push \
-            --force-with-lease="refs/heads/queue-data:$OBSERVED_QUEUE_SHA" \
-            origin HEAD:queue-data
-          REMOTE_QUEUE_SHA=$(git ls-remote --refs origin refs/heads/queue-data \
-            | awk 'NR == 1 {print $1}')
-          if [ "$REMOTE_QUEUE_SHA" != "$QUEUE_SOURCE_SHA" ]; then
-            echo "::error::Durable queue-data ref does not match the published commit."
-            exit 1
-          fi
+          python "$GITHUB_WORKSPACE/scripts/vllm/github_write.py" push --root "$LIVE_ROOT" \
+            --ref refs/heads/queue-data --source "$QUEUE_SOURCE_SHA" \
+            --expect "$OBSERVED_QUEUE_SHA"
           {
             echo "queue_generation=${{ steps.queue-generation.outputs.generated_at }}"
           } >> "$GITHUB_OUTPUT"
@@ -561,7 +555,7 @@ jobs:
             --arg queue_generation "$TARGET_QUEUE_GENERATION" \
             --arg recovery_key "$RECONCILIATION_KEY" \
             '{ref: $ref, inputs: {queue_generation: $queue_generation, recovery_key: $recovery_key}}' | \
-          gh api --method POST \
+          python scripts/vllm/github_write.py gh-api -- --method POST \
             -H "Accept: application/vnd.github+json" \
             "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
             --input -

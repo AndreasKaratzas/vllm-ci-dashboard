@@ -70,6 +70,8 @@ jobs:
             "$TRUSTED_VALIDATOR_DIR/publication_limits.py"
           install -m 0644 scripts/vllm/github_git_proof.py \
             "$TRUSTED_VALIDATOR_DIR/github_git_proof.py"
+          install -m 0644 scripts/vllm/github_write.py \
+            "$TRUSTED_VALIDATOR_DIR/github_write.py"
           install -m 0644 config/dashboard_state.json \
             "$TRUSTED_VALIDATOR_DIR/dashboard_state.json"
           STATE_BRANCH=$(python -c \

@@ -246,20 +246,16 @@ jobs:
           git -C "$LIVE_ROOT" commit -m "docker: build job observations $(date -u +%Y-%m-%dT%H:%M)"
           DURABLE_REF=$(git -C "$LIVE_ROOT" rev-parse --verify 'HEAD^{commit}')
           if [ "$DOCKER_BASELINE_REF" = bootstrap ]; then
-            DOCKER_LEASE="--force-with-lease=refs/heads/docker-builds-data:"
+            DOCKER_EXPECT=
           elif [[ "$DOCKER_BASELINE_REF" =~ ^[0-9a-f]{40}$ ]]; then
-            DOCKER_LEASE="--force-with-lease=refs/heads/docker-builds-data:$DOCKER_BASELINE_REF"
+            DOCKER_EXPECT="$DOCKER_BASELINE_REF"
           else
             echo "::error::Docker builds publication baseline ref is invalid."
             exit 1
           fi
-          git -C "$LIVE_ROOT" push "$DOCKER_LEASE" origin HEAD:docker-builds-data
-          REMOTE_REF=$(git ls-remote --refs origin refs/heads/docker-builds-data | awk '{print $1}')
-          if ! [[ "$DURABLE_REF" =~ ^[0-9a-f]{40}$ ]] || \
-             [ "$REMOTE_REF" != "$DURABLE_REF" ]; then
-            echo "::error::Published docker builds ref does not match its exact local commit."
-            exit 1
-          fi
+          python "$GITHUB_WORKSPACE/scripts/vllm/github_write.py" push --root "$LIVE_ROOT" \
+            --ref refs/heads/docker-builds-data --source "$DURABLE_REF" \
+            --expect "$DOCKER_EXPECT"
           echo "durable_ref=$DURABLE_REF" >> "$GITHUB_OUTPUT"
 
       - name: Mark durable Docker Builds success

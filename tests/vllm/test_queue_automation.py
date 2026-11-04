@@ -286,9 +286,8 @@ class TestQueueMonitorWorkflow:
             step for step in steps if step.get("name") == "Publish durable live queue evidence"
         )
         script = publish.get("run", "")
-        assert "--force-with-lease=\"refs/heads/queue-data:$OBSERVED_QUEUE_SHA\"" in (
-            script
-        )
+        assert "--ref refs/heads/queue-data" in script
+        assert '--expect "$OBSERVED_QUEUE_SHA"' in script
         assert "push --force origin HEAD:queue-data" not in script
         assert "data/vllm/ci/queue_timeseries.jsonl" in script
         assert "data/vllm/ci/queue_jobs.json" in script
@@ -618,9 +617,7 @@ class TestQueueMonitorWorkflow:
         assert 'if "metrics_observed_at" in latest' in generation["run"]
         assert publish["id"] == "queue-publish"
         assert 'OBSERVED_QUEUE_SHA="${QUEUE_DATA_BASELINE_SHA:-}"' in publish["run"]
-        assert "--force-with-lease=\"refs/heads/queue-data:$OBSERVED_QUEUE_SHA\"" in (
-            publish["run"]
-        )
+        assert '--expect "$OBSERVED_QUEUE_SHA"' in publish["run"]
         assert "push --force origin HEAD:queue-data" not in publish["run"]
         assert "QUEUE_SOURCE_SHA=$(git -C \"$LIVE_ROOT\" rev-parse" in publish["run"]
         assert 'scripts/vllm/build_queue_section.py"' in publish["run"]
@@ -631,8 +628,7 @@ class TestQueueMonitorWorkflow:
         assert publish["run"].index("--validate-output") < publish["run"].index(
             "check_git_blob_sizes.py"
         )
-        assert "git ls-remote --refs origin refs/heads/queue-data" in publish["run"]
-        assert 'if [ "$REMOTE_QUEUE_SHA" != "$QUEUE_SOURCE_SHA" ]' in publish["run"]
+        assert '--ref refs/heads/queue-data --source "$QUEUE_SOURCE_SHA"' in publish["run"]
         assert 'echo "queue_generation=${{ steps.queue-generation.outputs.generated_at }}"' in publish[
             "run"
         ]
@@ -777,6 +773,7 @@ class TestQueueMonitorWorkflow:
         )
         assert "queue_generation: $queue_generation" in dispatch["run"]
         assert "recovery_key: $recovery_key" in dispatch["run"]
+        assert "github_write.py gh-api -- --method POST" in dispatch["run"]
         assert "workflow_runs" not in dispatch["run"]
         assert "BUILDKITE_TOKEN" not in str(reconcile)
 
@@ -1014,8 +1011,9 @@ class TestQueueLifecycleWorkflow:
         publish = by_name["Publish durable lifecycle evidence"]["run"]
         assert cache_path not in publish
         assert "checkpoint" not in publish.casefold()
-        assert "--force-with-lease=refs/heads/queue-lifecycle-data:" in publish
-        assert ":$LIFECYCLE_BASELINE_REF" in publish
+        assert "LIFECYCLE_EXPECT=\n" in publish
+        assert 'LIFECYCLE_EXPECT="$LIFECYCLE_BASELINE_REF"' in publish
+        assert '--expect "$LIFECYCLE_EXPECT"' in publish
         assert "git -C \"$LIVE_ROOT\" push --force " not in publish
 
     def test_semantic_validation_runs_before_durable_publish(self, workflow):
@@ -1045,7 +1043,7 @@ class TestQueueLifecycleWorkflow:
         publish = next(
             step for step in steps if step.get("name") == "Publish durable lifecycle evidence"
         )["run"]
-        assert "HEAD:queue-lifecycle-data" in publish
+        assert "--ref refs/heads/queue-lifecycle-data" in publish
         assert "data/vllm/ci/queue_lifecycle.json" in publish
         assert "data/vllm/ci/queue_lifecycle_jobs" in publish
         assert "git -C \"$LIVE_ROOT\" add --all data/vllm/ci" in publish
@@ -1143,9 +1141,9 @@ class TestDockerBuildsWorkflow:
         publish = by_name["Publish durable docker builds evidence"]["run"]
         assert 'git -C "$LIVE_ROOT" add data/vllm/ci/docker_builds.json' in publish
         assert "checkpoint" not in publish.casefold()
-        assert "--force-with-lease=refs/heads/docker-builds-data:" in publish
-        assert ":$DOCKER_BASELINE_REF" in publish
-        assert "HEAD:docker-builds-data" in publish
+        assert "DOCKER_EXPECT=\n" in publish
+        assert 'DOCKER_EXPECT="$DOCKER_BASELINE_REF"' in publish
+        assert '--ref refs/heads/docker-builds-data --source "$DURABLE_REF"' in publish
         mark = by_name["Mark durable Docker Builds success"]["run"]
         assert "--config config/docker_builds_attempt_budget.json mark-success" in mark
         assert "for MARK_ATTEMPT in 1 2 3" in mark

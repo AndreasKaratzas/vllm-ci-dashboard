@@ -501,10 +501,12 @@ remain enforced.
 exact `--force-with-lease` observations. A lease rejection or server rejection
 updates neither ref. After the first generation, each successful rotation sets
 current to the new parentless commit and previous to the old current commit, so
-only two state generations remain reachable. A network failure during the
-post-push verification can be reported after the server accepted the atomic
-transaction; always re-read both remote refs before retrying. State rotation
-precedes Pages deployment by design. If deployment then fails, the public marker
+only two state generations remain reachable. Every durable ref write goes
+through `scripts/vllm/github_write.py`: a transient 5xx, `commit_refs` or
+transport failure is reconciled with `ls-remote` (refs already at their new
+commits are success) and retried after 3s, 10s and 20s while every lease still
+holds; lease, non-fast-forward, hook and auth rejections fail immediately.
+State rotation precedes Pages deployment by design. If deployment then fails, the public marker
 does not match current state and the watchdog requests an exact deploy-only
 recovery without repeating Buildkite collection.
 
