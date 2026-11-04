@@ -758,10 +758,25 @@ def test_hourly_restores_authored_docs_from_captured_code_after_state(
 
 
 @pytest.mark.parametrize("state_has_payload", [False, True])
-def test_hourly_restores_docker_builds_seed_only_when_state_predates_it(
+@pytest.mark.parametrize(
+    ("step_name", "relative"),
+    [
+        (
+            "Restore docker builds seed when the state predates it",
+            "data/vllm/ci/docker_builds.json",
+        ),
+        (
+            "Keep the state AMD queue registry for refresh-only runs",
+            "data/vllm/ci/amd_queue_registry.json",
+        ),
+    ],
+)
+def test_hourly_restores_seed_only_when_state_predates_it(
     tmp_path: Path,
     policy: state.StatePolicy,
     state_has_payload: bool,
+    step_name: str,
+    relative: str,
 ) -> None:
     """A state from before the producer must not drop its required seed."""
     workflow = yaml.safe_load(
@@ -769,11 +784,11 @@ def test_hourly_restores_docker_builds_seed_only_when_state_predates_it(
     )
     steps = workflow["jobs"]["collect-and-deploy"]["steps"]
     names = [step.get("name") for step in steps]
-    seed_position = names.index("Restore docker builds seed when the state predates it")
-    assert seed_position == names.index("Restore validated dashboard state") + 2
-    assert seed_position < names.index("Collect CI data")
+    seed_position = names.index(step_name)
+    assert seed_position > names.index("Restore validated dashboard state")
+    assert seed_position < names.index("Sync queue data from durable live branch")
 
-    payload = tmp_path / "data/vllm/ci/docker_builds.json"
+    payload = tmp_path / relative
     code_sha = init_repo(tmp_path)
     if state_has_payload:
         payload.write_text('{"collected": true}\n')

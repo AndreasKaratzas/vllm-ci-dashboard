@@ -8,6 +8,7 @@ import pytest
 
 from vllm import build_operations_snapshot as ops
 from vllm.audit_dashboard_data import DashboardAudit
+from vllm.publication_surfaces import finding_surfaces
 
 
 GENERATED_AT = "2026-08-20T22:00:00Z"
@@ -731,6 +732,44 @@ def test_dashboard_audit_rejects_a_drifted_org_summary(tmp_path) -> None:
     }
 
 
+
+
+@pytest.mark.parametrize(
+    ("registry", "degraded"),
+    [
+        ({"fetched_at": "2026-08-20T16:00:00Z"}, False),
+        ({"fetched_at": "2026-08-20T15:59:59Z"}, True),
+        (None, False),
+    ],
+)
+def test_dashboard_audit_degrades_a_lifecycle_out_of_scope_for_over_six_hours(
+    tmp_path, registry: dict | None, degraded: bool
+) -> None:
+    data_dir = tmp_path / "data" / "vllm" / "ci"
+    data_dir.mkdir(parents=True)
+    lifecycle = _lifecycle()
+    lifecycle["scope"]["queues"] = [*lifecycle["scope"]["queues"], "amd_mi250_1"]
+    if registry is not None:
+        lifecycle["scope"]["registry"] = registry
+    (data_dir / ops.QUEUE_LIFECYCLE_NAME).write_text(json.dumps(lifecycle))
+    ops.write_snapshot_bundle(data_dir / "operations_v2.json", _payload(), log=False)
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_operations_bundle()
+
+    findings = [
+        finding
+        for finding in audit.report.findings
+        if finding.code == "queue-lifecycle-scope-mismatch"
+    ]
+    assert [
+        (finding.severity, finding.path, finding_surfaces(finding)) for finding in findings
+    ] == (
+        [("degradation", "data/vllm/ci/queue_lifecycle.json", {"queue_lifecycle"})]
+        if degraded
+        else []
+    )
+    assert not {finding.code for finding in audit.report.errors if "org-summary" in finding.code}
 
 
 @pytest.mark.parametrize("case", ("path", "key", "sample_count", "day_bounds"))

@@ -118,6 +118,7 @@ PUBLICATION_FALLBACK_MAX_AGE_HOURS = 36
 # bound can take 13h20 after the first due attempt. Add the normal two-hour
 # cadence lead and two hours of scheduler/runner headroom, then round up.
 QUEUE_LIFECYCLE_MAX_AGE_HOURS = 18
+QUEUE_LIFECYCLE_SCOPE_MISMATCH_MAX_HOURS = 6
 QUEUE_LIVE_SURFACE = "queue"
 QUEUE_COMPANION_SURFACES = frozenset({
     "queue_capacity",
@@ -4758,6 +4759,30 @@ class DashboardAudit:
                 )
             )
             wait_source = _mapping(daily_waits.get("source"))
+            if daily_waits.get("reason") == "queue_scope_mismatch":
+                # The lifecycle can only converge by resolving the registry again.
+                lifecycle_scope = _mapping(_mapping(lifecycle).get("scope"))
+                resolved_at = _parse_timestamp(
+                    _mapping(lifecycle_scope.get("registry")).get("fetched_at")
+                    or _mapping(lifecycle).get("generated_at")
+                )
+                summary_at = _parse_timestamp(summary_mapping.get("generated_at"))
+                if summary_at and (
+                    not resolved_at
+                    or summary_at - resolved_at
+                    > timedelta(hours=QUEUE_LIFECYCLE_SCOPE_MISMATCH_MAX_HOURS)
+                ):
+                    self.degradation(
+                        "queue-lifecycle-scope-mismatch",
+                        (
+                            "queue lifecycle scope was last resolved at "
+                            f"{resolved_at.isoformat() if resolved_at else 'an unknown time'}, "
+                            f"over {QUEUE_LIFECYCLE_SCOPE_MISMATCH_MAX_HOURS}h before "
+                            "the organization summary, and still differs from the "
+                            "queue scope; daily waits stay withheld"
+                        ),
+                        "data/vllm/ci/queue_lifecycle.json",
+                    )
             lifecycle_days = _rows(
                 _mapping(_mapping(lifecycle).get("daily_wait_times")).get("days")
             )

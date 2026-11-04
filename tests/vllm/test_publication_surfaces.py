@@ -1206,25 +1206,20 @@ def test_refresh_only_without_candidate_code_ref_keeps_legacy_comparison(
         )
 
 
-@pytest.mark.parametrize("seeded_in", ["baseline", "candidate_code"])
 @pytest.mark.parametrize("surface", ["queue", "dns_health"])
-def test_refresh_only_accepts_registry_with_unchanged_routing(
+def test_refresh_only_keeps_the_state_registry_or_restores_the_code_seed(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     surface: str,
-    seeded_in: str,
 ) -> None:
-    repo, baseline, candidate, dns_relative = _refresh_only_candidate_repo(tmp_path)
+    repo, baseline, _, dns_relative = _refresh_only_candidate_repo(tmp_path)
     registry_path = repo / selector_module.REGISTRY_RELATIVE_PATH
     registry_path.parent.mkdir(parents=True, exist_ok=True)
-    seed = json.loads((ROOT / "tests/vllm/fixtures/amd_queue_registry.json").read_text())
-    registry_path.write_text(json.dumps(seed))
+    seed = (ROOT / "tests/vllm/fixtures/amd_queue_registry.json").read_text()
+    registry_path.write_text(seed)
     _git(repo, "add", selector_module.REGISTRY_RELATIVE_PATH)
     _git(repo, "commit", "-m", "registry seed")
-    if seeded_in == "baseline":
-        baseline = _git(repo, "rev-parse", "HEAD")
-    else:
-        candidate = _git(repo, "rev-parse", "HEAD")
+    seeded = _git(repo, "rev-parse", "HEAD")
     targets = {"dns_health": dns_relative, "queue": "data/queue_lifecycle.json"}
     monkeypatch.setattr(
         selector_module,
@@ -1232,23 +1227,23 @@ def test_refresh_only_accepts_registry_with_unchanged_routing(
         {name: SurfaceSpec(required_paths=(path,)) for name, path in targets.items()},
     )
     (repo / targets[surface]).write_text('{"generation":"candidate"}\n')
-    seed["source"].update(commit="f" * 40, fetched_at="2026-11-04T00:00:00Z")
-    registry_path.write_text(json.dumps(seed))
 
-    selector_module._validate_refresh_only_candidate(repo, baseline, surface, candidate)
+    for state in (seeded, baseline):
+        selector_module._validate_refresh_only_candidate(repo, state, surface, seeded)
+
+    refreshed = json.loads(seed)
+    refreshed["source"]["fetched_at"] = "2026-11-04T00:00:00Z"
+    registry_path.write_text(json.dumps(refreshed, indent=2) + "\n")
+    for state in (seeded, baseline):
+        with pytest.raises(RuntimeError, match="amd_queue_registry.json"):
+            selector_module._validate_refresh_only_candidate(repo, state, surface, seeded)
 
     outside = tmp_path / "outside.json"
-    outside.write_text(json.dumps(seed))
+    outside.write_text(seed)
     registry_path.unlink()
     registry_path.symlink_to(outside)
     with pytest.raises(RuntimeError, match="amd_queue_registry.json"):
-        selector_module._validate_refresh_only_candidate(repo, baseline, surface, candidate)
-
-    registry_path.unlink()
-    seed["queues"].pop()
-    registry_path.write_text(json.dumps(seed))
-    with pytest.raises(RuntimeError, match="amd_queue_registry.json"):
-        selector_module._validate_refresh_only_candidate(repo, baseline, surface, candidate)
+        selector_module._validate_refresh_only_candidate(repo, baseline, surface, seeded)
 
 
 def test_selector_cli_accepts_candidate_code_ref() -> None:

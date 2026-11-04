@@ -26,11 +26,7 @@ from typing import Any, Iterable, Mapping
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from vllm.amd_queue_registry import (  # noqa: E402
-    REGISTRY_RELATIVE_PATH,
-    RegistryError,
-    validate_registry,
-)
+from vllm.amd_queue_registry import REGISTRY_RELATIVE_PATH  # noqa: E402
 from vllm.audit_dashboard_data import DashboardAudit  # noqa: E402
 from vllm.bounded_json import pretty_json_bytes, write_pretty_json_lkg  # noqa: E402
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
@@ -76,7 +72,6 @@ AUTHORED_DASHBOARD_GUIDE_PATHS = frozenset({
 })
 PUBLICATION_STATE_MAX_BYTES = writer_max_bytes("publication_state")
 FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
-REGISTRY_PROVENANCE_KEYS = frozenset({"commit", "fetched_at", "fallback"})
 FALLBACK_MAX_AGE_HOURS = 36
 DECLARED_SURFACE_NAMES = frozenset(SURFACE_SPECS)
 COLLECTOR_FAILURE_SCHEMA_VERSION = 1
@@ -1026,41 +1021,6 @@ def _worktree_path_matches_ref(root: Path, ref: str, relative: str) -> bool:
     return path.read_bytes() == expected and executable == (mode == "100755")
 
 
-def _registry_routing(registry: Mapping[str, Any]) -> dict[str, Any]:
-    validate_registry(registry)
-    source = {
-        key: value
-        for key, value in registry["source"].items()
-        if key not in REGISTRY_PROVENANCE_KEYS
-    }
-    return {**registry, "source": source}
-
-
-def _registry_routing_unchanged(
-    root: Path, baseline_ref: str, candidate_code_ref: str | None
-) -> bool:
-    """Refresh-only runs re-resolve the AMD queue registry but must keep its routing."""
-    path = root / REGISTRY_RELATIVE_PATH
-    if path.is_symlink() or not path.is_file():
-        return False
-    refs = [baseline_ref, *([candidate_code_ref] if candidate_code_ref else [])]
-    for ref in refs:
-        if not _run_git(root, "ls-tree", ref, "--", REGISTRY_RELATIVE_PATH):
-            continue
-        try:
-            current = _registry_routing(json.loads(path.read_text()))
-            reference = _registry_routing(
-                json.loads(_run_git(root, "show", f"{ref}:{REGISTRY_RELATIVE_PATH}"))
-            )
-        except (
-            OSError, ValueError, KeyError, TypeError, AttributeError,
-            RegistryError, subprocess.CalledProcessError,
-        ):
-            return False
-        return current == reference
-    return False
-
-
 def _validate_refresh_only_candidate(
     root: Path,
     baseline_ref: str,
@@ -1097,8 +1057,13 @@ def _validate_refresh_only_candidate(
         })
     unexpected = []
     for relative in changed:
-        if relative == REGISTRY_RELATIVE_PATH and _registry_routing_unchanged(
-            root, baseline_ref, candidate_code_ref
+        # Refresh-only runs keep the state registry, or restore the code seed
+        # into a state that predates it.
+        if (
+            relative == REGISTRY_RELATIVE_PATH
+            and candidate_code_ref is not None
+            and not _run_git(root, "ls-tree", baseline_ref, "--", relative)
+            and _worktree_path_matches_ref(root, candidate_code_ref, relative)
         ):
             continue
         owners = [

@@ -6,6 +6,8 @@ on:
     # metrics. Check the durable gate every 30 minutes so a bounded private
     # checkpoint can resume promptly. Successful attempts remain hard-gated
     # to one per two hours, so the extra schedules make zero Buildkite calls.
+    # A lifecycle published under an older queue scope than Queue Monitor's
+    # waits only the failed-retry interval unless it used a fallback registry.
     - cron: '18,48 * * * *'
   repository_dispatch:
     # Optional external wake-up; the durable attempt ledger still enforces the
@@ -37,17 +39,34 @@ jobs:
         id: request-attempt
         env:
           ATTEMPT_ID: lifecycle-${{ github.run_id }}-${{ github.run_attempt }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           OUTPUTS="$RUNNER_TEMP/queue-lifecycle-attempt.outputs"
           : > "$OUTPUTS"
+          # Unreadable scope evidence keeps the success cadence.
+          SCOPE_ARGS=()
+          if gh api -H "Accept: application/vnd.github.raw" \
+               "repos/$GITHUB_REPOSITORY/contents/data/vllm/ci/queue_lifecycle.json?ref=queue-lifecycle-data" \
+               > "$RUNNER_TEMP/published-queue-lifecycle.json" && \
+             gh api -H "Accept: application/vnd.github.raw" \
+               "repos/$GITHUB_REPOSITORY/contents/data/vllm/ci/operations_v2/queue.json?ref=queue-data" \
+               > "$RUNNER_TEMP/published-queue-snapshot.json"; then
+            SCOPE_ARGS=(
+              --published-lifecycle "$RUNNER_TEMP/published-queue-lifecycle.json"
+              --queue-snapshot "$RUNNER_TEMP/published-queue-snapshot.json"
+            )
+          else
+            echo "::warning::Published queue scopes are unreadable; keeping the success cadence."
+          fi
           python3 scripts/vllm/request_bearing_attempt_budget.py \
             --config config/queue_lifecycle_attempt_budget.json reserve \
             --attempt-id "$ATTEMPT_ID" \
             --workflow-run-id "${{ github.run_id }}" \
             --workflow-run-attempt "${{ github.run_attempt }}" \
             --event-name "${{ github.event_name }}" \
-            --github-output "$OUTPUTS"
+            --github-output "$OUTPUTS" \
+            "${SCOPE_ARGS[@]}"
           REQUEST_MODE=$(awk -F= '$1 == "request_mode" {print $2}' "$OUTPUTS")
           ALLOWANCE=$(awk -F= '$1 == "request_start_allowance" {print $2}' "$OUTPUTS")
           if [[ ! "$REQUEST_MODE" =~ ^(reserved|success_gated|retry_gated|cap_gated)$ ]] || \

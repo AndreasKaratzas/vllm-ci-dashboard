@@ -651,6 +651,12 @@ When ci-infra cannot be fetched or parsed, the cached copy is republished with
 hours, a ci-infra device queue the dashboard cannot map to hardware, or an
 active target-family queue ci-infra does not route. A ledger published under a
 different queue scope is re-segmented under the current one on restore.
+Only full Data Collection runs re-resolve the registry; refresh-only runs keep
+the state copy. A live-resolved lifecycle whose scope differs from Queue
+Monitor's waits only the failed-retry interval instead of the two-hour success
+cadence, and a published `queue_scope_mismatch` that outlives the lifecycle's
+registry fetch by over 6 hours becomes a `queue-lifecycle-scope-mismatch`
+degradation that opens the hourly validation incident.
 MI325, MI355B, CPU, partner, perf-eval, and router queues are excluded from
 these totals. The collector records three event-time facts independently:
 incoming work at REST `build.jobs[].runnable_at`, served work at

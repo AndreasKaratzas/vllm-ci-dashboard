@@ -2282,7 +2282,7 @@ class TestHourlyMasterWorkflow:
             "Restore validated dashboard state",
             "Restore authored dashboard documentation from immutable code",
             "Restore docker builds seed when the state predates it",
-            "Resolve AMD queue registry from ci-infra",
+            "Keep the state AMD queue registry for refresh-only runs",
             "Sync validated DNS health aggregate",
             "Observe docker builds bootstrap",
             "Validate targeted DNS candidate generation",
@@ -2292,6 +2292,17 @@ class TestHourlyMasterWorkflow:
             label = step.get("name") or step.get("uses")
             if label not in target_only_prefix:
                 assert dns_absent in step.get("if", ""), label
+        registry_steps = {
+            name: steps[names.index(name)].get("if")
+            for name in (
+                "Resolve AMD queue registry from ci-infra",
+                "Keep the state AMD queue registry for refresh-only runs",
+            )
+        }
+        assert list(registry_steps.values()) == [
+            "inputs.dns_generation == '' && inputs.queue_generation == ''",
+            "inputs.dns_generation != '' || inputs.queue_generation != ''",
+        ]
 
         selector = steps[selector_index]
         assert "--refresh-only-surface dns_health" in selector.get("run", "")
