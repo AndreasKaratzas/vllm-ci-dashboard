@@ -631,6 +631,90 @@ def test_queue_lifecycle_keeps_its_fixed_failed_retry_interval():
     assert budget._request_mode(rows, now=retry_at, policy=lifecycle) == ("reserved", None)
 
 
+def test_queue_scope_migration_bypasses_only_the_lifecycle_success_cadence(policy):
+    lifecycle = budget.load_policy(budget.ROOT / "config/queue_lifecycle_attempt_budget.json")
+    complete = [_row(1, BASE - timedelta(minutes=30), lifecycle, outcome="complete")]
+    failed = [_row(1, BASE - timedelta(minutes=10), lifecycle, outcome="failed")]
+    capped = [
+        _row(number, BASE - timedelta(hours=20 - number), lifecycle, outcome="complete")
+        for number in range(lifecycle.max_request_bearing_attempts)
+    ]
+
+    def mode(rows, row_policy):
+        return budget._request_mode(rows, now=BASE, policy=row_policy, queue_scope_migration=True)[0]
+
+    assert budget._request_mode(complete, now=BASE, policy=lifecycle)[0] == "success_gated"
+    assert mode(complete, lifecycle) == "reserved"
+    recent = [_row(1, BASE - timedelta(minutes=10), lifecycle, outcome="complete")]
+    assert mode(recent, lifecycle) == "success_gated"
+    assert mode(failed, lifecycle) == "retry_gated"
+    assert mode(capped, lifecycle) == "cap_gated"
+    assert mode([_row(1, BASE - timedelta(minutes=30), policy, outcome="complete")], policy) == (
+        "success_gated"
+    )
+
+
+@pytest.mark.parametrize(
+    ("lifecycle_queues", "lifecycle_registry", "expected"),
+    [
+        (["amd_mi250_1", "amd_mi300_1"], None, True),
+        (["amd_mi250_1", "amd_mi300_1"], {"fetched_at": "2026-09-01T11:00:00Z"}, True),
+        (["amd_mi250_1", "amd_mi300_1"], {"fetched_at": "2026-09-01T13:00:00Z"}, False),
+        (
+            ["amd_mi250_1", "amd_mi300_1"],
+            {"fetched_at": "2026-09-01T11:00:00Z", "fallback": {"reason": "x"}},
+            False,
+        ),
+        (["amd_mi300_1", "amd_mi250"], None, False),
+        (["amd_mi250_1"], {"fetched_at": "not-a-time"}, False),
+    ],
+)
+def test_queue_scope_migration_requires_a_lifecycle_older_than_the_queue_scope(
+    tmp_path, lifecycle_queues, lifecycle_registry, expected
+):
+    lifecycle = tmp_path / "queue_lifecycle.json"
+    snapshot = tmp_path / "queue.json"
+    scope = {"queues": lifecycle_queues}
+    if lifecycle_registry is not None:
+        scope["registry"] = lifecycle_registry
+    lifecycle.write_text(json.dumps({"scope": scope}))
+    snapshot.write_text(json.dumps({"queue": {"snapshot": {"target_queue_scope": {
+        "queue_ids": ["amd_mi250", "amd_mi300_1"],
+        "registry": {"fetched_at": "2026-09-01T12:00:00Z"},
+    }}}}))
+
+    assert budget.queue_scope_migration_required(lifecycle, snapshot) is expected
+    assert budget.queue_scope_migration_required(lifecycle, tmp_path / "absent.json") is False
+    assert budget.queue_scope_migration_required(None, snapshot) is False
+
+
+def test_lifecycle_reserve_cli_migrates_a_published_lifecycle_in_another_scope(repo, tmp_path):
+    checkout, _ = repo
+    config = budget.ROOT / "config/queue_lifecycle_attempt_budget.json"
+    initialize(checkout, budget.load_policy(config), [seed(10, BASE - timedelta(minutes=30))])
+    lifecycle = tmp_path / "queue_lifecycle.json"
+    snapshot = tmp_path / "queue.json"
+    lifecycle.write_text(json.dumps({"scope": {"queues": ["amd_mi250_1"]}}))
+    snapshot.write_text(json.dumps({"queue": {"snapshot": {"target_queue_scope": {
+        "queue_ids": ["amd_mi250"], "registry": {"fetched_at": budget._iso(BASE)},
+    }}}}))
+
+    def reserve_mode(number: int, *scope_args: str) -> str:
+        output = tmp_path / f"outputs-{number}"
+        assert budget.main([
+            "--root", str(checkout), "--config", str(config), "reserve",
+            "--attempt-id", f"lifecycle-{number}-1", "--workflow-run-id", str(number),
+            "--workflow-run-attempt", "1", "--event-name", "schedule",
+            "--now", budget._iso(BASE), "--github-output", str(output), *scope_args,
+        ]) == 0
+        return dict(line.split("=", 1) for line in output.read_text().splitlines())["request_mode"]
+
+    assert reserve_mode(1) == "success_gated"
+    assert reserve_mode(
+        2, "--published-lifecycle", str(lifecycle), "--queue-snapshot", str(snapshot)
+    ) == "reserved"
+
+
 def test_complete_row_resets_backoff_and_restores_success_floor(policy):
     failed = [_row(number, BASE - timedelta(hours=8 - number), policy, outcome="failed") for number in range(4)]
     recovered = failed + [_row(9, BASE, policy, outcome="complete")]

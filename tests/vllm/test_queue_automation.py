@@ -919,6 +919,17 @@ class TestQueueLifecycleWorkflow:
             "Initialize exact Buildkite request guard"
         ) < names.index("Restore durable lifecycle observations")
 
+    def test_reserve_passes_published_queue_scopes_or_keeps_the_cadence(self, workflow):
+        reserve = workflow["jobs"]["lifecycle"]["steps"][1]
+        script = reserve["run"]
+        assert reserve["env"]["GH_TOKEN"] == "${{ github.token }}"
+        assert "data/vllm/ci/queue_lifecycle.json?ref=queue-lifecycle-data" in script
+        assert "data/vllm/ci/operations_v2/queue.json?ref=queue-data" in script
+        assert script.index("SCOPE_ARGS=()") < script.index("if gh api")
+        assert script.index("if gh api") < script.index('reserve \\') < script.index(
+            '"${SCOPE_ARGS[@]}"'
+        )
+
     def test_collects_only_with_secret_environment(self, workflow):
         steps = workflow["jobs"]["lifecycle"]["steps"]
         collect = next(

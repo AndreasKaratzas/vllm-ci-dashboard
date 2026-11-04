@@ -946,6 +946,7 @@ jobs:
           fi
 
       - name: Resolve AMD queue registry from ci-infra
+        if: inputs.dns_generation == '' && inputs.queue_generation == ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -953,6 +954,18 @@ jobs:
           [[ "$PUBLICATION_CODE_SHA" =~ ^[0-9a-f]{40}$ ]]
           # A state captured before the registry existed falls back to the committed seed.
           python scripts/vllm/amd_queue_registry.py --fallback-git-ref "$PUBLICATION_CODE_SHA"
+
+      - name: Keep the state AMD queue registry for refresh-only runs
+        if: inputs.dns_generation != '' || inputs.queue_generation != ''
+        run: |
+          set -euo pipefail
+          [[ "$PUBLICATION_CODE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          # Queue scope changes only on full runs; a state captured before the
+          # registry existed starts from the committed seed.
+          if [ ! -f data/vllm/ci/amd_queue_registry.json ]; then
+            GIT_NO_LAZY_FETCH=1 git restore \
+              --source="$PUBLICATION_CODE_SHA" --worktree -- data/vllm/ci/amd_queue_registry.json
+          fi
 
       - name: Resolve immutable vLLM config snapshot
         if: inputs.dns_generation == '' && inputs.queue_generation == ''

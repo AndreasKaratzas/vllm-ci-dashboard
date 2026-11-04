@@ -745,7 +745,7 @@ def _attempt_complete(row: Mapping[str, Any], policy: AttemptPolicy) -> bool:
 
 def _request_mode(
     attempts: list[dict[str, Any]], *, now: datetime, policy: AttemptPolicy,
-    collection_retry_required: bool = False,
+    collection_retry_required: bool = False, queue_scope_migration: bool = False,
 ) -> tuple[str, datetime | None]:
     """Return the authoritative mode without mutating the durable ledger.
 
@@ -761,6 +761,9 @@ def _request_mode(
     A superseded row (its candidate was built from code that main replaced
     before publication) neither gates nor extends the failure streak; it still
     holds its slot in the rolling cap below.
+
+    A lifecycle published under an older queue scope waits only the failed-retry
+    interval, so it migrates on its next tick instead of after two hours.
     """
     newest_first = sorted(
         (row for row in attempts if "superseded_at" not in row),
@@ -771,7 +774,11 @@ def _request_mode(
         reserved_at = _timestamp(latest["reserved_at"], label="latest reserved_at")
         inherited_retry = policy.producer == "data_collection" and collection_retry_required
         if _attempt_complete(latest, policy) and not inherited_retry:
-            interval = policy.success_interval_minutes
+            migrating = policy.producer == "queue_lifecycle" and queue_scope_migration
+            interval = (
+                policy.failed_retry_interval_minutes if migrating
+                else policy.success_interval_minutes
+            )
             gated_mode = "success_gated"
         else:
             failures = 1
@@ -957,6 +964,33 @@ def initialize(
     }
 
 
+def queue_scope_migration_required(
+    lifecycle_path: Path | None, queue_path: Path | None
+) -> bool:
+    """Whether a live-resolved lifecycle predates Queue Monitor's current queue scope."""
+    if lifecycle_path is None or queue_path is None:
+        return False
+    try:
+        lifecycle_scope = json.loads(lifecycle_path.read_text())["scope"]
+        queue_scope = json.loads(queue_path.read_text())["queue"]["snapshot"][
+            "target_queue_scope"
+        ]
+        if set(lifecycle_scope["queues"]) == set(queue_scope["queue_ids"]):
+            return False
+        lifecycle_registry = lifecycle_scope.get("registry") or {}
+        if "fallback" in lifecycle_registry:
+            return False
+        lifecycle_fetched_at = lifecycle_registry.get("fetched_at")
+        queue_fetched_at = _timestamp(
+            queue_scope["registry"]["fetched_at"], label="queue registry fetched_at"
+        )
+        return lifecycle_fetched_at is None or _timestamp(
+            lifecycle_fetched_at, label="lifecycle registry fetched_at"
+        ) < queue_fetched_at
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, AttemptBudgetError):
+        return False
+
+
 def reserve(
     root: Path,
     policy: AttemptPolicy,
@@ -967,6 +1001,7 @@ def reserve(
     event_name: str,
     now: datetime,
     remote: str,
+    queue_scope_migration: bool = False,
 ) -> dict[str, object]:
     if not SAFE_ID_RE.fullmatch(attempt_id):
         raise AttemptBudgetError("attempt id is not a safe bounded identifier")
@@ -1008,6 +1043,7 @@ def reserve(
     request_mode, available = _request_mode(
         attempts, now=now, policy=policy,
         collection_retry_required=collection["collection_retry_required"] == "true",
+        queue_scope_migration=queue_scope_migration,
     )
     if request_mode != "reserved":
         return {
@@ -1261,6 +1297,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     reserve_parser.add_argument("--now")
     reserve_parser.add_argument("--remote", default="origin")
     reserve_parser.add_argument("--github-output", type=Path)
+    reserve_parser.add_argument("--published-lifecycle", type=Path)
+    reserve_parser.add_argument("--queue-snapshot", type=Path)
 
     observe_parser = subparsers.add_parser("observe")
     observe_parser.add_argument("--now")
@@ -1312,6 +1350,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                 event_name=args.event_name,
                 now=_clock(args.now),
                 remote=args.remote,
+                queue_scope_migration=queue_scope_migration_required(
+                    args.published_lifecycle, args.queue_snapshot
+                ),
             )
         elif args.command == "observe":
             outputs = observe(
