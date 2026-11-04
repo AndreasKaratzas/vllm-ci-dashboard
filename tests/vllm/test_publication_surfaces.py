@@ -1206,6 +1206,51 @@ def test_refresh_only_without_candidate_code_ref_keeps_legacy_comparison(
         )
 
 
+@pytest.mark.parametrize("seeded_in", ["baseline", "candidate_code"])
+@pytest.mark.parametrize("surface", ["queue", "dns_health"])
+def test_refresh_only_accepts_registry_with_unchanged_routing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    surface: str,
+    seeded_in: str,
+) -> None:
+    repo, baseline, candidate, dns_relative = _refresh_only_candidate_repo(tmp_path)
+    registry_path = repo / selector_module.REGISTRY_RELATIVE_PATH
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    seed = json.loads((ROOT / "tests/vllm/fixtures/amd_queue_registry.json").read_text())
+    registry_path.write_text(json.dumps(seed))
+    _git(repo, "add", selector_module.REGISTRY_RELATIVE_PATH)
+    _git(repo, "commit", "-m", "registry seed")
+    if seeded_in == "baseline":
+        baseline = _git(repo, "rev-parse", "HEAD")
+    else:
+        candidate = _git(repo, "rev-parse", "HEAD")
+    targets = {"dns_health": dns_relative, "queue": "data/queue_lifecycle.json"}
+    monkeypatch.setattr(
+        selector_module,
+        "SURFACE_SPECS",
+        {name: SurfaceSpec(required_paths=(path,)) for name, path in targets.items()},
+    )
+    (repo / targets[surface]).write_text('{"generation":"candidate"}\n')
+    seed["source"].update(commit="f" * 40, fetched_at="2026-11-04T00:00:00Z")
+    registry_path.write_text(json.dumps(seed))
+
+    selector_module._validate_refresh_only_candidate(repo, baseline, surface, candidate)
+
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps(seed))
+    registry_path.unlink()
+    registry_path.symlink_to(outside)
+    with pytest.raises(RuntimeError, match="amd_queue_registry.json"):
+        selector_module._validate_refresh_only_candidate(repo, baseline, surface, candidate)
+
+    registry_path.unlink()
+    seed["queues"].pop()
+    registry_path.write_text(json.dumps(seed))
+    with pytest.raises(RuntimeError, match="amd_queue_registry.json"):
+        selector_module._validate_refresh_only_candidate(repo, baseline, surface, candidate)
+
+
 def test_selector_cli_accepts_candidate_code_ref() -> None:
     args = selector_module.parse_args([
         "--baseline-ref",
