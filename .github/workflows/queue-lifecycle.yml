@@ -282,20 +282,16 @@ jobs:
           git -C "$LIVE_ROOT" commit -m "queue: lifecycle observations $(date -u +%Y-%m-%dT%H:%M)"
           DURABLE_REF=$(git -C "$LIVE_ROOT" rev-parse --verify 'HEAD^{commit}')
           if [ "$LIFECYCLE_BASELINE_REF" = bootstrap ]; then
-            LIFECYCLE_LEASE="--force-with-lease=refs/heads/queue-lifecycle-data:"
+            LIFECYCLE_EXPECT=
           elif [[ "$LIFECYCLE_BASELINE_REF" =~ ^[0-9a-f]{40}$ ]]; then
-            LIFECYCLE_LEASE="--force-with-lease=refs/heads/queue-lifecycle-data:$LIFECYCLE_BASELINE_REF"
+            LIFECYCLE_EXPECT="$LIFECYCLE_BASELINE_REF"
           else
             echo "::error::Lifecycle publication baseline ref is invalid."
             exit 1
           fi
-          git -C "$LIVE_ROOT" push "$LIFECYCLE_LEASE" origin HEAD:queue-lifecycle-data
-          REMOTE_REF=$(git ls-remote --refs origin refs/heads/queue-lifecycle-data | awk '{print $1}')
-          if ! [[ "$DURABLE_REF" =~ ^[0-9a-f]{40}$ ]] || \
-             [ "$REMOTE_REF" != "$DURABLE_REF" ]; then
-            echo "::error::Published lifecycle ref does not match its exact local commit."
-            exit 1
-          fi
+          python "$GITHUB_WORKSPACE/scripts/vllm/github_write.py" push --root "$LIVE_ROOT" \
+            --ref refs/heads/queue-lifecycle-data --source "$DURABLE_REF" \
+            --expect "$LIFECYCLE_EXPECT"
           echo "durable_ref=$DURABLE_REF" >> "$GITHUB_OUTPUT"
 
       - name: Mark durable Queue Lifecycle success

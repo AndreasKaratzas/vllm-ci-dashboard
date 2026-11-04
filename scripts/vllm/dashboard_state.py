@@ -29,6 +29,7 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
 
 if TYPE_CHECKING or __package__:
+    from .github_write import GitPushError, push_refs
     from .public_projection import (
         ATTESTATION_PATH as PUBLIC_PROJECTION_ATTESTATION_PATH,
         MAX_ATTESTATION_BYTES as MAX_PUBLIC_PROJECTION_ATTESTATION_BYTES,
@@ -39,6 +40,9 @@ if TYPE_CHECKING or __package__:
 else:  # Direct ``python scripts/vllm/dashboard_state.py`` execution.
     from importlib import import_module
 
+    _github_write = import_module("github_write")
+    GitPushError = _github_write.GitPushError
+    push_refs = _github_write.push_refs
     _public_projection = import_module("public_projection")
     PUBLIC_PROJECTION_ATTESTATION_PATH = _public_projection.ATTESTATION_PATH
     MAX_PUBLIC_PROJECTION_ATTESTATION_BYTES = _public_projection.MAX_ATTESTATION_BYTES
@@ -1633,47 +1637,30 @@ def rotate_state_refs(
 
     current_ref = f"refs/heads/{policy.branch}"
     previous_ref = f"refs/heads/{policy.previous_branch}"
-    current_lease = expected_current_sha or ""
-    previous_lease = expected_previous_sha or ""
-    args = [
-        "push",
-        "--atomic",
-        f"--force-with-lease={current_ref}:{current_lease}",
-        f"--force-with-lease={previous_ref}:{previous_lease}",
-    ]
     # Bootstrap creates both slots at the same root. This makes "both absent"
     # one atomic precondition; otherwise an external writer could create the
     # previous ref between its read and a current-only push. Before generation
     # two, explicit rollback is simply a no-op.
     new_previous_sha = expected_current_sha or new_state_sha
-    args.extend(
-        [
-            remote,
-            f"{new_state_sha}:{current_ref}",
-            f"{new_previous_sha}:{previous_ref}",
-        ]
-    )
     try:
-        _git(root, *args)
-    except DashboardStateError as exc:
+        push_refs(
+            root,
+            remote,
+            {current_ref: new_state_sha, previous_ref: new_previous_sha},
+            leases={current_ref: expected_current_sha, previous_ref: expected_previous_sha},
+            atomic=True,
+        )
+    except GitPushError as exc:
         if default_branch is not None and is_workflow_permission_rejection(
             str(exc), branch=policy.branch
         ):
             raise WorkflowSupersededError(
                 f"push refused for workflow content changed on {default_branch}: {exc}"
             ) from exc
-        raise
-
-    verified_current = _remote_ref_sha(root, remote, policy.branch)
-    verified_previous = _remote_ref_sha(root, remote, policy.previous_branch)
-    expected_new_previous = new_previous_sha
-    if verified_current != new_state_sha or verified_previous != expected_new_previous:
-        raise DashboardStateError(
-            "remote state rotation succeeded but post-push verification disagreed"
-        )
+        raise DashboardStateError(str(exc)) from exc
     return {
         "state_sha": new_state_sha,
-        "previous_state_sha": expected_new_previous,
+        "previous_state_sha": new_previous_sha,
     }
 
 
@@ -1858,25 +1845,16 @@ def repair_state_slots(
 
     current_ref = f"refs/heads/{policy.branch}"
     previous_ref = f"refs/heads/{policy.previous_branch}"
-    current_lease = expected_current_sha or ""
-    previous_lease = expected_previous_sha or ""
-    _git(
-        root,
-        "push",
-        "--atomic",
-        f"--force-with-lease={current_ref}:{current_lease}",
-        f"--force-with-lease={previous_ref}:{previous_lease}",
-        remote,
-        f"{survivor.state_sha}:{current_ref}",
-        f"{survivor.state_sha}:{previous_ref}",
-    )
-
-    verified_current = _remote_ref_sha(root, remote, policy.branch)
-    verified_previous = _remote_ref_sha(root, remote, policy.previous_branch)
-    if verified_current != survivor.state_sha or verified_previous != survivor.state_sha:
-        raise DashboardStateError(
-            "remote state repair succeeded but post-push verification disagreed"
+    try:
+        push_refs(
+            root,
+            remote,
+            {current_ref: survivor.state_sha, previous_ref: survivor.state_sha},
+            leases={current_ref: expected_current_sha, previous_ref: expected_previous_sha},
+            atomic=True,
         )
+    except GitPushError as exc:
+        raise DashboardStateError(str(exc)) from exc
     return {
         "repair_action": "repaired",
         "valid_slots": valid_slots,

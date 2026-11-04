@@ -32,6 +32,7 @@ from vllm.collection_recovery import (  # noqa: E402
     normalize_historical_collection_evidence,
     read_collection_evidence,
 )
+from vllm.github_write import GitPushError, push_refs  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -663,15 +664,10 @@ def _push(
     policy: AttemptPolicy,
 ) -> None:
     ref = f"refs/heads/{policy.branch}"
-    _git(
-        root,
-        "push",
-        f"--force-with-lease={ref}:{expected_sha or ''}",
-        remote,
-        f"{new_sha}:{ref}",
-    )
-    if _remote_sha(root, remote, policy) != new_sha:
-        raise AttemptBudgetError("attempt ledger post-push verification disagreed")
+    try:
+        push_refs(root, _safe_remote(remote), {ref: new_sha}, leases={ref: expected_sha})
+    except GitPushError as exc:
+        raise AttemptBudgetError(str(exc)) from exc
 
 
 def _active_attempts(

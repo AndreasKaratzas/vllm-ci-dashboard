@@ -67,12 +67,14 @@ def _fixture(tmp_path, *, bootstrap=False, missing_public=False, corrupt_public=
     steps = {step.get("name"): step for step in workflow["jobs"]["collect"]["steps"]}
     env = {"PATH": str(Path(sys.executable).parent) + os.pathsep + os.environ["PATH"],
            "LANG": "C.UTF-8", "RUNNER_TEMP": str(runtime), "GITHUB_WORKSPACE": str(ROOT),
-           "DNS_STATE_ENCRYPTION_KEY": key}
+           "DNS_STATE_ENCRYPTION_KEY": key, "GITHUB_ENV": str(runtime / "github-env")}
     return root, remote, runtime, steps, env, state, public, cipher
 
 
 def _run(root, steps, env, name, *, check=True):
-    return subprocess.run(["bash", "-e", "-c", steps[name]["run"]], cwd=root, env=env,
+    github_env = Path(env["GITHUB_ENV"])
+    exported = dict(line.split("=", 1) for line in github_env.read_text().splitlines()) if github_env.exists() else {}
+    return subprocess.run(["bash", "-e", "-c", steps[name]["run"]], cwd=root, env={**env, **exported},
                           capture_output=True, timeout=15, check=check)
 
 
@@ -117,6 +119,20 @@ def test_dns_publication_reuses_only_identical_authenticated_evidence(tmp_path, 
     assert hashlib.sha256(stored_cipher).hexdigest() == hashlib.sha256(emitted).hexdigest()
     assert len(_git(root, "--git-dir", str(remote), "rev-list", "--parents", "-n", "1", after).split()) == 1
     _run(root, steps, env, "Remove private DNS plaintext")
+
+
+def test_dns_publication_never_overwrites_a_concurrent_writer(tmp_path):
+    root, _, _, steps, env, _, public, _ = _fixture(tmp_path)
+    _run(root, steps, env, "Resolve durable DNS scanner state")
+    _write(root, STATE, gzip.compress(b'{"synthetic":"changed"}\n', mtime=0))
+    _write(root, PUBLIC, public)
+    _run(root, steps, env, "Encrypt durable DNS scanner state")
+    concurrent = _git(root, "commit-tree", "HEAD^{tree}", "-m", "Concurrent DNS writer").decode()
+    _git(root, "push", "--force", "origin", f"{concurrent}:refs/heads/dns-health-data")
+    result = _run(root, steps, env, "Publish durable DNS evidence", check=False)
+    assert result.returncode != 0
+    assert b"stale info" in result.stderr
+    assert _ref(root) == concurrent
 
 
 def test_dns_restore_authentication_failure_hard_fails_without_plaintext_or_push(tmp_path):

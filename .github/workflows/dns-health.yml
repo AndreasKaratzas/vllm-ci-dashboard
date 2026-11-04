@@ -151,6 +151,7 @@ jobs:
           # A missing branch is the expected first-run bootstrap. Transport or
           # lookup failures must not turn an established ledger into an empty
           # orphan branch. The public orphan branch contains ciphertext only.
+          DNS_DATA_BASELINE_SHA=""
           set +e
           git ls-remote --exit-code origin refs/heads/dns-health-data >/dev/null 2>&1
           DNS_DATA_STATUS=$?
@@ -159,6 +160,7 @@ jobs:
             git fetch origin \
               +refs/heads/dns-health-data:refs/remotes/origin/dns-health-data \
               --depth=1
+            DNS_DATA_BASELINE_SHA=$(git rev-parse --verify 'origin/dns-health-data^{commit}')
             ENCRYPTED_STATE="$RUNNER_TEMP/dns-health-scan-state.fernet"
             if ! git show \
               origin/dns-health-data:data/vllm/ci/dns_health/scan_state.fernet \
@@ -187,6 +189,7 @@ jobs:
             echo "::error::Could not determine durable DNS branch state; refusing to publish."
             exit "$DNS_DATA_STATUS"
           fi
+          echo "DNS_DATA_BASELINE_SHA=$DNS_DATA_BASELINE_SHA" >> "$GITHUB_ENV"
 
       - name: Reserve durable rolling DNS request budget
         id: dns-request-budget
@@ -415,7 +418,8 @@ jobs:
             data/vllm/ci/dns_health/scan_state.fernet
           python "$GITHUB_WORKSPACE/scripts/vllm/check_git_blob_sizes.py" --root "$LIVE_ROOT"
           git -C "$LIVE_ROOT" commit -m "dns: health observations $(date -u +%Y-%m-%dT%H:%M)"
-          git -C "$LIVE_ROOT" push --force origin HEAD:dns-health-data
+          python "$GITHUB_WORKSPACE/scripts/vllm/github_write.py" push --root "$LIVE_ROOT" \
+            --ref refs/heads/dns-health-data --expect "$DNS_DATA_BASELINE_SHA"
 
       - name: Remove private DNS plaintext
         if: always()
@@ -475,7 +479,7 @@ jobs:
             --arg ref main \
             --arg dns_generation "$TARGET_DNS_GENERATION" \
             '{ref: $ref, inputs: {dns_generation: $dns_generation}}' | \
-          gh api --method POST \
+          python scripts/vllm/github_write.py gh-api -- --method POST \
             -H "Accept: application/vnd.github+json" \
             "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
             --input -

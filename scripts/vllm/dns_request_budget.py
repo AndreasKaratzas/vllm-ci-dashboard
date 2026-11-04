@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from vllm.ci.dns_failures import StateValidationError, load_state, parse_timestamp  # noqa: E402
 from vllm import plan_publication_watchdog as workflow_contract  # noqa: E402
+from vllm.github_write import GitPushError, push_refs  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -549,19 +550,10 @@ def _push_budget(
     policy: BudgetPolicy,
 ) -> None:
     ref = f"refs/heads/{policy.branch}"
-    lease = expected_sha or ""
-    _git(
-        root,
-        "push",
-        f"--force-with-lease={ref}:{lease}",
-        remote,
-        f"{new_sha}:{ref}",
-    )
-    verified = _remote_ref_sha(root, remote, policy)
-    if verified != new_sha:
-        raise DnsRequestBudgetError(
-            "DNS request budget push completed but post-push verification disagreed"
-        )
+    try:
+        push_refs(root, _safe_remote(remote), {ref: new_sha}, leases={ref: expected_sha})
+    except GitPushError as exc:
+        raise DnsRequestBudgetError(str(exc)) from exc
 
 
 def _parse_seed(value: str, *, index: int, policy: BudgetPolicy) -> dict[str, Any]:

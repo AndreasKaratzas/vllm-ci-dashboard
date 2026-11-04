@@ -21,6 +21,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from vllm.github_write import GitPushError, push_refs  # noqa: E402
+
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = ROOT / "config/queue_request_budget.json"
@@ -450,9 +454,10 @@ def _fetch_observed_budget(root: Path, remote: str, observed_sha: str, policy: B
 
 def _push_budget(root: Path, remote: str, new_sha: str, expected_sha: str | None, policy: BudgetPolicy) -> None:
     ref = f"refs/heads/{policy.branch}"
-    _git(root, "push", f"--force-with-lease={ref}:{expected_sha or ''}", remote, f"{new_sha}:{ref}")
-    if _remote_ref_sha(root, remote, policy) != new_sha:
-        raise QueueRequestBudgetError("queue request budget post-push verification disagreed")
+    try:
+        push_refs(root, _safe_remote(remote), {ref: new_sha}, leases={ref: expected_sha})
+    except GitPushError as exc:
+        raise QueueRequestBudgetError(str(exc)) from exc
 
 
 def _parse_seed(value: str, *, index: int, policy: BudgetPolicy) -> dict[str, Any]:
