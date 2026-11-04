@@ -20,6 +20,15 @@ on:
     - cron: '14 */2 * * *'
   repository_dispatch:
     types: [buildkite_build_finished, perf_eval_build_finished]
+  # A merge that changes collection code, audit rules or their config starts
+  # one full collection past the cadence gates (never past the rolling cap).
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - '!scripts/**/*.md'
+      - 'config/**'
+      - '.github/workflows/hourly-master.yml'
   workflow_dispatch:
     inputs:
       ci_days:
@@ -57,9 +66,9 @@ permissions:
   issues: write
   pull-requests: read
 
-# Every full-collection trigger (schedule, webhook, manual, watchdog) shares one
-# group, so at most one full collection runs and one waits. DNS and queue
-# reconciliations coalesce in their own groups, so a full-collection burst
+# Every full-collection trigger (schedule, webhook, merge, manual, watchdog)
+# shares one group, so at most one full collection runs and one waits. DNS and
+# queue reconciliations coalesce in their own groups, so a full-collection burst
 # cannot replace a pending targeted repair. The job-level lock below then
 # queues each surviving Data workflow without replacing another Pages writer.
 concurrency:
@@ -83,6 +92,7 @@ jobs:
          inputs.watchdog_generation == '' && (
           github.event_name == 'workflow_dispatch' ||
           github.event_name == 'schedule' ||
+          github.event_name == 'push' ||
           (github.event_name == 'repository_dispatch' &&
            needs.cadence-preflight.result == 'success' &&
            needs.cadence-preflight.outputs.observation_valid == 'true' &&

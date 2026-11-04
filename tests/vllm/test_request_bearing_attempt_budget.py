@@ -97,6 +97,7 @@ def reserve(
     policy: budget.AttemptPolicy,
     number: int,
     now: datetime,
+    event_name: str = "schedule",
 ) -> dict[str, object]:
     return budget.reserve(
         root,
@@ -104,7 +105,7 @@ def reserve(
         attempt_id=f"data-{number}-1",
         workflow_run_id=str(number),
         workflow_run_attempt=1,
-        event_name="schedule",
+        event_name=event_name,
         now=now,
         remote="origin",
     )
@@ -287,6 +288,41 @@ def test_failed_attempt_can_retry_at_30_minutes_and_reservation_survives_failure
     retry = reserve(checkout, policy, 3002, BASE + timedelta(minutes=30))
     assert retry["request_mode"] == "reserved"
     assert retry["active_attempts"] == 3
+
+
+def test_merge_triggered_collection_skips_cadence_gates_but_not_the_cap(
+    repo: tuple[Path, Path], policy: budget.AttemptPolicy
+) -> None:
+    """New collection code must regenerate the published data without waiting
+    out a success or failure gate, while staying inside the rolling cap."""
+    checkout, _ = repo
+    initialize(checkout, policy, [seed(10, BASE - timedelta(hours=3))])
+    started = reserve(checkout, policy, 2000, BASE)
+    budget.mark_success(
+        checkout,
+        policy,
+        attempt_id=str(started["attempt_id"]),
+        durable_ref="b" * 40,
+        actual_request_starts=711,
+        now=BASE + timedelta(minutes=25),
+        remote="origin",
+    )
+    soon = BASE + timedelta(minutes=30)
+    assert reserve(checkout, policy, 2001, soon)["request_mode"] == "success_gated"
+    assert reserve(checkout, policy, 2002, soon, "push")["request_mode"] == "reserved"
+    assert reserve(checkout, policy, 2003, soon)["request_mode"] == "retry_gated"
+    assert reserve(checkout, policy, 2004, soon, "push")["request_mode"] == "reserved"
+    rerun = budget.reserve(
+        checkout, policy, attempt_id="data-2004-2", workflow_run_id="2004",
+        workflow_run_attempt=2, event_name="push", now=soon, remote="origin",
+    )
+    assert rerun["request_mode"] == "retry_gated"
+
+    rows = [_row(number, BASE - timedelta(hours=20) + timedelta(minutes=number), policy,
+                 outcome="complete") for number in range(16)]
+    assert budget._request_mode(rows, now=BASE, policy=policy, code_change=True) == (
+        "cap_gated", BASE + timedelta(hours=5),
+    )
 
 
 def test_read_only_observation_never_moves_branch_and_fails_closed(

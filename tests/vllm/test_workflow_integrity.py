@@ -3193,7 +3193,10 @@ class TestHourlyMasterWorkflow:
         validation_trigger = validation_workflow.get("on") or validation_workflow.get(True)
         assert set(validation_trigger) == {"pull_request"}
         assert validation_workflow["permissions"] == {"contents": "read"}
-        assert set(validation_workflow["jobs"]) == {"validate-preview"}
+        assert set(validation_workflow["jobs"]) == {
+            "validate-preview",
+            "replay-published-state",
+        }
         validation = validation_workflow["jobs"]["validate-preview"]
         assert validation["permissions"] == {"contents": "read"}
         validation_checkout = next(
@@ -3318,6 +3321,55 @@ class TestHourlyMasterWorkflow:
         assert steps[publish]["with"]["publish_dir"] == "./trusted-base/_pages_publish"
         assert steps[publish]["with"]["keep_files"] is False
         assert steps[publish]["with"]["force_orphan"] is True
+
+    def test_pr_replays_refresh_only_publication_of_the_live_state(self):
+        """A PR whose code cannot republish the real state in a queue or DNS
+        refresh (as #795 did) must fail before merge, without any secret."""
+        workflow = _load_workflow("pr-preview-validation.yml")
+        assert set(workflow.get("on") or workflow.get(True)) == {"pull_request"}
+        job = workflow["jobs"]["replay-published-state"]
+        assert job["permissions"] == {"contents": "read"}
+        assert "secrets." not in json.dumps(job)
+        assert job["steps"][0]["with"]["persist-credentials"] is False
+        runs = [step.get("run") for step in job["steps"]]
+        assert runs[-2:] == [
+            "scripts/vllm/replay_published_state.sh queue",
+            "scripts/vllm/replay_published_state.sh dns_health",
+        ]
+        assert job["steps"][-1]["if"] == "${{ !cancelled() }}"
+
+        script_path = SCRIPTS_DIR / "vllm" / "replay_published_state.sh"
+        assert script_path.stat().st_mode & 0o111
+        script = script_path.read_text()
+        hourly = _load_workflow_text("hourly-master.yml")
+        for mirrored in (
+            "python scripts/vllm/dashboard_state.py materialize",
+            "--worktree -- data/vllm/ci/amd_queue_registry.json",
+            "python scripts/vllm/build_queue_section.py --input-dir data/vllm/ci",
+            "python scripts/vllm/audit_dashboard_data.py --queue-only",
+            "python -S scripts/vllm/restore_queue_projections.py",
+            "python scripts/vllm/select_publication_surfaces.py",
+            "python scripts/vllm/build_operations_snapshot.py",
+            "python scripts/render.py",
+            "from vllm.publication_surfaces import PRE_VIEW_RETIREMENT_SURFACE_SPECS",
+            "git add -A -- data/ dashboards/ README.md",
+            "python scripts/vllm/check_git_blob_sizes.py",
+            "python scripts/vllm/check_dashboard_state_storage_budget.py",
+            "python scripts/vllm/dashboard_state.py prepare",
+            "pytest tests/ -m 'not live_data' -n auto",
+            "python scripts/build_site.py --cache-bust-index",
+            "python scripts/vllm/public_projection.py create",
+            "python scripts/vllm/dashboard_state.py refresh-manifest",
+        ):
+            assert mirrored in hourly and mirrored in script, mirrored
+        assert '--refresh-only-surface "$SURFACE"' in script
+        assert "--allowance 0" in script
+        assert script.index("select_publication_surfaces.py") < script.index(
+            "pytest tests/ -m live_data"
+        )
+        assert script.rstrip().endswith(
+            "python scripts/vllm/check_dashboard_state_storage_budget.py"
+        )
 
     def test_has_buildkite_token(self):
         text = _load_workflow_text("hourly-master.yml")

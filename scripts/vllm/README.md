@@ -32,6 +32,7 @@ Additional data collection scripts specific to the vLLM CI dashboard.
 | `public_projection.py` | Creates the state-bound SHA-256 manifest for every canonical public file and verifies local or remote Git trees without reading large deployed blobs | Before and after every canonical or deploy-only Pages publication, plus the watchdog |
 | `verify_published_operations_bundle.py` | Verifies that every deployed Operations shard exists and matches the public manifest byte contract | After every canonical or manual Pages deployment |
 | `select_publication_surfaces.py` | Validates collected source transactions, restores failed generated surfaces from the durable dashboard-state baseline while comparing source files with the immutable candidate code, then rebuilds and re-audits the combined snapshot | Every canonical `hourly-master.yml` run before tests |
+| `replay_published_state.sh` | Replays a queue or DNS refresh-only publication of the real `dashboard-state` with the checked-out code and zero Buildkite requests through every gate that run enforces before committing state | Every pull request via `pr-preview-validation.yml` |
 | `config_parity.py` | Compares AMD vs NVIDIA CI config (commands, test lists) | Part of `collect_ci.py` |
 | `pipelines.py` | Pipeline definitions (slug, name patterns, build filters) | Imported by other scripts |
 
@@ -532,7 +533,11 @@ same way whenever the docker ledger is due and no run is active, and
 force-cancels any workflow run stuck past its timeout bound, reporting the count
 in its job summary. A Buildkite
 webhook cannot start collection earlier: `cadence-preflight` observes the same ledger and drops
-early dispatches. Lowering latency means lowering `success_interval_minutes`
+early dispatches. Only a merge to `main` that changes `scripts/`, `config/` or
+`hourly-master.yml` skips the success and failed-retry gates (never the cap), so
+new collection code or audit rules publish a full generation right away rather
+than leaving refresh runs to audit the previous one. Lowering latency means
+lowering `success_interval_minutes`
 (and raising `max_request_bearing_attempts`, currently 16 per 25 hours with 800
 request starts each), which is a Buildkite API budget decision.
 
