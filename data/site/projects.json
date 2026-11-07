@@ -1,0 +1,51 @@
+{
+  "projects": {
+    "vllm": {
+      "repo": "vllm-project/vllm",
+      "role": "upstream_watch",
+      "fork": "sunway513/vllm",
+      "depends_on": [],
+      "build_workflows": [
+        {
+          "name": "Docker Image CI",
+          "id": 141341664
+        }
+      ]
+    }
+  },
+  "total_count": 1,
+  "publication_retention": {
+    "policy": "vllm_first_deterministic_project_rows_v1",
+    "max_bytes": 32768,
+    "aggregate_counts_complete": true,
+    "source_aggregates": {
+      "total": 1
+    },
+    "rows": {
+      "source": 1,
+      "published": 1,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "detail_fields": {
+      "source": 3,
+      "published": 3,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "relationship_refs": {
+      "source": 0,
+      "published": 0,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "source_queries": {
+      "source": 0,
+      "published": 0,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "complete_relative_to_source": true
+  },
+  "count_semantics": "complete"
+}

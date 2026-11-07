@@ -1,0 +1,182 @@
+{
+  "schema_version": 1,
+  "source": {
+    "repository": "vllm-project/ci-infra",
+    "ref": "main",
+    "commit": "915f2ba0a1696a6462d981628ab4c773b7c8d82b",
+    "paths": [
+      "buildkite/pipeline_generator/constants.py",
+      "buildkite/pipeline_generator/amd.py"
+    ],
+    "fetched_at": "2026-11-07T12:48:39Z"
+  },
+  "queues": [
+    {
+      "queue": "amd_mi250",
+      "hardware": "MI250",
+      "gpu_size_tag": true,
+      "devices": [
+        {
+          "device": "mi250_1",
+          "gpus": 1
+        },
+        {
+          "device": "mi250_2",
+          "gpus": 2
+        },
+        {
+          "device": "mi250_4",
+          "gpus": 4
+        },
+        {
+          "device": "mi250_8",
+          "gpus": 8
+        }
+      ]
+    },
+    {
+      "queue": "amd_mi300_1",
+      "hardware": "MI300",
+      "gpu_size_tag": false,
+      "devices": [
+        {
+          "device": "mi300_1",
+          "gpus": 1
+        }
+      ]
+    },
+    {
+      "queue": "amd_mi300_2",
+      "hardware": "MI300",
+      "gpu_size_tag": false,
+      "devices": [
+        {
+          "device": "mi300_2",
+          "gpus": 2
+        }
+      ]
+    },
+    {
+      "queue": "amd_mi300_4",
+      "hardware": "MI300",
+      "gpu_size_tag": false,
+      "devices": [
+        {
+          "device": "mi300_4",
+          "gpus": 4
+        }
+      ]
+    },
+    {
+      "queue": "amd_mi300_8",
+      "hardware": "MI300",
+      "gpu_size_tag": false,
+      "devices": [
+        {
+          "device": "mi300_8",
+          "gpus": 8
+        }
+      ]
+    },
+    {
+      "queue": "amd_mi325_1",
+      "hardware": "MI325",
+      "gpu_size_tag": false,
+      "devices": [
+        {
+          "device": "mi325_1",
+          "gpus": 1
+        }
+      ]
+    },
+    {
+      "queue": "amd_mi325_2",
+      "hardware": "MI325",
+      "gpu_size_tag": false,
+      "devices": [
+        {
+          "device": "mi325_2",
+          "gpus": 2
+        }
+      ]
+    },
+    {
+      "queue": "amd_mi325_4",
+      "hardware": "MI325",
+      "gpu_size_tag": false,
+      "devices": [
+        {
+          "device": "mi325_4",
+          "gpus": 4
+        }
+      ]
+    },
+    {
+      "queue": "amd_mi325_8",
+      "hardware": "MI325",
+      "gpu_size_tag": false,
+      "devices": [
+        {
+          "device": "mi325_8",
+          "gpus": 8
+        }
+      ]
+    },
+    {
+      "queue": "amd_mi355_dpx",
+      "hardware": "MI355",
+      "gpu_size_tag": false,
+      "devices": [
+        {
+          "device": "mi355_dpx",
+          "gpus": 1
+        }
+      ]
+    },
+    {
+      "queue": "amd_mi355_1",
+      "hardware": "MI355",
+      "gpu_size_tag": false,
+      "devices": [
+        {
+          "device": "mi355_1",
+          "gpus": 1
+        }
+      ]
+    },
+    {
+      "queue": "amd_mi355_2",
+      "hardware": "MI355",
+      "gpu_size_tag": false,
+      "devices": [
+        {
+          "device": "mi355_2",
+          "gpus": 2
+        }
+      ]
+    },
+    {
+      "queue": "amd_mi355_4",
+      "hardware": "MI355",
+      "gpu_size_tag": false,
+      "devices": [
+        {
+          "device": "mi355_4",
+          "gpus": 4
+        }
+      ]
+    },
+    {
+      "queue": "amd_mi355_8",
+      "hardware": "MI355",
+      "gpu_size_tag": false,
+      "devices": [
+        {
+          "device": "mi355_8",
+          "gpus": 8
+        }
+      ]
+    }
+  ],
+  "unrecognized_queues": []
+}

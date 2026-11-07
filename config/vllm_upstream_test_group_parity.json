@@ -1,0 +1,21 @@
+{
+  "schema_version": 4,
+  "pipeline": "ci",
+  "description": "Applicability policy only. Counts, labels and AMD route presence are derived from current immutable main CI source. Existing AMD routes override exclusions.",
+  "not_applicable": [
+    {"definition_id": ".buildkite/test_areas/kernels.yaml#kernels-deepgemm-test-h100", "reason": "DeepGEMM exercises the NVIDIA-specific DeepGEMM backend."},
+    {"definition_id": ".buildkite/test_areas/kernels.yaml#b12x-linear-kernels-dgx-spark-nightly", "reason": "DGX Spark b12x kernels exercise NVIDIA-specific hardware and kernels."},
+    {"definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-hisparse-nightly-4xb200", "reason": "HiSparse nightly validates its CUDA extension and NVIDIA-specific HiSparse backend."},
+    {"definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-pcp-4xb200", "reason": "PCP workload is configured for NVFP4 and FlashMLA sparse on NVIDIA B200."},
+    {"definition_id": ".buildkite/test_areas/plugins.yaml#bitsandbytes-plugin", "reason": "BitsAndBytes plugin tests explicitly skip ROCm CDNA hardware because of the warp-size-64 limitation."},
+    {"definition_id": ".buildkite/test_areas/plugins.yaml#bitsandbytes-plugin-2-gpus", "reason": "BitsAndBytes plugin tests explicitly skip ROCm CDNA hardware because of the warp-size-64 limitation."},
+    {"definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-humming-l4", "reason": "Humming validates the CUDA-only humming-kernels[cu13] backend pinned by requirements/cuda.txt."},
+    {"definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-humming-a100-default", "reason": "Humming validates the CUDA-only humming-kernels[cu13] backend pinned by requirements/cuda.txt."},
+    {"definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-humming-h100-default", "reason": "Humming validates the CUDA-only humming-kernels[cu13] backend pinned by requirements/cuda.txt."},
+    {"definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-humming-a100-act", "reason": "Humming validates the CUDA-only humming-kernels[cu13] backend pinned by requirements/cuda.txt."},
+    {"definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-humming-h100-act", "reason": "Humming validates the CUDA-only humming-kernels[cu13] backend pinned by requirements/cuda.txt."},
+    {"definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-humming-b200-act", "reason": "Humming validates the CUDA-only humming-kernels[cu13] backend pinned by requirements/cuda.txt."},
+    {"definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-humming-h100-deepep", "reason": "Humming validates the CUDA-only humming-kernels[cu13] backend pinned by requirements/cuda.txt."},
+    {"definition_id": ".buildkite/test_areas/lm_eval.yaml#lm-eval-humming-b200-default", "reason": "Humming validates the CUDA-only humming-kernels[cu13] backend pinned by requirements/cuda.txt."}
+  ]
+}
