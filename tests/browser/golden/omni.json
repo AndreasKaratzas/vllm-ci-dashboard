@@ -1,0 +1,317 @@
+{
+  "fixture site": {
+    "facts": {
+      "description": "Incoming vllm-project/vllm-omni workload and its impact on the AMD queues shared with vllm-project/vllm.",
+      "kpis": [
+        "OBSERVED OMNI MAPPINGS | - | No unique-job mapping history has been collected yet. | soft",
+        "GPU-SLOT REQUESTS | - | Hourly collection is required for this window | ",
+        "SHARE OF OBSERVED VLLM TRAFFIC | Unavailable | No comparable mapping window | ",
+        "MI325 RETIREMENT EXPOSURE | Unavailable | No selected-window queue evidence | pass"
+      ],
+      "noteHeading": "Selected API/UUID bucket coverage is incomplete. Job-created population coverage is not published.",
+      "noteText": "No unique-job mapping history has been collected yet. Rates, shares, and deltas are unavailable for incomplete selected coverage. Job-created-range exhaustiveness is not published for this aggregate; treat the displayed mappings as observed counts.",
+      "noteTone": "soft",
+      "panels": [
+        "Incoming Omni workload unavailable | 7 days",
+        "Where Omni lands | No selected-window queue mappings"
+      ],
+      "empties": [
+        "No unique-job mapping history has been collected yet.",
+        "No unique-job mapping history has been collected yet."
+      ],
+      "impactRows": [],
+      "comparison": [
+        "vllm-project/vllm-omni | - | - | Unavailable | - | -",
+        "vllm-project/vllm | - | - | Unavailable | - | -"
+      ],
+      "facts": [
+        "EXACT ACTIVE JOBS | 1 | 0 waiting · 1 running | ",
+        "OBSERVED QUEUED | 0 | Aug 31, 08:47 PM | ",
+        "QUEUED PEAK | 0 | 1 waiting-attributed snapshots · 1 day | ",
+        "ATTRIBUTED SNAPSHOTS | 11 | 1 waiting · 11 running | pass"
+      ],
+      "liveMeta": "Exact jobs now plus 1 day observed occupancy; distinct from unique mapping volume above",
+      "liveActions": [
+        "Active jobs (1)",
+        "Current queues (1)",
+        "Occupancy history",
+        "Daily closing context"
+      ],
+      "activeMapping": "7 days",
+      "activeRange": "1 day"
+    },
+    "jobs": {
+      "title": "Current Omni CI jobs on monitored AMD queues",
+      "firstColumn": [
+        "mi300_1: Simple · Diffusion Test"
+      ]
+    },
+    "buckets": {
+      "title": "vllm-project/vllm-omni mapping buckets",
+      "subtitle": "7 days · API/UUID coverage per bucket · population scope published separately",
+      "fields": [],
+      "strip": [],
+      "firstColumn": [],
+      "empties": [
+        "No matching evidence. No matching observations."
+      ]
+    }
+  },
+  "mapping 1d, range 3h": {
+    "description": "Incoming vllm-project/vllm-omni workload and its impact on the AMD queues shared with vllm-project/vllm.",
+    "kpis": [
+      "OBSERVED OMNI MAPPINGS | 1,882 | 1,882 started · source-window count · job-created range non-exhaustive | soft",
+      "GPU-SLOT REQUESTS | 2,318 | summed job widths · not concurrency · 348.4 completed GPU-hours | ",
+      "SHARE OF OBSERVED VLLM TRAFFIC | 22.7% | 1,882 of 8,280 published source-window mappings | ",
+      "MI325 RETIREMENT EXPOSURE | 0.0% | 0 Omni · 0 vllm-project/vllm | pass"
+    ],
+    "noteHeading": "API/UUID collection complete inside the source window; current bucket open. All job-created mappings are not provably exhaustive.",
+    "noteText": "The current UTC hour is open through Oct 19, 07:44 AM. UUID-deduplicated counts are exact only inside the 3-day parent-build lookback; they are not provably exhaustive for every job created in the selected interval. Jobs added to a parent build more than the configured lookback after that build was created are outside the REST source window and can be absent from these aggregates.",
+    "noteTone": "soft",
+    "panels": [
+      "Observed incoming mappings from vllm-project/vllm-omni | 24 chart buckets · 1 day · source-window counts · one shared scale",
+      "Where Omni lands | 3 AMD queues · click a bar or row for impact details"
+    ],
+    "empties": [
+      "",
+      ""
+    ],
+    "impactRows": [
+      "amd_mi300_1 | 1,620 | 86.1%",
+      "amd_mi300_2 | 175 | 9.3%",
+      "amd_mi300_4 | 87 | 4.6%"
+    ],
+    "comparison": [
+      "vllm-project/vllm-omni | 1,882 | 1,882 | 100.0% | 2,318 | 348.4",
+      "vllm-project/vllm | 6,398 | 5,831 | 91.1% | 11,341 | 2,239.3"
+    ],
+    "facts": [
+      "EXACT ACTIVE JOBS | 12 | 0 waiting · 12 running | ",
+      "OBSERVED QUEUED | - | No waiting-attributed snapshot in 3 hours | ",
+      "QUEUED PEAK | - | 0 waiting-attributed snapshots · 3 hours | ",
+      "ATTRIBUTED SNAPSHOTS | 3 | 0 waiting · 3 running | soft"
+    ],
+    "liveMeta": "Exact jobs now plus 3 hours observed occupancy; distinct from unique mapping volume above",
+    "liveActions": [
+      "Active jobs (12)",
+      "Current queues (2)",
+      "Occupancy history",
+      "Daily closing context"
+    ],
+    "activeMapping": "1 day",
+    "activeRange": "3 hours"
+  },
+  "mapping 1m": {
+    "description": "Incoming vllm-project/vllm-omni workload and its impact on the AMD queues shared with vllm-project/vllm.",
+    "kpis": [
+      "OBSERVED OMNI MAPPINGS | ≥20,292 | ≥20,234 started · source-window count · job-created range non-exhaustive | soft",
+      "GPU-SLOT REQUESTS | 24,885 | summed job widths · not concurrency · 4,501 completed GPU-hours | ",
+      "SHARE OF OBSERVED VLLM TRAFFIC | Unavailable | ≥20,292 of ≥339,631 published source-window mappings | ",
+      "MI325 RETIREMENT EXPOSURE | Unavailable | ≥0 Omni · ≥0 vllm-project/vllm | pass"
+    ],
+    "noteHeading": "Selected API/UUID bucket coverage is incomplete. All job-created mappings are not provably exhaustive.",
+    "noteText": "Only 12 of 30 selected UTC-day buckets are retained. The current UTC day is open through Oct 19, 07:44 AM. Rates, shares, and deltas are unavailable for incomplete selected coverage. UUID-deduplicated counts are exact only inside the 3-day parent-build lookback; they are not provably exhaustive for every job created in the selected interval. Jobs added to a parent build more than the configured lookback after that build was created are outside the REST source window and can be absent from these aggregates.",
+    "noteTone": "soft",
+    "panels": [
+      "Observed incoming mappings from vllm-project/vllm-omni | 12 chart buckets · 1 month · source-window counts · one shared scale",
+      "Where Omni lands | 3 AMD queues · click a bar or row for impact details"
+    ],
+    "empties": [
+      "",
+      ""
+    ],
+    "impactRows": [
+      "amd_mi300_1 | 17,485 | Unavailable",
+      "amd_mi300_2 | 1,914 | Unavailable",
+      "amd_mi300_4 | 893 | Unavailable"
+    ],
+    "comparison": [
+      "vllm-project/vllm-omni | 20,292 | 20,234 | Unavailable | 24,885 | 4,501",
+      "vllm-project/vllm | 319,339 | 89,833 | Unavailable | 643,754 | 37,063.2"
+    ],
+    "facts": [
+      "EXACT ACTIVE JOBS | 12 | 0 waiting · 12 running | ",
+      "OBSERVED QUEUED | 0 | Oct 18, 03:29 PM | ",
+      "QUEUED PEAK | 0 | 1 waiting-attributed snapshots · 1 day | ",
+      "ATTRIBUTED SNAPSHOTS | 17 | 1 waiting · 17 running | soft"
+    ],
+    "liveMeta": "Exact jobs now plus 1 day observed occupancy; distinct from unique mapping volume above",
+    "liveActions": [
+      "Active jobs (12)",
+      "Current queues (2)",
+      "Occupancy history",
+      "Daily closing context"
+    ],
+    "activeMapping": "1 month",
+    "activeRange": "1 day"
+  },
+  "published snapshot": {
+    "facts": {
+      "description": "Incoming vllm-project/vllm-omni workload and its impact on the AMD queues shared with vllm-project/vllm.",
+      "kpis": [
+        "OBSERVED OMNI MAPPINGS | ≥3,476 | ≥3,476 started · source-window count · job-created range non-exhaustive | soft",
+        "GPU-SLOT REQUESTS | 4,286 | summed job widths · not concurrency · 680.8 completed GPU-hours | ",
+        "SHARE OF OBSERVED VLLM TRAFFIC | Unavailable | ≥3,476 of ≥17,367 published source-window mappings | ",
+        "MI325 RETIREMENT EXPOSURE | Unavailable | ≥0 Omni · ≥0 vllm-project/vllm | pass"
+      ],
+      "noteHeading": "Selected API/UUID bucket coverage is incomplete. All job-created mappings are not provably exhaustive.",
+      "noteText": "Only 48 of 168 selected UTC-hour buckets are retained. The current UTC hour is open through Oct 19, 07:44 AM. Rates, shares, and deltas are unavailable for incomplete selected coverage. UUID-deduplicated counts are exact only inside the 3-day parent-build lookback; they are not provably exhaustive for every job created in the selected interval. Jobs added to a parent build more than the configured lookback after that build was created are outside the REST source window and can be absent from these aggregates.",
+      "noteTone": "soft",
+      "panels": [
+        "Observed incoming mappings from vllm-project/vllm-omni | 9 chart buckets · 7 days · source-window counts · one shared scale",
+        "Where Omni lands | 3 AMD queues · click a bar or row for impact details"
+      ],
+      "empties": [
+        "",
+        ""
+      ],
+      "impactRows": [
+        "amd_mi300_1 | 2,984 | Unavailable",
+        "amd_mi300_2 | 333 | Unavailable",
+        "amd_mi300_4 | 159 | Unavailable"
+      ],
+      "comparison": [
+        "vllm-project/vllm-omni | 3,476 | 3,476 | Unavailable | 4,286 | 680.8",
+        "vllm-project/vllm | 13,891 | 12,837 | Unavailable | 24,259 | 5,082.9"
+      ],
+      "facts": [
+        "EXACT ACTIVE JOBS | 12 | 0 waiting · 12 running | ",
+        "OBSERVED QUEUED | 0 | Oct 18, 03:29 PM | ",
+        "QUEUED PEAK | 0 | 1 waiting-attributed snapshots · 1 day | ",
+        "ATTRIBUTED SNAPSHOTS | 17 | 1 waiting · 17 running | soft"
+      ],
+      "liveMeta": "Exact jobs now plus 1 day observed occupancy; distinct from unique mapping volume above",
+      "liveActions": [
+        "Active jobs (12)",
+        "Current queues (2)",
+        "Occupancy history",
+        "Daily closing context"
+      ],
+      "activeMapping": "7 days",
+      "activeRange": "1 day"
+    },
+    "kpiDrawers": [
+      {
+        "title": "vllm-project/vllm-omni",
+        "subtitle": "7 days on monitored AMD queues",
+        "fields": [],
+        "strip": [
+          "≥3,476",
+          "≥3,476",
+          "4,286",
+          "680.8"
+        ],
+        "firstColumn": [
+          [
+            "amd_mi300_1",
+            "amd_mi300_2",
+            "amd_mi300_4"
+          ],
+          [
+            "vllm-omni-amd-ci"
+          ]
+        ],
+        "empties": []
+      },
+      {
+        "title": "vllm-project/vllm-omni GPU demand",
+        "subtitle": "7 days on monitored AMD queues",
+        "fields": [],
+        "strip": [
+          "≥3,476",
+          "≥3,476",
+          "4,286",
+          "680.8"
+        ],
+        "firstColumn": [
+          [
+            "amd_mi300_1",
+            "amd_mi300_2",
+            "amd_mi300_4"
+          ],
+          [
+            "vllm-omni-amd-ci"
+          ]
+        ],
+        "empties": []
+      },
+      {
+        "title": "Share of vLLM traffic",
+        "subtitle": "7 days on the same monitored AMD queue allowlist",
+        "fields": [
+          "vllm-project/vllm-omni mapped=3,476",
+          "vllm-project/vllm mapped=13,891",
+          "Combined mapped jobs=17,367",
+          "Omni share=Unavailable",
+          "API bucket status=partial",
+          "Job-created range=not exhaustive"
+        ],
+        "strip": [],
+        "firstColumn": [],
+        "empties": []
+      },
+      {
+        "title": "MI325 retirement exposure",
+        "subtitle": "7 days · retiring queues only",
+        "fields": [
+          "Omni exposure=Unavailable",
+          "Observed Omni MI325 mappings=0",
+          "Observed vllm-project/vllm MI325 mappings=0",
+          "Job-created range=not exhaustive"
+        ],
+        "strip": [],
+        "firstColumn": [],
+        "empties": [
+          "No selected-window Omni mappings targeted MI325."
+        ]
+      }
+    ],
+    "mainWorkload": {
+      "title": "vllm-project/vllm",
+      "subtitle": "7 days on monitored AMD queues",
+      "fields": [],
+      "strip": [
+        "≥13,891",
+        "≥12,837",
+        "24,259",
+        "5,082.9"
+      ],
+      "firstColumn": [
+        [
+          "amd_mi300_1",
+          "amd_mi355_2",
+          "amd_mi355_1",
+          "amd_mi250_1",
+          "amd_mi355_4",
+          "amd_mi300_2",
+          "amd_mi300_4",
+          "amd_mi250_4",
+          "amd_mi355_8",
+          "amd_mi250_2",
+          "amd_mi300_8"
+        ],
+        [
+          "ci"
+        ]
+      ],
+      "empties": []
+    },
+    "queue": {
+      "title": "amd_mi300_1",
+      "subtitle": "7 days impact on a monitored AMD queue",
+      "fields": [
+        "vllm-project/vllm-omni observed mappings=2,984",
+        "vllm-project/vllm-omni started=2,984",
+        "vllm-project/vllm-omni GPU-slot requests=2,984",
+        "vllm-project/vllm-omni GPU-hours=488.9",
+        "vllm-project/vllm observed mappings=4,676",
+        "Omni share on this queue=Unavailable",
+        "Lifecycle=active",
+        "Scope=7 days"
+      ],
+      "strip": [],
+      "firstColumn": [],
+      "empties": []
+    }
+  }
+}
