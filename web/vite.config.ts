@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { fileURLToPath, URL } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import vue from '@vitejs/plugin-vue'
@@ -16,6 +17,19 @@ function cacheBustEntries(): Plugin {
   }
 }
 
+// Allows the configured GoatCounter site in connect-src; with no code the
+// policy is unchanged.
+function viewCounterCsp(): Plugin {
+  const { goatcounter_code: code } = JSON.parse(readFileSync(`${CONFIG_DIR}/view_counter.json`, 'utf8'))
+  return {
+    name: 'view-counter-csp',
+    transformIndexHtml(html) {
+      if (!/^[a-z0-9-]+$/.test(code)) return html
+      return html.replace(/(connect-src [^;"]*)/, `$1 https://${code}.goatcounter.com`)
+    },
+  }
+}
+
 // The published site serves data/ beside v2/. In development, proxy it to the
 // live Pages deployment so views render against real published snapshots.
 const LIVE_SITE = 'https://andreaskaratzas.github.io'
@@ -25,7 +39,7 @@ const CONFIG_DIR = fileURLToPath(new URL('../config', import.meta.url))
 
 export default defineConfig({
   base: './',
-  plugins: [vue(), tailwindcss(), cacheBustEntries()],
+  plugins: [vue(), tailwindcss(), cacheBustEntries(), viewCounterCsp()],
   resolve: {
     alias: {
       '@config': CONFIG_DIR,
