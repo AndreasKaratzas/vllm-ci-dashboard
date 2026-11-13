@@ -366,8 +366,10 @@ one validated targeted source reconciliation, bound to its exact state and code
 SHAs. A separate Site Health path can confirm an already credited full
 publication: normalized evidence must show a current healthy publication with
 no fallback or degraded surfaces, at least two healthy probes out of three,
-and at least two probes matching the complete projection for that same state
-and code identity.
+and at least two probes matching the complete projection. The live
+publication must carry the credited state, or the credited core collection
+clock (`core_generated_at`) that queue/DNS refreshes carry forward, under the
+same code SHA.
 
 The legacy manual `ci-collect.yml` workflow is validation-only. It can exercise
 the focused collectors and show the resulting workspace changes, but its token

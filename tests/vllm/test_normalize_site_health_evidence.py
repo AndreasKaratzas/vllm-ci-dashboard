@@ -98,6 +98,7 @@ def _healthy_report(now: datetime, *, complete_attempt: int = 1) -> dict:
             "mode": "current",
             "status": "healthy",
             "generated_at": generated_at,
+            "core_generated_at": generated_at,
             "age_hours": 1.0,
             "publication_blocked": False,
             "uses_fallback": False,
@@ -325,6 +326,7 @@ def test_standalone_normalizer_accepts_healthy_report_with_current_core(
     assert recovery_evidence["freshDegradedSurfaceCount"] == 0
     assert recovery_evidence["checkedAt"] == report["checked_at"]
     assert recovery_evidence["generatedAt"] == report["publication"]["generated_at"]
+    assert recovery_evidence["coreGeneratedAt"] == report["publication"]["core_generated_at"]
     assert recovery_evidence["durableCoreSucceededAt"] == environment["CORE_LATEST_SUCCEEDED_AT"]
     assert recovery_evidence["confirmationStrategy"] == "2-of-3-quorum"
     assert recovery_evidence["probeAttempts"] == 3

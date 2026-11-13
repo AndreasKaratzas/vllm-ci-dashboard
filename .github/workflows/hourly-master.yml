@@ -4153,9 +4153,14 @@ jobs:
           HOURLY_RECOVERY_CI_URL: ${{ steps.publication-recovery-validation.outputs.run_url }}
         with:
           script: |
+            const fs = require('fs');
             const {closeHourlyIncident} = require(
               `${process.env.GITHUB_WORKSPACE}/scripts/vllm/hourly_incident_recovery.js`,
             );
+            const operations = JSON.parse(fs.readFileSync(
+              `${process.env.GITHUB_WORKSPACE}/_site/data/vllm/ci/operations_v2_manifest.json`,
+              'utf8',
+            ));
             await closeHourlyIncident({
               github,
               context,
@@ -4165,6 +4170,7 @@ jobs:
               validationCodeSha: process.env.HOURLY_RECOVERY_CODE_SHA || '',
               validationStateSha: process.env.HOURLY_RECOVERY_STATE_SHA || '',
               validationCiUrl: process.env.HOURLY_RECOVERY_CI_URL || '',
+              validationCoreGeneratedAt: operations.shell?.core_generated_at || '',
             });
 
       # ── Phase 7: Health check ──

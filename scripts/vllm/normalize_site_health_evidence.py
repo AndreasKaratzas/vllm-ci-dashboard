@@ -1065,6 +1065,7 @@ def normalize_health_evidence() -> None:
                 "fresh_degraded_surface_count"
             ),
             "generatedAt": publication.get("generated_at"),
+            "coreGeneratedAt": publication.get("core_generated_at"),
             # Retain the actual final probe and durable collection clocks;
             # normalization cannot renew evidence queued behind a publisher.
             "checkedAt": report.get("checked_at"),
