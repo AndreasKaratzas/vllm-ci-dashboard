@@ -54,7 +54,7 @@ const occupancySeries = computed(() => {
   if (live.value.points.length && live.value.points.every((p) => p.waitingSupported)) series.push({ key: 'waiting', label: 'Waiting', color: SERIES.secondary })
   return series
 })
-const occupancyGap = computed(() => collectionGap(occupancy.value.map((row) => row.time), 2))
+const occupancyGap = computed(() => collectionGap(occupancy.value.map((row) => row.time), 1.5))
 const pointLabel = (row: OccupancyRow) => new Date(row.time).toISOString().slice(0, 16).replace('T', ' ') + ' UTC'
 const inspectPoint = (point: HistoryPoint) => open(live.value.inspectPoint(point))
 
