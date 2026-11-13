@@ -2514,13 +2514,32 @@
     };
   }
 
+  // Core targets from config/data_freshness_targets.json, as the v2 header and Site Health judge them.
+  const CORE_WARN_MINUTES = 150;
+  const CORE_STALE_MINUTES = 180;
+
+  function coreLateness(ts) {
+    const minutes = (Date.now() - Date.parse(ts)) / 60000;
+    if (!(minutes <= CORE_STALE_MINUTES)) return {label: 'Stale', tone: 'is-danger'};
+    if (minutes > CORE_WARN_MINUTES) return {label: 'Past target', tone: 'is-warning'};
+    return null;
+  }
+
   function setFreshness(ops) {
-    const ts = ops.generated_at || (((ops.sources || {}).analytics || {}).timestamp);
-    const label = ts ? 'Updated ' + age(ts) : 'Update unknown';
+    const core = 'core_generated_at' in ops;
+    const ts = core ? ops.core_generated_at : ops.generated_at || (((ops.sources || {}).analytics || {}).timestamp);
+    const late = core ? coreLateness(ts) : null;
+    const when = ts ? age(ts) : 'age unknown';
     const sidebar = document.getElementById('last-updated');
     const mobile = document.getElementById('ops-mobile-freshness');
-    if (sidebar) sidebar.textContent = label;
-    if (mobile) mobile.textContent = ts ? age(ts) : 'Unknown';
+    if (sidebar) {
+      sidebar.textContent = (core ? 'Core data ' + when : ts ? 'Updated ' + when : 'Update unknown') + (late ? ' · ' + late.label : '');
+      sidebar.className = late ? late.tone : '';
+    }
+    if (mobile) {
+      mobile.textContent = late ? when.replace(/ ago$/, '') + ' · ' + late.label : ts ? when : 'Unknown';
+      mobile.className = late ? late.tone : '';
+    }
   }
 
   function attentionLabel(item) {
