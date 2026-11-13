@@ -342,6 +342,8 @@ export interface MainIncident {
   rangeStatus: string
   compareUrl: string
   bisectCommand: string
+  /** When the main pulse reported this incident ahead of the collection; '' when the collection did. */
+  pulseAt: string
 }
 
 const RANGE_TEXT: Record<string, { short: string; long: string }> = {
@@ -361,6 +363,8 @@ export function rangeText(status: string): { short: string; long: string } {
 export interface MainIncidents {
   available: boolean
   watcherLastRun: string | null
+  /** When the main pulse last checked builds newer than the cohort, if it observed any. */
+  pulseAt: string | null
   active: MainIncident[]
   pending: MainIncident[]
 }
@@ -387,6 +391,7 @@ function incident(row: Rec, pending: boolean, openedAt: (groupId: string, bad: n
     rangeStatus: str(row.commit_range_status),
     compareUrl: str(row.compare_url),
     bisectCommand: str(row.bisect_command),
+    pulseAt: str(row.pulse_at),
   }
 }
 
@@ -404,8 +409,66 @@ export function mainIncidents(record: Rec | null | undefined): MainIncidents {
   return {
     available: source.available === true,
     watcherLastRun: str(source.watcher_last_run) || null,
+    pulseAt: str(source.pulse_at) || null,
     active,
     pending: (Array.isArray(source.pending_soft) ? source.pending_soft : []).map((row: Rec) => incident(row, true, openedAt)),
+  }
+}
+
+const isRec = (value: unknown): value is Rec => !!value && typeof value === 'object' && !Array.isArray(value)
+
+/** A pulse group entry (watcher state shape) as main_ci_section._incident_row publishes it. */
+function pulseIncidentRow(groupId: string, entry: Rec, pulseAt: string): Rec {
+  const transition: Rec = isRec(entry.transition) ? entry.transition : {}
+  return {
+    ...entry,
+    group_id: groupId,
+    severity: str(transition.peak_severity) || str(transition.severity),
+    status: str(transition.status),
+    latest_build_number: entry.build_number,
+    latest_build_url: entry.build_url,
+    pulse_at: pulseAt,
+  }
+}
+
+const eventKey = (event: Rec) => `${event.event}|${event.group_id}|${event.build_number}`
+
+/**
+ * The record with the main pulse overlay applied, as main_pulse_overlay.merge_overlay applies it to
+ * the watcher state: a group whose pulse watermark build is newer than every build of the cohort
+ * takes the pulse's status. Older observations are left to the published section.
+ */
+export function withPulse(record: Rec | null | undefined, pulse: Rec | null | undefined): Rec | null {
+  if (!record) return null
+  const horizon = Date.parse(str(record.cohort?.observed_to))
+  if (!isRec(pulse?.groups) || record.incidents?.available !== true || !Number.isFinite(horizon)) return record
+  const newer = Object.entries(pulse.groups as Rec).filter(
+    ([, row]) => isRec(row) && Date.parse(str(row.watermark?.order_at || row.watermark?.created_at)) > horizon,
+  )
+  if (!newer.length) return record
+  const ids = new Set(newer.map(([groupId]) => groupId))
+  const pulseAt = str(pulse.updated_at)
+  const rows = (key: 'active' | 'pending_soft') => [
+    ...(Array.isArray(record.incidents[key]) ? record.incidents[key] : []).filter((row: Rec) => !ids.has(str(row?.group_id))),
+    ...newer.flatMap(([groupId, row]) => (row.status === key && isRec(row.entry) ? [pulseIncidentRow(groupId, row.entry, pulseAt)] : [])),
+  ]
+  const active = rows('active')
+  const pending = rows('pending_soft')
+  const timeline: Rec[] = Array.isArray(record.timeline) ? record.timeline : []
+  const seen = new Set(timeline.map(eventKey))
+  const events = (Array.isArray(pulse.timeline) ? pulse.timeline : []).filter((event: Rec) => isRec(event) && ids.has(str(event.group_id)) && !seen.has(eventKey(event)))
+  return {
+    ...record,
+    incidents: { ...record.incidents, active, pending_soft: pending, pulse_at: pulseAt },
+    timeline: [...events, ...timeline].sort((a, b) => str(b.at).localeCompare(str(a.at))),
+    summary: isRec(record.summary)
+      ? {
+          ...record.summary,
+          active_incidents: active.length,
+          hard_incidents: active.filter((row) => row.severity === 'hard').length,
+          pending_soft: pending.length,
+        }
+      : record.summary,
   }
 }
 

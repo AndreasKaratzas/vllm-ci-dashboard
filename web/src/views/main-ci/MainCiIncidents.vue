@@ -89,6 +89,7 @@ const openEvent = (row: TimelineEvent) => {
       </CardTitle>
       <CardDescription>
         <template v-if="incidents.watcherLastRun">Watcher last ran {{ age(incidents.watcherLastRun, now) }}</template>
+        <template v-if="incidents.pulseAt"> · main pulse updated {{ age(incidents.pulseAt, now) }}</template>
       </CardDescription>
     </CardHeader>
     <CardContent class="grid grid-cols-1 gap-5 px-4 sm:px-6 @3xl/main:grid-cols-2">

@@ -170,7 +170,12 @@ function openedCell(row: MainIncident, now: number): CellSpec {
 export function incidentColumns(ctx: MainCiContext, rows: MainIncident[], now: number): ColumnSpec<MainIncident>[] {
   const mixed = new Set(rows.map((row) => (row.pending ? 'pending' : row.severity))).size > 1
   const columns: ColumnSpec<MainIncident>[] = [
-    { id: 'group', label: 'Test group', value: (row) => groupLabel(row.name), cell: (row) => ({ text: groupLabel(row.name), sub: row.queue || undefined }) },
+    {
+      id: 'group',
+      label: 'Test group',
+      value: (row) => groupLabel(row.name),
+      cell: (row) => ({ text: groupLabel(row.name), sub: [row.queue, row.pulseAt && `main pulse ${age(row.pulseAt, now)}`].filter(Boolean).join(' · ') || undefined }),
+    },
     { id: 'hardware', label: 'Hardware', value: (row) => row.hardware, cell: (row) => hardwareCell(row.hardware, row.queue), class: 'hidden sm:table-cell' },
     ...(mixed
       ? [
@@ -212,7 +217,12 @@ export function incidentDetail(incident: MainIncident, ctx: MainCiContext, now: 
     subtitle: [incident.pending ? 'Pending soft failure on main' : `${TONE_LABEL[incident.severity]} incident on main`, incident.hardware.toUpperCase(), incident.queue]
       .filter(Boolean)
       .join(' · '),
-    notes: incident.pending ? [{ tone: 'soft', text: 'A soft failure is confirmed after it repeats in a second build; until then it is pending.' }] : [],
+    notes: [
+      ...(incident.pulseAt
+        ? [{ tone: 'info' as const, text: `The main pulse reported this ${age(incident.pulseAt, now)} from builds newer than the last collection, which confirms it on its next run.` }]
+        : []),
+      ...(incident.pending ? [{ tone: 'soft' as const, text: 'A soft failure is confirmed after it repeats in a second build; until then it is pending.' }] : []),
+    ],
     fields: [
       { label: 'Severity', value: incident.pending ? 'Pending soft' : TONE_LABEL[incident.severity], tone: incident.severity },
       { label: 'Opened', value: incident.openedAt ? `${shortDate(incident.openedAt)} · ${age(incident.openedAt, now)}` : null },
