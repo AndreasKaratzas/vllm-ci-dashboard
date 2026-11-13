@@ -4415,6 +4415,46 @@ def test_stale_shard_bases_are_a_routable_ci_surface_error(tmp_path: Path, state
     assert "removed sharded group" in finding.message
 
 
+@pytest.mark.parametrize(("catalog_bases", "rejected"), [([], False), (["sharded group"], True)])
+def test_empty_shard_bases_are_valid_only_when_the_catalog_has_none(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    catalog_bases: list[str],
+    rejected: bool,
+) -> None:
+    """Upstream moving every %N step to automatic sharding must not block publication."""
+    ci = tmp_path / "data/vllm/ci"
+    ci.mkdir(parents=True)
+    (ci / "shard_bases.json").write_text("[]")
+    (ci / "shard_base_catalog.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "source": {"commit_sha": "a" * 40},
+                "normalization_bases": catalog_bases,
+                "pipelines": {"amd": catalog_bases, "upstream": []},
+                "definitions": [],
+                "evidence": {},
+            }
+        )
+    )
+    monkeypatch.setattr(
+        audit_module,
+        "SURFACE_SPECS",
+        {
+            "ci_core": SurfaceSpec(
+                required_paths=("data/vllm/ci/shard_bases.json",),
+                optional_paths=("data/vllm/ci/shard_base_catalog.json",),
+            )
+        },
+    )
+
+    audit = DashboardAudit(tmp_path)
+    audit.audit_publication_surface_files()
+
+    assert ("publication-source-shape" in {f.code for f in audit.report.errors}) is rejected
+
+
 def test_missing_shard_catalog_skips_unsafe_cross_pipeline_audit(tmp_path: Path) -> None:
     ci = tmp_path / "data/vllm/ci"
     results = ci / "test_results"
