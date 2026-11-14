@@ -566,6 +566,11 @@ def _step_group_id(identity: dict[str, str]) -> str:
     )
 
 
+def step_group_id(job: dict, pipeline_slug: str = "amd-ci") -> str:
+    """The reliability group of a job: its step on one queue, across shard layouts."""
+    return _step_group_id(_step_identity(job, pipeline_slug))
+
+
 def nightly_signal_identity(
     job: dict,
     pipeline_slug: str = "amd-ci",
