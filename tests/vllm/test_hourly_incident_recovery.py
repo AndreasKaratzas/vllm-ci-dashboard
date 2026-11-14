@@ -24,6 +24,7 @@ EXPECTED_EXPORTS = {
     "OWNERSHIP_MARKER",
     "QUEUE_ONLY_INCIDENT_MARKER",
     "RECOVERED_MARKER",
+    "RECOVERY_CORE_CREDIT_PREFIX",
     "RECOVERY_CREDIT_PATTERN",
     "RECOVERY_CREDIT_PREFIX",
     "RECOVERY_IDENTITY_CREDIT_PATTERN",
@@ -44,6 +45,7 @@ EXPECTED_EXPORTS = {
     "isStrictLegacySurfaceOnlyIncident",
     "issueHasLabel",
     "parseRecoveryStreak",
+    "recoveryCoreCreditMarker",
     "recoveryCreditMarker",
     "recoveryIdentityCreditMarker",
     "recoveryMarker",
@@ -313,6 +315,7 @@ def test_node_parses_the_captured_streak_and_exports_the_declared_contract():
           'OWNERSHIP_MARKER',
           'QUEUE_ONLY_INCIDENT_MARKER',
           'RECOVERED_MARKER',
+          'RECOVERY_CORE_CREDIT_PREFIX',
           'RECOVERY_CREDIT_PATTERN',
           'RECOVERY_CREDIT_PREFIX',
           'RECOVERY_IDENTITY_CREDIT_PATTERN',
@@ -333,6 +336,7 @@ def test_node_parses_the_captured_streak_and_exports_the_declared_contract():
           'isStrictLegacySurfaceOnlyIncident',
           'issueHasLabel',
           'parseRecoveryStreak',
+          'recoveryCoreCreditMarker',
           'recoveryCreditMarker',
           'recoveryIdentityCreditMarker',
           'recoveryMarker',
@@ -807,7 +811,8 @@ def test_node_general_recovery_uses_two_states_or_matching_site_health_and_reset
         const stateOne = '1'.repeat(40);
         const stateTwo = '2'.repeat(40);
 
-        const siteEvidence = (stateSha, codeSha) => ({
+        const coreOne = '2026-09-01T20:35:55Z';
+        const siteEvidence = (stateSha, codeSha, coreGeneratedAt = null) => ({
           normalized: true,
           reportValid: true,
           confirmed: true,
@@ -837,6 +842,7 @@ def test_node_general_recovery_uses_two_states_or_matching_site_health_and_reset
           requiredMatchingProjectionHealthy: 2,
           stateSha,
           codeSha,
+          coreGeneratedAt,
         });
 
         const makeHarness = () => {
@@ -903,16 +909,20 @@ def test_node_general_recovery_uses_two_states_or_matching_site_health_and_reset
           runId: 99,
         };
         const core = {warning: message => { throw new Error(message); }};
-        const publish = (harness, stateSha, codeSha = codeA) =>
+        const publish = (
+          harness, stateSha, codeSha = codeA, coreGeneratedAt = '',
+          validationSource = 'hourly-tests',
+        ) =>
           recovery.closeHourlyIncident({
             github: harness.github,
             context,
             core,
-            validationSource: 'hourly-tests',
+            validationSource,
             validationCodeSha: codeSha,
             validationStateSha: stateSha,
+            validationCoreGeneratedAt: coreGeneratedAt,
           });
-        const confirm = (harness, stateSha, codeSha = codeA) =>
+        const confirm = (harness, stateSha, codeSha = codeA, coreGeneratedAt = null) =>
           recovery.closeHourlyIncident({
             github: harness.github,
             context,
@@ -920,7 +930,7 @@ def test_node_general_recovery_uses_two_states_or_matching_site_health_and_reset
             validationSource: 'site-health',
             validationCodeSha: codeSha,
             validationStateSha: stateSha,
-            validationEvidence: siteEvidence(stateSha, codeSha),
+            validationEvidence: siteEvidence(stateSha, codeSha, coreGeneratedAt),
           });
 
         (async () => {
@@ -1014,6 +1024,32 @@ def test_node_general_recovery_uses_two_states_or_matching_site_health_and_reset
           assert.equal(stale.issue.body, pendingBody);
           assert.equal(stale.mutations(), pendingMutations);
 
+          // Queue/DNS refreshes republish the credited core data under a new
+          // state; Site Health credits that core clock with the same code only.
+          const refreshed = makeHarness();
+          await publish(refreshed, stateOne, codeA, coreOne);
+          const refreshedBody = refreshed.issue.body;
+          const refreshedMutations = refreshed.mutations();
+          for (const [coreGeneratedAt, codeSha] of [
+            [null, codeA],
+            ['2026-09-01T22:35:55Z', codeA],
+            [coreOne, codeB],
+          ]) {
+            const mismatch = await confirm(refreshed, stateTwo, codeSha, coreGeneratedAt);
+            assert.equal(mismatch.action, 'identity-mismatch');
+          }
+          assert.equal(refreshed.issue.body, refreshedBody);
+          assert.equal(refreshed.mutations(), refreshedMutations);
+          const carried = await confirm(refreshed, stateTwo, codeA, coreOne);
+          assert.equal(carried.action, 'closed');
+          assert.equal(refreshed.issue.state, 'closed');
+
+          // Only full publications bind a core clock.
+          const targeted = makeHarness();
+          targeted.issue.body = `${recovery.QUEUE_ONLY_INCIDENT_MARKER}\n${targeted.issue.body}`;
+          await publish(targeted, stateOne, codeA, coreOne, 'targeted-queue');
+          assert.ok(!targeted.issue.body.includes(recovery.RECOVERY_CORE_CREDIT_PREFIX));
+
           // A second distinct clean full publication remains an independent
           // closure path when the monitor has not yet run.
           const twoPublications = makeHarness();
@@ -1026,7 +1062,10 @@ def test_node_general_recovery_uses_two_states_or_matching_site_health_and_reset
           // Any degradation resets all state credits, state+code bindings, and
           // the visible pending-verification banner.
           const resetting = makeHarness();
-          await publish(resetting, stateOne);
+          await publish(resetting, stateOne, codeA, coreOne);
+          assert.ok(resetting.issue.body.includes(
+            recovery.recoveryCoreCreditMarker(coreOne, codeA),
+          ));
           const reset = recovery.suppressedDegradationRecoveryTransition(
             resetting.issue.body,
             'open',
@@ -1035,6 +1074,7 @@ def test_node_general_recovery_uses_two_states_or_matching_site_health_and_reset
           assert.equal(recovery.parseRecoveryStreak(reset.body), 0);
           assert.ok(!reset.body.includes(recovery.RECOVERY_CREDIT_PREFIX));
           assert.ok(!reset.body.includes(recovery.RECOVERY_IDENTITY_CREDIT_PREFIX));
+          assert.ok(!reset.body.includes(recovery.RECOVERY_CORE_CREDIT_PREFIX));
           assert.ok(!reset.body.includes(recovery.RECOVERY_PROGRESS_START));
         })().catch(error => { console.error(error); process.exitCode = 1; });
         """
