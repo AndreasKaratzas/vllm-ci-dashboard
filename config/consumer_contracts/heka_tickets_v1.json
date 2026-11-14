@@ -1,0 +1,173 @@
+{
+  "schema": "heka.dashboard-contract/v1",
+  "contract": "heka_tickets_v1",
+  "contract_version": 1,
+  "publication_surfaces": {
+    "agent_health": "Agent health",
+    "ci": "CI health",
+    "ci_analytics": "CI analytics",
+    "ci_core": "CI core health",
+    "queue": "Queue health"
+  },
+  "sources": {
+    "publication_status": {
+      "required": ["status", "generated_at", "affected_surfaces"]
+    },
+    "main_ci": {
+      "wrapper": "main_ci",
+      "surfaces": ["ci", "ci_analytics"],
+      "freshness": {"path": "source_generated_at", "max_age_minutes": 180},
+      "retention": ["publication_retention", "operations_publication_retention"],
+      "required": [
+        "generated_at",
+        "source_generated_at",
+        "thresholds.window_days",
+        "incidents.available",
+        "incidents.active",
+        "incidents.active[].name",
+        "incidents.active[].group_id",
+        "incidents.active[].severity",
+        "incidents.active[].status",
+        "incidents.active[].hardware",
+        "incidents.active[].queue",
+        "incidents.active[].good_build_number",
+        "incidents.active[].good_commit",
+        "incidents.active[].bad_build_number",
+        "incidents.active[].bad_commit",
+        "incidents.active[].commit_range_status",
+        "incidents.active[].bisect_command",
+        "incidents.active[].observed_at",
+        "incidents.active[].compare_url",
+        "incidents.active[].job_url",
+        "incidents.active[].latest_build_number",
+        "incidents.active[].latest_build_url",
+        "top_flaky[].alerting",
+        "top_flaky[].group_id",
+        "top_flaky[].name",
+        "top_flaky[].hardware",
+        "top_flaky[].queue",
+        "top_flaky[].flips_window",
+        "top_flaky[].flips_previous_window",
+        "top_flaky[].pass_rate_window",
+        "top_flaky[].pass_rate_30d",
+        "top_flaky[].flips_30d",
+        "top_flaky[].hard_30d",
+        "top_flaky[].soft_30d",
+        "top_flaky[].runs_30d",
+        "top_flaky[].trend",
+        "top_flaky[].last_failure?.url",
+        "retry_hotspots[].alerting",
+        "retry_hotspots[].group_id",
+        "retry_hotspots[].name",
+        "retry_hotspots[].hardware",
+        "retry_hotspots[].queue",
+        "retry_hotspots[].recovered_window",
+        "retry_hotspots[].recovered_previous_window",
+        "retry_hotspots[].recovered_30d",
+        "retry_hotspots[].runs_30d",
+        "retry_hotspots[].trend",
+        "retry_hotspots[].last_recovery?.url",
+        "slowdowns.rows[].name",
+        "slowdowns.rows[].baseline_mins",
+        "slowdowns.rows[].recent_mins",
+        "slowdowns.rows[].increase_mins",
+        "slowdowns.rows[].increase_pct",
+        "slowdowns.rows[].onset",
+        "slowdowns.rows[].compare_url",
+        "group_catalog.*.name"
+      ],
+      "enums": {
+        "incidents.active[].status": ["confirmed"],
+        "incidents.active[].severity": ["hard", "soft"]
+      }
+    },
+    "main_pulse": {
+      "freshness": {"path": "updated_at", "max_age_minutes": 180},
+      "required": ["updated_at", "groups", "groups.*.status", "groups.*.entry", "last_run.active"],
+      "enums": {"groups.*.status": ["active", "pending_soft", "clear"]}
+    },
+    "test_group_parity": {
+      "wrapper": "test_group_parity",
+      "surfaces": ["ci", "ci_core"],
+      "freshness": {"path": "generated_at", "max_age_minutes": 180},
+      "retention": ["operations_publication_retention"],
+      "required": [
+        "generated_at",
+        "groups",
+        "groups[].title",
+        "groups[].reviewed_title",
+        "groups[].upstream_definition_ids",
+        "groups[].state",
+        "groups[].assessment",
+        "groups[].area",
+        "groups[].cuda_variants",
+        "groups[].gate_kind",
+        "groups[].gate_required"
+      ],
+      "enums": {"groups[].state": ["existing", "unsupported", "action"]}
+    },
+    "amd_agent_health": {
+      "wrapper": "amd_agent_health",
+      "surfaces": ["agent_health"],
+      "freshness": {"path": "generated_at", "max_age_minutes": 360},
+      "retention": ["operations_publication_retention"],
+      "required": [
+        "generated_at",
+        "attribution_rules.build_wide_min_failing_steps",
+        "attribution_rules.burst_min_nodes",
+        "attribution_rules.burst_window_minutes",
+        "failing_runs",
+        "failing_runs[].a",
+        "failing_runs[].ar",
+        "failing_runs[].nd",
+        "failing_runs[].g",
+        "failing_runs[].j",
+        "failing_runs[].h",
+        "failing_runs[].q",
+        "failing_runs[].b",
+        "failing_runs[].p",
+        "failing_runs[].e",
+        "failing_runs[].t",
+        "failing_runs[].d"
+      ],
+      "enums": {
+        "failing_runs[].a": ["build", "infra", "node", "test", "unknown"],
+        "failing_runs[].ar": [
+          "agent_loss_burst",
+          "agent_lost",
+          "build_wide",
+          "build_wide_transient",
+          "failed_on_retry_elsewhere",
+          "group_fails_elsewhere",
+          "group_not_passing_elsewhere",
+          "isolated",
+          "job_never_started",
+          "node_repeats",
+          "start_failure_burst",
+          "upstream_build_wide",
+          "upstream_mirror_failed"
+        ]
+      }
+    },
+    "queue": {
+      "wrapper": "queue",
+      "surfaces": ["queue"],
+      "freshness": {"path": "snapshot.ts", "max_age_minutes": 60},
+      "retention": ["operations_publication_retention"],
+      "required": [
+        "snapshot.ts",
+        "snapshot.queues",
+        "snapshot.queues.*.waiting",
+        "snapshot.queues.*.running",
+        "snapshot.queues.*.connected_agents",
+        "snapshot.queues.*.p50_wait",
+        "snapshot.queues.*.p95_wait",
+        "snapshot.queues.*.zombie_waiting",
+        "pressure_baseline",
+        "pressure_baseline.*.p95",
+        "pressure_baseline.*.median",
+        "pressure_baseline.*.snapshot_count"
+      ]
+    }
+  }
+}

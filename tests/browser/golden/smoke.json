@@ -1,0 +1,25 @@
+{
+  "overview": {
+    "rate": "75.0%",
+    "ratio": "3 / 4",
+    "meta": "2 pass on every route · 1 pass on some hardware only · 1 non-passing everywhere",
+    "counts": {
+      "pass every route": "2",
+      "pass some routes": "1",
+      "non-passing": "1"
+    },
+    "failures": [
+      "Broken Group",
+      "Routed Beta"
+    ]
+  },
+  "parity": {
+    "rate": "90.9%",
+    "ratio": "10 / 11",
+    "groups": "12",
+    "note": "Configured AMD routes cover 10 of 11 applicable current CUDA logical groups. 8 groups have a required source configuration (72.7%); 1 are optional only and 1 are soft fail only. These are source configuration flags; individual nightly scheduling and blocking outcomes are separate. Source: main CI at aaaaaaaaaaaa.",
+    "areas": [
+      "Browser fixture|1 potential open gap"
+    ]
+  }
+}

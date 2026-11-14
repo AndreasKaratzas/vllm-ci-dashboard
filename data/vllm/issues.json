@@ -1,0 +1,300 @@
+{
+  "collected_at": "2026-11-14T18:32:00Z",
+  "issues": [
+    {
+      "number": 67664,
+      "title": "[CI Failure]: Quantization Shard 4/4 - quantization/test_modelopt.py::test_modelopt_(nested_mixed|mixed_dspark)_checkpoint",
+      "author": "LantaoJin",
+      "state": "open",
+      "created_at": "2026-11-14T15:44:49Z",
+      "updated_at": "2026-11-14T15:44:58Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/67664",
+      "labels": [
+        "rocm",
+        "ci-failure",
+        "quantization"
+      ],
+      "assignees": [],
+      "project_status": "In progress",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`tests/quantization/test_modelopt.py::test_modelopt_nested_mixed_checkpoint`, `tests/quantization/test_modelopt.py::test_modelopt_mixed_dspark_checkpoint` (Buildkite step `:nvidia: (H200 MIG 35GB) Quantization Shard 4/4`)\n\n### Basic information\n\n- [ ] Flaky test\n- [ ] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nBoth tests fail in `llm.apply_model(check_model)`: cloudpickle cannot serialize the `check_model` closure, which reads the global `current_platform`.\n\n```\nFAILED quantization/test_modelopt.py::test_modelopt_nested_mixed_checkpoint - _pickle.PicklingError: Can't pickle <functools._lru_cache_wrapper object at 0x7e815eee0930>: it's not the same object as vllm.platforms.cuda.NvmlCudaPlatform.get_device_capability\nFAILED quantization/test_modelopt.py::test_modelopt_mixed_dspark_checkpoint - _pickle.PicklingError: Can't pickle <functools._lru_cache_wrapper object at 0x7e815eee0930>: it's not the same object as vllm.platforms.cuda.NvmlCudaPlatform.get_device_capability\n==== 2 failed, 219 passed, 29 skipped, 20 warnings in 950.21s ====\n```\n\n<details>\n<summary>Traceback</summary>\n\n```\nquantization/test_modelopt.py:1078: in test_modelopt_nested_mixed_checkpoint\n    llm.apply_model(check_model)\nvllm/entrypoints/llm.py:624: in apply_model\n    return self.llm_engine.apply_model(func)\nvllm/v1/engine/llm_engine.py:512: in apply_model\n    return self.collective_rpc(\"apply_model\", args=(func,))\nvllm/v1/engine/core_client.py:1078: in _send_input\n    msg = (self.core_engine, request_type.value, *self.encoder.encode(request))\nvllm/v1/serial_utils.py:230: in enc_hook\n    return msgpack.Ext(CUSTOM_TYPE_CLOUDPICKLE, cloudpickle.dumps(obj))\ncloudpickle/cloudpickle.py:1313: PicklingError\nE   _pickle.PicklingError: Can't pickle <functools._lru_cache_wrapper object at 0x7a8a44c2c1a0>: it's not the same object as vllm.platforms.cuda.NvmlCudaPlatform.get_device_capability\n```\n</details>\n\nIt depends on which tests share the pytest process. The step runs its files in one session, and these two tests pass whenever `test_modelopt.py` lands in a different shard. In the failing shard the files before it are `test_auto_gptq.py`, `test_configs.py`, `test_cpu_offload.py`, `test_fp8.py`, `test_gfx950_moe.py`, `test_humming_compile.py` and `test_humming_mxfp4_block_fp8.py`.\n\n`NvmlCudaPlatform.get_device_capability` is `@classmethod @cache`, so attribute lookup returns a bound method and never the wrapper itself. cloudpickle only reaches the raw wrapper when it pickles the class by value, which means an earlier test leaves `current_platform` as an instance of a class that is no longer the `NvmlCudaPlatform` in `vllm.platforms.cuda`, or otherwise makes that class unimportable by reference. I have not pinned down which test does it; `monkeypatch.setattr(current_platform, \"get_device_capability\", ...)` in `test_humming_mxfp4_block_fp8.py` is not it on its own, since pytest's undo removes the instance attribute cleanly.\n\nIndependent of the culprit, the two tests would be robust if `check_model` captured plain values (e.g. `fp8_dtype = current_platform.fp8_dtype()` and the scale) computed outside the closure, instead of the platform object.\n\nStill failing on main as of commit 0e73a584534e (Buildkite build 102800).\n\n### \ud83d\udcdd History of failing test\n\n- Passed on main in build 102760 (commit 5fad73d122, 2026-11-14 11:22 UTC); there `test_modelopt.py` was not in Shard 4/4.\n- Failing on main since build 102780 (commit e72e9cb18b, 2026-11-14 13:04 UTC), and in 102782 (6f1ec6a4c6) and 102800 (0e73a58453). From 102780 the automatic sharding puts `test_modelopt.py` after the files listed above.\n- The tests were added in #63001; the commits between 102760 and 102780 (#64753, #67519, #64515) do not touch them or `vllm/platforms`, which also points at a shard reassignment rather than a code change.\n- Also fails on unrelated PRs, e.g. Buildkite build 102801 for #67393.\n\n### CC List.\n\n@sragrawal (added these tests in #63001)\n",
+      "linked_prs": []
+    },
+    {
+      "number": 65456,
+      "title": "[CI Failure][ROCm]: MI355 spec decode tests OOM with the extensible KV cache",
+      "author": "djramic",
+      "state": "open",
+      "created_at": "2026-11-03T17:59:31Z",
+      "updated_at": "2026-11-03T18:00:40Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/65456",
+      "labels": [
+        "rocm",
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "Backlog",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\ntests/v1/e2e/spec_decode/eagle/test_eagle_correctness.py::test_eagle_correctness_medium[ROCM_AITER_FA-llama3_eagle3]\n\n### Basic information\n\n- [x] Flaky test\n- [x] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nSince the extensible KV cache (#56492), spec decode tests on MI355 run out of memory on the first large prefill: `(MI355) Spec Decode Eagle Nightly` ([ci#99485](https://buildkite.com/vllm/ci/builds/99485#01a1a039-403f-474a-9c3c-6c1ae7bc7fe5)) and `(MI355 DPX) Spec Decode Speculators + MTP` ([amd-ci#15764](https://buildkite.com/vllm/amd-ci/builds/15764#01a1a0db-a987-452c-8c10-7a097faded05)).\n#65418 raises the ROCm margin floor from 2 GiB to 3 GiB as a stopgap. This issue tracks the root cause on ROCm, so the margin can be lowered again once it is fixed.\n\n### What we know\n\n- The OOM is caused by the torch limit set after warmup, not by the device. In [ci#99485](https://buildkite.com/vllm/ci/builds/99485#01a1a039-403f-474a-9c3c-6c1ae7bc7fe5) the GPU still had 1.77 GiB free when an 896 MiB allocation failed against the 18.84 GiB limit.\n- Most of the gap is allocator fragmentation. At the OOM, 1.27-1.70 GiB is reserved but unallocated, while the live tensors plus the request fit under the limit. Locally, with `expandable_segments:True` the Eagle test passes even with the limit 600 MiB lower, while without it, it fails once the limit is 100 MiB lower.\n- Locally, the allocated peak while serving is about 0.15 GiB above the measured transient peak. Where it comes from is not known yet.\n- It is not specific to the AITER attention backend: `TRITON_ATTN-llama3_eagle3` hit the same OOM on DPX ([ci#99117](https://buildkite.com/vllm/ci/builds/99117#01a19b53-d6fc-4195-ba08-779ebd7bb732)). Other AITER ops may still be involved.\n- Memory use is the same in passing and failing nightlies (identical sizing logs). Locally, the spare room under the limit is only about 0.05-0.08 GiB, while fragmentation varies by 0.2-0.3 GiB from run to run, so the tests fail intermittently.\n\n\n### How to reproduce\n\nIn `rocm/vllm-ci:build-01a1a035-44b7-4043-936e-15b29d581868` (ci#99485) on MI355X:\n\n```bash\ncd /vllm-workspace/tests\npytest -v -s \"v1/e2e/spec_decode/eagle/test_eagle_correctness.py::test_eagle_correctness_medium[ROCM_AITER_FA-llama3_eagle3]\"\n```\n\nOn an idle machine the limit comes out about 40 MiB above the CI value, and the test passes by a few tens of MiB. Adding 100-200 MiB to `KV_CACHE_NON_TORCH_RESERVE_BYTES` brings the limit into the CI range and reproduces the OOM.\n\n### Related\n\n- #56492: extensible KV cache\n- #65418: raises the ROCm margin floor (stopgap)\n\n\n### \ud83d\udcdd History of failing test\n\nLikely cause: #56492 (merged on Nov 2). It added the torch memory limit that appears in the OOM (`18.84 GiB allowed`).\n- Before the merge, both jobs passed in every nightly run: 6 runs of `(MI355) Spec Decode Eagle Nightly`, from [ci#97527](https://buildkite.com/vllm/ci/builds/97527) to [ci#98986](https://buildkite.com/vllm/ci/builds/98986), and 7 runs of `(MI355 DPX) Spec Decode Speculators + MTP`, from [amd-ci#15707](https://buildkite.com/vllm/amd-ci/builds/15707) to [amd-ci#15759](https://buildkite.com/vllm/amd-ci/builds/15759).\n- After the merge, both jobs hit an OOM at that limit while the GPU still had free memory: `(MI355) Spec Decode Eagle Nightly` failed on both attempts in [ci#99485](https://buildkite.com/vllm/ci/builds/99485#01a1a039-403f-474a-9c3c-6c1ae7bc7fe5), and `(MI355 DPX) Spec Decode Speculators + MTP` failed in [amd-ci#15764](https://buildkite.com/vllm/amd-ci/builds/15764#01a1a0db-a987-452c-8c10-7a097faded05).\n\n### CC List.\n\n@AndreasKaratzas ",
+      "linked_prs": []
+    },
+    {
+      "number": 65048,
+      "title": "[CI Failure]: MI300 MoE Kernels Multi-GPU - MoriEPv2 combine block_num 304 exceeds xdb_flag_slots 256 in test_modular_kernel_combinations.py",
+      "author": "njhill",
+      "state": "open",
+      "created_at": "2026-11-02T03:14:53Z",
+      "updated_at": "2026-11-02T06:28:31Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/65048",
+      "labels": [
+        "rocm",
+        "ci-failure"
+      ],
+      "assignees": [],
+      "project_status": "Backlog",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "### Name of failing test\n\n`kernels/moe/test_modular_kernel_combinations.py::test_modular_kernel_combinations_multigpu[...-MoriEPv2PrepareAndFinalize-...-2]`\n\nFailing cases (Buildkite step `:amd: (MI300) MoE Kernels Multi-GPU`):\n\n- `test_modular_kernel_combinations_multigpu[2048-1024-32-dtype4-None-MoEActivation.SILU-MoriEPv2PrepareAndFinalize-TritonExperts-2]`\n- `test_modular_kernel_combinations_multigpu[2048-1024-32-dtype5-None-MoEActivation.SILU-MoriEPv2PrepareAndFinalize-AiterUnquantizedExperts-2]`\n- `test_modular_kernel_combinations_multigpu[2048-1024-32-dtype7-None-MoEActivation.GELU-MoriEPv2PrepareAndFinalize-AiterUnquantizedExperts-2]`\n\n### Basic information\n\n- [ ] Flaky test\n- [ ] Can reproduce locally\n- [ ] Caused by external libraries (e.g. bug in `transformers`)\n\n### \ud83e\uddea Describe the failing test\n\nEvery `MoriEPv2PrepareAndFinalize` case fails on MI300 when MORI builds the dispatch/combine op; the other prepare/finalize cases pass (3 failed, 30 passed). The assertion is inside MORI's `make_combine`:\n\n```\n  File \"/usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/fused_moe/all2all_utils.py\", line 353, in maybe_make_prepare_finalize\n    handle = all2all_manager.get_handle(all_to_all_args)\n  File \"/usr/local/lib/python3.12/dist-packages/vllm/distributed/device_communicators/all2all.py\", line 1188, in get_handle\n    return self.handle_cache.get_or_create(kwargs, self._make_handle)\n  File \"/usr/local/lib/python3.12/dist-packages/vllm/distributed/device_communicators/base_device_communicator.py\", line 29, in get_or_create\n    instance = func(**kwargs)\n  File \"/usr/local/lib/python3.12/dist-packages/vllm/distributed/device_communicators/all2all.py\", line 1172, in _make_handle\n    handle = EpDispatchCombineOp(config, window.comm)\n  File \"/usr/local/lib/python3.12/dist-packages/mori/ops/dispatch_combine_v2/flydsl_backend.py\", line 222, in __init__\n    (b, w): make_combine(\n  File \"/usr/local/lib/python3.12/dist-packages/mori/ops/dispatch_combine_v2/intranode_kernels.py\", line 584, in make_combine\n    assert block_num <= xdb_flag_slots, (\nAssertionError: combine block_num 304 exceeds xdb_flag_slots 256: the per-block xdb flag array would overflow\n```\n\n304 matches the MI300X compute-unit count, so the combine kernel's block count seems to default to one block per CU, which exceeds MORI's 256 xdb flag slots. (Inferred, not verified against MORI's source.) Possible fixes: cap the block count that vLLM passes in `EpDispatchCombineConfig` in `MoriEPv2All2AllManager._make_handle`, a MORI-side fix, or skipping MORI EPv2 on MI300 in the test.\n\n### \ud83d\udcdd History of failing test\n\nThe step has failed on every main `amd-ci` build checked since MORI EP V2 support landed in #61361:\n\n| amd-ci build | commit | MoE Kernels Multi-GPU |\n|---|---|---|\n| [15755](https://buildkite.com/vllm/amd-ci/builds/15755) | d5301a4f548 (#61361) | failed |\n| [15756](https://buildkite.com/vllm/amd-ci/builds/15756) | 7b77ed581d9 | failed |\n| [15757](https://buildkite.com/vllm/amd-ci/builds/15757) | 78161c28da3 | failed |\n| [15759](https://buildkite.com/vllm/amd-ci/builds/15759) | 5d55ef1590c | failed (same assertion) |\n\nAlso seen on PR builds, e.g. [15760](https://buildkite.com/vllm/amd-ci/builds/15760) (failed on retry too).\n\n### CC List.\n\n@ChengYM5685 (author of #61361)\n",
+      "linked_prs": []
+    },
+    {
+      "number": 57372,
+      "title": "[CI Failure]: Recurring flaky infrastructure failures \u2014 AMD GPU hangs, H200-MIG step timeouts, agent loss (200-build analysis)",
+      "author": "khluu",
+      "state": "open",
+      "created_at": "2026-09-17T11:37:27Z",
+      "updated_at": "2026-10-20T04:33:36Z",
+      "html_url": "https://github.com/vllm-project/vllm/issues/57372",
+      "labels": [
+        "rocm",
+        "ci-failure",
+        "kimi"
+      ],
+      "assignees": [],
+      "project_status": "Backlog",
+      "project_url": "https://github.com/orgs/vllm-project/projects/39",
+      "repo": "vllm-project/vllm",
+      "body_head": "## Summary\n\nAn analysis of the last **200 builds** of the `ci` pipeline (builds 89402\u201389599, all branches) found **240 jobs that failed on their first attempt and then passed on retry** \u2014 i.e. flaky. Reading each failing attempt's log shows the flakiness is **~78% infrastructure/environment**, not vLLM code. This issue tracks the three dominant, recurring infrastructure causes so they can be triaged to fleet/runner owners.\n\nMethod: enumerated builds via the Buildkite API, listed each build's jobs from the public `/data/jobs` endpoint, selected jobs where the original attempt had `passed=false` and the `retried_in_job_uuid` replacement had `passed=true`, then fetched and read each failing attempt's log.\n\n## Root-cause distribution (240 flaky instances)\n\n| Category | Count | % | Nature |\n|---|---|---|---|\n| Step timeout (cancelled while passing) | 74 | 31% | Config/tuning |\n| Crash \u2014 AMD GPU HW fault | 57 | 24% | Hardware/driver |\n| Buildkite agent lost (empty log, exit -1) | 53 | 22% | Runner infra |\n| Docker build/pull EOF / registry | 19 | 8% | Infra |\n| Test assertion (genuinely flaky test) | 14 | 6% | Test code |\n| Network (HF/crates/github download) | 8 | 3% | Infra |\n| GPU free-memory < desired utilization | 6 | 2.5% | Runner hygiene |\n| Other (git-mirror checkout lock, etc.) | 7 | 3% | Infra |\n| Race/deadlock | 2 | 1% | \u2014 |\n\n## 1. AMD GPU hardware/driver hangs \u2014 ~44 instances (top specific cause)\n\nLogs show `HW Exception by GPU node-2 \u2026 reason: GPU Hang` \u2192 `Fatal Python error: Aborted` (SIGABRT / exit 134), plus a few `Memory access fault \u2026 write to read-only page` and SRAM/DRAM ECC failures. These hit many different AMD test jobs indiscriminately and clear on retry (the retry lands on a healthy GPU). This is a transient MI300/MI250 hardware / ROCm-driver issue, not a vLLM bug.\n\nRepresentative jobs: `:amd: (MI300) Basic Models (Other)`, `:amd: (MI300) Entrypoints Integration (OpenAI API chat_completion)`, `:amd: (MI300) V1 Spec Decode`, `:amd: (MI300) Multimodal Models (Standard) 4`.\n\n**Ask:** fleet-health / GPU-reset handling on the AMD runners; consider auto-cordoning nodes that raise repeated GPU Hang / ECC events.\n\n## 2. NVIDIA H200-MIG step timeouts \u2014 ~59 instances\n\nJobs are cancelled (`Received cancellation signal`, exit -1, `timed_out=True`) while tests are still *passing*. Concentrated in spec-decode and multimodal suites on the slower MIG slices:\n\n- `:nvidia: (H200 MIG 18GB) Spec Decode Draft Model` (10\u00d7)\n- `:nvidia: (H200 MIG 18GB) Multimodal Processor` (7\u00d7)\n- `:nvidia: (H200 MIG 35GB) Spec Decode N-Gram + Suffix` (7\u00d7)\n\nRoot causes visible in logs: slow Triton/JIT kernel warmup (one log showed 121 compile keys at ~57 s/key), repeated `EngineCore` startup per test, and long GSM8K/lm-eval runs. Several jobs had all tests pass but exceeded the step timeout in teardown.\n\n**Ask:** bump `timeout_in_minutes` (or shard further) for these suites on MIG hardware. This is data-backed tuning; happy to open a PR if a target timeout is agreed.\n\n## 3. Buildkite agent loss \u2014 53 instances (all NVIDIA/L4)\n\nEmpty 0-byte logs, `started_at: null`, exit -1: the runner agent died or never accepted the job, then a fresh agent passed on retry. Concentrated on the L4 NixlConnector / Pipeline+Context-Parallel distributed jobs.\n\n**Ask:** investigate L4 runner stability.\n\n## Already addressed\n\n- The dominant *test-code* flake, `test_sharded_sampling_outputs_match` on AMD (11\u00d7), is fixed by https://github.com/vllm-project/vllm/pull/57369.\n- The GPU free-memory flake already has a draft PR: https://github.com/vllm-project/vllm/pull/57362.\n\n## Environment\n\nObserved on `main` across builds 89402\u201389599 (2026-09-17).\n\n---\n\n\ud83e\udd16 This analysis was performed with AI assistance (Kimi Code); each classification was derived from reading the actual failing-attempt Buildkite log.\n",
+      "linked_prs": [
+        {
+          "repo": "vllm-project/vllm",
+          "number": 57369,
+          "url": "https://github.com/vllm-project/vllm/pull/57369"
+        },
+        {
+          "repo": "vllm-project/vllm",
+          "number": 57362,
+          "url": "https://github.com/vllm-project/vllm/pull/57362"
+        }
+      ]
+    }
+  ],
+  "count_semantics": "lower_bound",
+  "source_coverage": {
+    "complete": false,
+    "authoritative_complete": false,
+    "population_semantics": "lower_bound",
+    "truncated": true,
+    "queries": [
+      {
+        "name": "project_open_issues",
+        "scope": "is:issue is:open repo:vllm-project/vllm",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 1,
+        "page_size": 100,
+        "items_observed": 4,
+        "completion_reason": "server_filtered_complete"
+      },
+      {
+        "name": "project_issue_comments:67664",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 1,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:67664",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 0,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:65456",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 1,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:65456",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 0,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:65048",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 2,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:65048",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 0,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "project_issue_comments:57372",
+        "scope": "first 200 comments",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 1,
+        "max_pages": 2,
+        "page_size": 100,
+        "items_observed": 2,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "short_page"
+      },
+      {
+        "name": "project_issue_link_refs:57372",
+        "scope": "first 20 unique PR references",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 2,
+        "completion_reason": "all_refs_retained"
+      },
+      {
+        "name": "open_prs_label:rocm",
+        "scope": "open PRs among the newest 300 issues and PRs in vllm-project/vllm with label 'rocm'",
+        "complete": false,
+        "truncated": true,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 3,
+        "max_pages": 3,
+        "page_size": 100,
+        "items_observed": 300,
+        "total_count_hint": null,
+        "provider_incomplete": false,
+        "completion_reason": "page_cap"
+      },
+      {
+        "name": "project_linked_pr_validation",
+        "scope": "at most 100 direct PR validations for retained Project #39 issues",
+        "complete": true,
+        "truncated": false,
+        "error": false,
+        "authoritative": true,
+        "pages_fetched": 0,
+        "max_pages": 0,
+        "page_size": 0,
+        "items_observed": 2,
+        "unresolved_items": 0,
+        "completion_reason": "all_refs_validated"
+      }
+    ],
+    "query_count": 11,
+    "query_retention": {
+      "source": 11,
+      "published": 11,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    }
+  },
+  "total_count": 4,
+  "publication_retention": {
+    "policy": "aggregate_counts_first_newest_whole_rows_v1",
+    "max_bytes": 327680,
+    "aggregate_counts_complete": true,
+    "source_aggregates": {
+      "total": 4,
+      "open": 4,
+      "linked_pr_refs": 2
+    },
+    "rows": {
+      "source": 4,
+      "published": 4,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "detail_fields": {
+      "source": 4,
+      "published": 4,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "relationship_refs": {
+      "source": 2,
+      "published": 2,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "source_queries": {
+      "source": 11,
+      "published": 11,
+      "omitted": 0,
+      "complete_relative_to_source": true
+    },
+    "complete_relative_to_source": true
+  }
+}
