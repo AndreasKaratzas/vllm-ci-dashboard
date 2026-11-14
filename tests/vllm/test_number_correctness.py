@@ -35,6 +35,12 @@ def _load_shard_bases(request):
         set_shard_bases(bases)
 
 
+def _catalog_shard_bases():
+    """Normalization bases declared by the catalog written with shard_bases.json."""
+    catalog = json.loads((DATA / "shard_base_catalog.json").read_text())
+    return sorted(base.lower() for base in catalog["normalization_bases"])
+
+
 def _load_json(name):
     path = DATA / name
     if not path.exists():
@@ -1181,7 +1187,7 @@ class TestNormalizationInvariants:
                 return raw[:match.start()]
             return raw
 
-        assert _SHARD_BASES, "shard_bases not loaded — json import may be missing"
+        assert sorted(_SHARD_BASES) == _catalog_shard_bases()
 
         # Group raw job names by (hardware, normalized name, group key)
         group_key = _amd_group_key(monkeypatch)
@@ -1320,12 +1326,9 @@ class TestShardBasesSync:
         assert path.exists(), "shard_bases.json not found"
 
     def test_shard_bases_loaded(self):
-        """Shard bases must be loaded into the analyzer module."""
+        """The analyzer must load exactly the catalog's normalization bases."""
         from vllm.ci.analyzer import _SHARD_BASES
-        assert _SHARD_BASES, (
-            "_SHARD_BASES is empty — json import may be missing in analyzer.py "
-            "or shard_bases.json failed to load"
-        )
+        assert sorted(_SHARD_BASES) == _catalog_shard_bases()
 
     def test_shard_bases_match_file(self):
         """In-memory shard bases must match shard_bases.json on disk."""
