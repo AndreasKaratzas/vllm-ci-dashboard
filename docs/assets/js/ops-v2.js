@@ -3827,13 +3827,30 @@
     }) : [];
   }
 
+  function amdRowHistory(row) {
+    const r = row || {};
+    return r.logical_history && typeof r.logical_history === 'object' ? r.logical_history : r;
+  }
+
   function amdGroupPassRate(row) {
-    if (Number.isFinite(Number(row && row.pass_rate_pct))) return Number(row.pass_rate_pct);
-    const known = Number((row || {}).passed || 0) + Number((row || {}).soft_failed || 0) + Number((row || {}).hard_failed || 0);
-    return known ? Number((row || {}).passed || 0) / known * 100 : null;
+    const r = amdRowHistory(row);
+    if (Number.isFinite(Number(r.pass_rate_pct))) return Number(r.pass_rate_pct);
+    const known = Number(r.passed || 0) + Number(r.soft_failed || 0) + Number(r.hard_failed || 0);
+    return known ? Number(r.passed || 0) / known * 100 : null;
+  }
+
+  function amdMixedHistory(row) {
+    const history = amdRowHistory(row);
+    return !row.retired && Number(history.passed || 0) > 0 && Number(history.soft_failed || 0) + Number(history.hard_failed || 0) > 0;
+  }
+
+  function amdLayoutLabel(layout) {
+    const count = Number((layout || {}).job_count);
+    return count > 1 ? integer(count) + ' shards' : 'unsharded';
   }
 
   function amdLatestState(row, latestBuild) {
+    if (row.retired) return 'retired';
     if (latestBuild && Number(row.latest_build_number) !== Number(latestBuild)) return 'missing';
     const result = String(row.latest_state || 'unknown').toLowerCase();
     if (['soft', 'soft_fail', 'soft_failed'].includes(result)) return 'soft';
@@ -3846,6 +3863,7 @@
     if (result === 'soft') return 'Soft fail';
     if (result === 'hard') return 'Hard fail';
     if (result === 'missing') return 'Not in latest';
+    if (result === 'retired') return 'Retired layout';
     return 'No result';
   }
 
@@ -3858,22 +3876,30 @@
   }
 
   function openAmdGroupDetail(row, amdHealth) {
-    const observations = amdGroupObservations(row);
+    const history = amdRowHistory(row);
+    const layouts = history === row ? [] : history.layouts || [];
+    const retired = row.retired || null;
+    const observations = amdGroupObservations(history);
     const latestBuild = ((amdHealth || {}).summary || {}).latest_build_number;
     const latestState = amdLatestState(row, latestBuild);
     const incidents = observations.filter(isIncidentObservation);
     const content = n('div', 'ops-amd-group-detail');
+    const latestMeta = retired
+      ? 'Last seen #' + retired.last_seen_build_number + ' (' + amdLayoutLabel(retired.layout) + ') - replaced in #' + retired.superseded_by_build_number + ' (' + amdLayoutLabel(retired.superseded_by_layout) + ')'
+      : row.latest_build_number ? '#' + row.latest_build_number + ' - ' + shortDate(row.latest_observed_at) : 'No retained latest result';
     content.append(statusStrip([
-      {label: 'LATEST AMD RESULT', value: amdStateLabel(latestState), meta: row.latest_build_number ? '#' + row.latest_build_number + ' - ' + shortDate(row.latest_observed_at) : 'No retained latest result', tone: toneForState(latestState)},
-      {label: 'RETAINED-RUN PASS RATE', value: amdGroupPassRate(row) === null ? '-' : amdGroupPassRate(row).toFixed(1) + '%', meta: integer(row.passed) + ' passed - ' + integer(row.soft_failed) + ' soft - ' + integer(row.hard_failed) + ' hard'},
-      {label: 'CURRENT PASS STREAK', value: integer(row.current_pass_streak), meta: integer(row.runs) + ' retained AMD nightlies'},
+      {label: 'LATEST AMD RESULT', value: amdStateLabel(latestState), meta: latestMeta, tone: toneForState(latestState)},
+      {label: 'RETAINED-RUN PASS RATE', value: amdGroupPassRate(row) === null ? '-' : amdGroupPassRate(row).toFixed(1) + '%', meta: integer(history.passed) + ' passed - ' + integer(history.soft_failed) + ' soft - ' + integer(history.hard_failed) + ' hard'},
+      {label: 'CURRENT PASS STREAK', value: integer(history.current_pass_streak), meta: integer(history.runs) + ' retained AMD nightlies'},
       {label: 'NON-PASSING RUNS', value: integer(incidents.length), meta: incidents.length ? 'Select any amber or red outcome for its Buildkite job' : 'None in retained history', tone: incidents.length ? 'is-warning' : 'is-success'},
     ]));
 
     const timeline = n('section', 'ops-history-panel ops-amd-history-timeline');
     const timelineHeader = n('header', 'ops-history-panel-header');
     const timelineHeading = n('div');
-    add(timelineHeading, [n('h3', '', 'Main CI AMD gating-job outcomes'), n('p', '', integer(observations.length) + ' exact job runs - oldest to newest')]);
+    add(timelineHeading, layouts.length
+      ? [n('h3', '', 'Outcomes across shard layouts'), n('p', '', integer(observations.length) + ' nightlies - oldest to newest - the step\'s worst shard in layouts without this variant - ' + layouts.map(function (layout) { return '#' + layout.first_build_number + ' ' + amdLayoutLabel(layout); }).join(' → '))]
+      : [n('h3', '', 'Main CI AMD gating-job outcomes'), n('p', '', integer(observations.length) + ' exact job runs - oldest to newest')]);
     const legend = n('div', 'ops-history-legend');
     [['is-passed', 'Passed'], ['is-soft', 'Soft fail'], ['is-hard', 'Hard fail'], ['is-unknown', 'Unknown']].forEach(function (entry) {
       const item = n('span', 'ops-history-legend-item');
@@ -4035,7 +4061,7 @@
     search.setAttribute('aria-label', 'Search AMD job variants');
     const resultFilter = n('select', 'ops-select');
     resultFilter.setAttribute('aria-label', 'Filter AMD job variants by health');
-    [['all', 'All retained variants'], ['attention', 'Needs attention'], ['passing', 'Passing now'], ['incident', 'Failures now'], ['missing', 'Historical only'], ['mixed', 'Mixed history']].forEach(function (pair) {
+    [['all', 'All retained variants'], ['attention', 'Needs attention'], ['passing', 'Passing now'], ['incident', 'Failures now'], ['missing', 'Historical only'], ['retired', 'Retired layouts'], ['mixed', 'Mixed history']].forEach(function (pair) {
       const option = n('option', '', pair[1]);
       option.value = pair[0];
       option.selected = pair[0] === (initialFilter || 'all');
@@ -4059,11 +4085,12 @@
       const mode = resultFilter.value;
       const filtered = rows.filter(function (row) {
         const latest = amdLatestState(row, latestBuild);
-        const mixed = Number(row.passed || 0) > 0 && Number(row.soft_failed || 0) + Number(row.hard_failed || 0) > 0;
+        const mixed = amdMixedHistory(row);
         if (mode === 'attention' && !['soft', 'hard', 'unknown'].includes(latest)) return false;
         if (mode === 'passing' && latest !== 'passed') return false;
         if (mode === 'incident' && !['soft', 'hard'].includes(latest)) return false;
         if (mode === 'missing' && latest !== 'missing') return false;
+        if (mode === 'retired' && latest !== 'retired') return false;
         if (mode === 'mixed' && !mixed) return false;
         if (!query) return true;
         return [row.display_name, row.name, row.job_name, row.hardware_variant, row.hardware, row.queue]
@@ -4076,10 +4103,10 @@
       clear(tableHost);
       tableHost.append(dataTable([
         {label: 'AMD job variant', sticky: true, width: '370px', render: function (row) { return amdGroupIdentity(row, function () { openAmdGroupDetail(row, amdHealth); }); }},
-        {label: 'Latest', width: '130px', render: function (row) { const latest = amdLatestState(row, latestBuild); const url = latest === 'missing' ? '' : row.latest_url; return linkedBadge(amdStateLabel(latest), url, function () { openAmdGroupDetail(row, amdHealth); }, toneForState(latest)); }},
+        {label: 'Latest', width: '130px', render: function (row) { const latest = amdLatestState(row, latestBuild); const url = ['missing', 'retired'].includes(latest) ? '' : row.latest_url; return linkedBadge(amdStateLabel(latest), url, function () { openAmdGroupDetail(row, amdHealth); }, toneForState(latest)); }},
         {label: 'Retained-run pass rate', numeric: true, width: '160px', render: function (row) { const rate = amdGroupPassRate(row); return linkButton(rate === null ? '-' : rate.toFixed(1) + '%', function () { openAmdGroupDetail(row, amdHealth); }); }},
-        {label: 'Runs', numeric: true, width: '90px', render: function (row) { return linkButton(integer(row.runs), function () { openAmdGroupDetail(row, amdHealth); }); }},
-        {label: 'Pass streak', numeric: true, width: '120px', render: function (row) { return linkButton(integer(row.current_pass_streak), function () { openAmdGroupDetail(row, amdHealth); }); }},
+        {label: 'Runs', numeric: true, width: '90px', render: function (row) { return linkButton(integer(amdRowHistory(row).runs), function () { openAmdGroupDetail(row, amdHealth); }); }},
+        {label: 'Pass streak', numeric: true, width: '120px', render: function (row) { return linkButton(integer(amdRowHistory(row).current_pass_streak), function () { openAmdGroupDetail(row, amdHealth); }); }},
         {label: 'Hardware', width: '120px', render: function (row) { return badge(value(row.hardware_variant || row.hardware), 'is-neutral'); }},
         {label: 'Queue', width: '170px', render: function (row) { return n('span', 'ops-mono', value(row.queue)); }},
         {label: 'Evidence', width: '150px', render: function (row) { return row.latest_url ? externalLink('Latest AMD job', row.latest_url) : linkButton('Inspect history', function () { openAmdGroupDetail(row, amdHealth); }); }},
@@ -4100,10 +4127,11 @@
   function amdHardwareRows(groups, latestBuild) {
     const byHardware = new Map();
     groups.forEach(function (group) {
+      const latest = amdLatestState(group, latestBuild);
+      if (latest === 'retired') return;
       const id = value(group.hardware_variant || group.hardware, 'unknown');
       if (!byHardware.has(id)) byHardware.set(id, {id: id, label: hardwareDisplayLabel(id), rows: [], passed: 0, soft: 0, hard: 0, missing: 0});
       const cluster = byHardware.get(id);
-      const latest = amdLatestState(group, latestBuild);
       cluster.rows.push(group);
       if (latest === 'passed') cluster.passed += 1;
       else if (latest === 'soft') cluster.soft += 1;
@@ -4163,8 +4191,9 @@
     const unknown = Number(latestCounts.unknown || 0);
     const nonPassing = incidents + unknown;
     const retainedCount = Number(summary.retained_job_variant_count || summary.retained_group_count || summary.union_group_count || summary.group_count || groups.length);
-    const notLatest = Math.max(0, retainedCount - latestVariantCount);
-    const mixed = groups.filter(function (row) { return Number(row.passed || 0) > 0 && Number(row.soft_failed || 0) + Number(row.hard_failed || 0) > 0; });
+    const retired = Number(summary.retired_job_variant_count || 0) || groups.filter(function (row) { return row.retired; }).length;
+    const notLatest = Math.max(0, retainedCount - latestVariantCount - retired);
+    const mixed = groups.filter(amdMixedHistory);
     const currentIncidents = groups.filter(function (row) { return ['soft', 'hard'].includes(amdLatestState(row, latestBuild)); });
     const currentPassing = groups.filter(function (row) { return amdLatestState(row, latestBuild) === 'passed'; });
     const currentUnknown = groups.filter(function (row) { return amdLatestState(row, latestBuild) === 'unknown'; });
@@ -4183,7 +4212,7 @@
     host.append(statusStrip([
       {id: 'amd-health-build', label: 'LATEST AMD NIGHTLY', value: latestBuild ? '#' + latestBuild : '-', meta: shortDate(summary.latest_observed_at), tone: hard ? 'is-danger' : soft ? 'is-warning' : 'is-success', url: summary.latest_build_url, actionLabel: 'Open Buildkite ↗'},
       {id: 'amd-health-test-groups', label: 'LATEST AMD TEST GROUPS', value: logicalPresentation.value, meta: logicalPresentation.meta, tone: logicalPresentation.tone, scope: 'Main CI AMD nightly #' + value(latestBuild), observed: latestTestGroups.observed_at || summary.latest_observed_at, provenance: latestTestGroups.count_basis || 'Unique source-aligned AMD test-group identities observed in this main CI nightly; topology-distinct routes remain separate and configured shards count once.', sources: [{label: 'Open published AMD health data', url: SOURCE_ASSETS.amdTestHealth}], actionLabel: logicalRows.length ? 'Browse logical test groups →' : 'Inspect count definition', onOpen: logicalRows.length ? function () { openAmdLogicalCatalog('Latest AMD logical test groups', 'Build-pinned logical groups; partial and non-passing groups are listed first', logicalRows, logicalInventory, amdHealth); } : null},
-      {id: 'amd-health-observed', label: 'LATEST JOB VARIANTS', value: integer(latestVariantCount), meta: integer(passing) + ' passing - ' + integer(nonPassing) + ' non-passing exact jobs' + (notLatest ? '; ' + integer(notLatest) + ' older variants retained only for history' : ''), tone: hard ? 'is-danger' : nonPassing ? 'is-warning' : 'is-success', onOpen: function () { openAmdCatalog('Latest AMD job variants', 'Exact AMD gating-job variants observed in the latest main CI nightly', currentVariants, amdHealth, 'all'); }},
+      {id: 'amd-health-observed', label: 'LATEST JOB VARIANTS', value: integer(latestVariantCount), meta: integer(passing) + ' passing - ' + integer(nonPassing) + ' non-passing exact jobs' + (notLatest ? '; ' + integer(notLatest) + ' older variants retained only for history' : '') + (retired ? '; ' + integer(retired) + ' variants retired by shard layout changes' : ''), tone: hard ? 'is-danger' : nonPassing ? 'is-warning' : 'is-success', onOpen: function () { openAmdCatalog('Latest AMD job variants', 'Exact AMD gating-job variants observed in the latest main CI nightly', currentVariants, amdHealth, 'all'); }},
       {id: 'amd-health-incidents', label: 'FAILURE OBSERVATIONS', value: integer(incidents), meta: integer(soft) + ' soft - ' + integer(hard) + ' hard' + (unknown ? ' - ' + integer(unknown) + ' unknown' : ''), tone: hard ? 'is-danger' : soft ? 'is-warning' : 'is-success', onOpen: function () { openAmdCatalog('Current AMD failure observations', 'AMD gating-job variants with a soft or hard result in the latest main CI nightly', currentIncidents, amdHealth, 'incident'); }},
     ]));
     const note = n('div', 'ops-evidence-note is-info');
@@ -4233,7 +4262,7 @@
     clusterGrid.append(amdHealthCluster('Needs attention', currentIncidents.length + currentUnknown.length, 'Soft, hard, or unresolved result in the latest nightly', integer(soft) + ' soft - ' + integer(hard) + ' hard - ' + publication.prefix + integer(currentUnknown.length) + ' retained unresolved', hard ? 'is-danger' : 'is-warning', function () { openAmdCatalog('AMD variants needing attention', 'Current soft, hard, and unresolved outcomes only; historical-only names are excluded', currentVariants, amdHealth, 'attention'); }, !publication.complete));
     clusterGrid.append(amdHealthCluster('Passing now', currentPassing.length, 'Latest exact AMD job result passed', publication.complete ? percent(currentPassing.length, latestVariantCount) + ' of latest job variants' : 'Aggregate share unavailable for incomplete catalog', 'is-success', function () { openAmdCatalog('AMD job variants passing now', 'Latest exact main CI AMD gating-job outcomes', currentPassing, amdHealth, 'passing'); }, !publication.complete));
     clusterGrid.append(amdHealthCluster('Mixed history', mixed.length, 'Both passing and non-passing nightlies retained', integer(summary.build_count) + ' source nightlies; retained catalog only', 'is-warning', function () { openAmdCatalog('AMD job variants with mixed history', 'Job variants that passed on some AMD nightlies and had raw failures on others', mixed, amdHealth, 'mixed'); }, !publication.complete));
-    clusterGrid.append(amdHealthCluster('Historical only', missing.length, 'Older job names not present in the latest nightly', 'Not classified as current failures', 'is-neutral', function () { openAmdCatalog('Historical AMD job variants', 'Retained older names that are not part of the latest nightly observation set', missing, amdHealth, 'missing'); }, !publication.complete));
+    clusterGrid.append(amdHealthCluster('Historical only', missing.length, 'Older job names not present in the latest nightly', 'Not classified as current failures' + (retired ? '; excludes ' + integer(retired) + ' retired layout variants' : ''), 'is-neutral', function () { openAmdCatalog('Historical AMD job variants', 'Retained older names that are not part of the latest nightly observation set', missing, amdHealth, 'missing'); }, !publication.complete));
     clusterSection.append(clusterGrid);
     host.append(clusterSection);
 
@@ -4246,7 +4275,7 @@
       {label: 'Queue', width: '170px', render: function (row) { return n('span', 'ops-mono', value(row.queue)); }},
       {label: 'Retained-run pass rate', numeric: true, width: '170px', render: function (row) { const rate = amdGroupPassRate(row); return linkButton(rate === null ? '-' : rate.toFixed(1) + '%', function () { openAmdGroupDetail(row, amdHealth); }); }},
       {label: 'Latest', width: '110px', render: function (row) { const latest = amdLatestState(row, latestBuild); return linkedBadge(amdStateLabel(latest), row.latest_url, function () { openAmdGroupDetail(row, amdHealth); }, toneForState(latest)); }},
-      {label: 'Pass / soft / hard', numeric: true, width: '170px', render: function (row) { return linkButton(integer(row.passed) + ' / ' + integer(row.soft_failed) + ' / ' + integer(row.hard_failed), function () { openAmdGroupDetail(row, amdHealth); }); }},
+      {label: 'Pass / soft / hard', numeric: true, width: '170px', render: function (row) { const history = amdRowHistory(row); return linkButton(integer(history.passed) + ' / ' + integer(history.soft_failed) + ' / ' + integer(history.hard_failed), function () { openAmdGroupDetail(row, amdHealth); }); }},
       {label: 'Latest evidence', width: '160px', render: function (row) { return externalLink('#' + value(row.latest_build_number), row.latest_url, 'ops-mono'); }},
     ], priority, publication.prefix + integer(currentIncidents.length) + ' retained current AMD failure observations; use Browse all for the ' + (publication.complete ? 'complete' : 'bounded') + ' catalog', {name: 'amd-current-incidents', minWidth: '1020px'}), 'ops-amd-priority'));
   }

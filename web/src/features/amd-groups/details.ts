@@ -10,6 +10,7 @@ import {
   amdLogicalSignalTone,
   amdLogicalStateLabel,
   amdLogicalStateTone,
+  amdRowHistory,
   amdStateLabel,
   isIncidentObservation,
   observationState,
@@ -49,9 +50,20 @@ export function resultCell(state: unknown): CellSpec {
 
 const plural = (n: unknown, word: string) => `${integer(n)} ${Number(n) === 1 ? word : `${word}s`}`
 
+const layoutLabel = (layout: Rec | undefined) => (Number(layout?.job_count) > 1 ? plural(layout!.job_count, 'shard') : 'unsharded')
+
+function latestResultMeta(row: Rec): string {
+  const retired: Rec | null = row.retired || null
+  if (retired)
+    return `Last seen #${retired.last_seen_build_number} (${layoutLabel(retired.layout)}) · replaced in #${retired.superseded_by_build_number} (${layoutLabel(retired.superseded_by_layout)})`
+  return row.latest_build_number ? `#${row.latest_build_number} · ${shortDate(row.latest_observed_at)}` : 'No retained latest result'
+}
+
 /** One exact main CI AMD gating job (a Buildkite job variant) and its retained outcomes. */
 export function exactJobDetail(row: Rec, latestBuild: unknown): Detail {
-  const observations = amdGroupObservations(row)
+  const history = amdRowHistory(row)
+  const layouts: Rec[] = history === row ? [] : history.layouts || []
+  const observations = amdGroupObservations(history)
   const incidents = observations.filter(isIncidentObservation)
   const latest = amdLatestState(row, latestBuild)
   const passRate = amdGroupPassRate(row)
@@ -65,10 +77,10 @@ export function exactJobDetail(row: Rec, latestBuild: unknown): Detail {
         value: amdStateLabel(latest),
         tone: toneForState(latest),
         toneLabel: amdStateLabel(latest),
-        meta: row.latest_build_number ? `#${row.latest_build_number} · ${shortDate(row.latest_observed_at)}` : 'No retained latest result',
+        meta: latestResultMeta(row),
       },
-      rateStat('Retained-run pass rate', passRate, `${integer(row.passed)} passed · ${integer(row.soft_failed)} soft fail · ${integer(row.hard_failed)} hard fail`),
-      { label: 'Current pass streak', value: integer(row.current_pass_streak), meta: `of ${integer(row.runs)} retained AMD ${Number(row.runs) === 1 ? 'nightly' : 'nightlies'}` },
+      rateStat('Retained-run pass rate', passRate, `${integer(history.passed)} passed · ${integer(history.soft_failed)} soft fail · ${integer(history.hard_failed)} hard fail`),
+      { label: 'Current pass streak', value: integer(history.current_pass_streak), meta: `of ${integer(history.runs)} retained AMD ${Number(history.runs) === 1 ? 'nightly' : 'nightlies'}` },
       {
         label: 'Non-passing runs',
         value: integer(incidents.length),
@@ -79,8 +91,10 @@ export function exactJobDetail(row: Rec, latestBuild: unknown): Detail {
     sections: observations.length
       ? [
           {
-            title: 'Main CI AMD gating-job outcomes',
-            meta: `${plural(observations.length, 'exact job run')}, oldest to newest`,
+            title: layouts.length ? 'Outcomes across shard layouts' : 'Main CI AMD gating-job outcomes',
+            meta: layouts.length
+              ? `${integer(observations.length)} ${observations.length === 1 ? 'nightly' : 'nightlies'}, oldest to newest; the step's worst shard in layouts without this variant · ${layouts.map((l) => `#${l.first_build_number} ${layoutLabel(l)}`).join(' → ')}`
+              : `${plural(observations.length, 'exact job run')}, oldest to newest`,
             component: markRaw(OutcomeStrip),
             props: { observations },
           },
@@ -236,14 +250,22 @@ export function exactJobCatalogColumns(latestBuild: unknown): ColumnSpec<Rec>[] 
       cell: (row) => rateCell(amdGroupPassRate(row)),
       class: 'hidden sm:table-cell',
     },
-    { id: 'runs', label: 'Runs', numeric: true, hideable: true, value: (row) => Number(row.runs || 0), cell: (row) => num(Number(row.runs || 0)), class: 'hidden md:table-cell' },
+    {
+      id: 'runs',
+      label: 'Runs',
+      numeric: true,
+      hideable: true,
+      value: (row) => Number(amdRowHistory(row).runs || 0),
+      cell: (row) => num(Number(amdRowHistory(row).runs || 0)),
+      class: 'hidden md:table-cell',
+    },
     {
       id: 'streak',
       label: 'Pass streak',
       numeric: true,
       hideable: true,
-      value: (row) => Number(row.current_pass_streak || 0),
-      cell: (row) => ({ ...num(Number(row.current_pass_streak || 0)), muted: !Number(row.current_pass_streak) }),
+      value: (row) => Number(amdRowHistory(row).current_pass_streak || 0),
+      cell: (row) => ({ ...num(Number(amdRowHistory(row).current_pass_streak || 0)), muted: !Number(amdRowHistory(row).current_pass_streak) }),
       class: 'hidden md:table-cell',
     },
   ]

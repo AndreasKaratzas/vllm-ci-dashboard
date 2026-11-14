@@ -2,7 +2,7 @@ import { integer, shortSha, value, type Rec, type Tone } from './format'
 import { currentAmdHealth } from './health'
 import { nightlyFailureMovement } from './nightly'
 
-export type AmdState = 'passed' | 'soft' | 'hard' | 'missing' | 'unknown'
+export type AmdState = 'passed' | 'soft' | 'hard' | 'missing' | 'retired' | 'unknown'
 
 export function observationState(observation: Rec): string {
   return String(observation.state || observation.result || observation.status || 'unknown').toLowerCase()
@@ -41,14 +41,21 @@ export function amdGroupObservations(row: Rec | null | undefined): Rec[] {
     : []
 }
 
-export function amdGroupPassRate(row: Rec | null | undefined): number | null {
-  if (Number.isFinite(Number(row && row.pass_rate_pct))) return Number(row!.pass_rate_pct)
+/** The history behind a job variant: its step's rollup across shard layouts when it has one. */
+export function amdRowHistory(row: Rec | null | undefined): Rec {
   const r = row || {}
+  return r.logical_history && typeof r.logical_history === 'object' ? r.logical_history : r
+}
+
+export function amdGroupPassRate(row: Rec | null | undefined): number | null {
+  const r = amdRowHistory(row)
+  if (Number.isFinite(Number(r.pass_rate_pct))) return Number(r.pass_rate_pct)
   const known = Number(r.passed || 0) + Number(r.soft_failed || 0) + Number(r.hard_failed || 0)
   return known ? (Number(r.passed || 0) / known) * 100 : null
 }
 
 export function amdLatestState(row: Rec, latestBuild: unknown): AmdState {
+  if (row.retired) return 'retired'
   if (latestBuild && Number(row.latest_build_number) !== Number(latestBuild)) return 'missing'
   const result = String(row.latest_state || 'unknown').toLowerCase()
   if (['soft', 'soft_fail', 'soft_failed'].includes(result)) return 'soft'
@@ -61,6 +68,7 @@ export function amdStateLabel(result: string): string {
   if (result === 'soft') return 'Soft fail'
   if (result === 'hard') return 'Hard fail'
   if (result === 'missing') return 'Not in latest'
+  if (result === 'retired') return 'Retired layout'
   return 'No result'
 }
 

@@ -4,10 +4,11 @@
 // the DOM the classic renderer produces (with a recording Chart stub).
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import * as v2 from '@/domain/analytics'
-import { amdLatestState, amdStateLabel, movementBuilds } from '@/domain/ciHealth'
+import { amdLatestState, amdRowHistory, amdStateLabel, movementBuilds } from '@/domain/ciHealth'
 import { integer, shortDate, toneForState, value, type Rec } from '@/domain/format'
 import { currentAmdHealth } from '@/domain/health'
 import { latestAmd } from '@/domain/nightly'
+import { exactJobDetail } from '@/features/amd-groups/details'
 import { classicParity, loadClassic, type ClassicFns } from './classic'
 import { pinClock, readFixture } from './support/fixtures'
 import { expectGoldenFile } from './support/golden'
@@ -26,6 +27,7 @@ const NAMES = [
   'nightlyDisplayName',
   'renderAmdHealth',
   'openAmdCatalog',
+  'openAmdGroupDetail',
   'renderLatencyComparison',
   'openLatencyEvidence',
   'renderAnalytics',
@@ -148,7 +150,7 @@ function compareGroups(rawHealth: Rec, label: string) {
       value(row.queue),
       v2.passRateLabel(row),
       amdStateLabel(amdLatestState(row, model.latestBuild)),
-      `${integer(row.passed)} / ${integer(row.soft_failed)} / ${integer(row.hard_failed)}`,
+      `${integer(amdRowHistory(row).passed)} / ${integer(amdRowHistory(row).soft_failed)} / ${integer(amdRowHistory(row).hard_failed)}`,
       '#' + value(row.latest_build_number),
     ]),
     tableRows(priorityPanel),
@@ -218,8 +220,8 @@ function v2CatalogRow(row: Rec, latestBuild: unknown) {
     value(row.display_name || row.name || row.job_name) + value(row.hardware_variant || row.hardware, 'unknown') + ' - ' + value(row.queue, 'queue unavailable'),
     amdStateLabel(latest),
     v2.passRateLabel(row),
-    integer(row.runs),
-    integer(row.current_pass_streak),
+    integer(amdRowHistory(row).runs),
+    integer(amdRowHistory(row).current_pass_streak),
     value(row.hardware_variant || row.hardware),
     value(row.queue),
     row.latest_url ? 'Latest AMD job' : 'Inspect history',
@@ -401,6 +403,68 @@ describe('AMD test health matches the classic renderer', () => {
     expect(v2.analyticsObservedAt('groups', fixture, health)).toBe(health.summary.latest_observed_at)
     expect(v2.analyticsObservedAt('groups', { generated_at: 'g' }, { summary: {} })).toBe('g')
     expect(v2.analyticsObservedAt('latency', { generated_at: 'g' }, health)).toBe('g')
+  })
+})
+
+describe('AMD shard layout changes in both renderers', () => {
+  // Producer output for nightlies #100488-#102399, trimmed to the four steps re-sharded in that window.
+  const layouts = currentAmdHealth(readFixture<Rec>('amd_shard_layouts.json').amd_test_health)
+  const shortName = (row: Rec) => String(row.display_name).replace(/^[^(]*\([^)]*\)\s*/, '')
+  const variant = (name: string) => layouts.group_catalog.find((row: Rec) => shortName(row) === name)
+
+  it('excludes retired variants from current views and rolls step history up', () => {
+    const model = compareGroups(layouts, 'shard layouts')
+    for (const [mode] of v2.AMD_CATALOG_FILTERS) compareCatalog(layouts, model.groups, mode, '', `shard layouts/${mode}`)
+    expect(model.strip.find((item) => item.id === 'amd-health-observed')!.meta).toBe(
+      '12 passing - 0 non-passing exact jobs; 14 variants retired by shard layout changes',
+    )
+    expect(model.clusters.find((c) => c.label === 'Historical only')).toMatchObject({
+      count: 0,
+      meta: 'Not classified as current failures; excludes 14 retired layout variants',
+    })
+    expect(model.hardware.flatMap((h) => h.rows)).toHaveLength(12)
+    const retired = v2.amdCatalogRows(model.groups, model.latestBuild, 'retired', '').map(shortName)
+    expect(retired).toHaveLength(14)
+    expect(retired).toEqual(expect.arrayContaining(['MoRIIO WRITE P/D Dummy-Weight E2E Shard 6', 'Kimi K3 Prefix Cache']))
+    expect(v2CatalogRow(variant('MoRIIO WRITE P/D Dummy-Weight E2E Shard 1/4'), model.latestBuild).slice(1, 5)).toEqual(['Passing', '100.0%', '7', '7'])
+    expect(v2CatalogRow(variant('Multimodal Models (Extended Generation 2) Shard 2/3'), model.latestBuild).slice(1, 5)).toEqual(['Passing', '100.0%', '8', '8'])
+    expect(v2CatalogRow(variant('MoRIIO WRITE P/D Dummy-Weight E2E Shard 6'), model.latestBuild).slice(1, 5)).toEqual(['Retired layout', '100.0%', '6', '6'])
+  })
+
+  it('opens the step history and the retirement in both detail views', () => {
+    const latest = layouts.summary.latest_build_number
+    const classicDetail = (row: Rec) => {
+      classic.openAmdGroupDetail!(row, layouts)
+      const root = overlay()
+      const out = { strip: stripOf(root).map((s) => [s.label, s.value, s.meta]), timeline: text(root.querySelector('.ops-history-panel-header div')) }
+      classic.closeOverlay!()
+      return out
+    }
+    const current = variant('Kimi K3 Prefix Cache Shard 2/3')
+    const detail = exactJobDetail(current, latest)
+    expect(detail.stats!.slice(1, 3).map((s) => [s.value, s.meta])).toEqual([
+      ['100.0%', '7 passed · 0 soft fail · 0 hard fail'],
+      ['7', 'of 7 retained AMD nightlies'],
+    ])
+    expect(detail.sections![0]).toMatchObject({
+      title: 'Outcomes across shard layouts',
+      meta: "7 nightlies, oldest to newest; the step's worst shard in layouts without this variant · #100748 unsharded → #102399 3 shards",
+    })
+    expect(detail.sections![0]!.props!.observations).toHaveLength(7)
+    expect(classicDetail(current)).toEqual({
+      strip: [
+        ['LATEST AMD RESULT', 'Passing', '#102399 - Nov 13, 07:45 AM'],
+        ['RETAINED-RUN PASS RATE', '100.0%', '7 passed - 0 soft - 0 hard'],
+        ['CURRENT PASS STREAK', '7', '7 retained AMD nightlies'],
+        ['NON-PASSING RUNS', '0', 'None in retained history'],
+      ],
+      timeline:
+        "Outcomes across shard layouts7 nightlies - oldest to newest - the step's worst shard in layouts without this variant - #100748 unsharded → #102399 3 shards",
+    })
+
+    const old = variant('Kimi K3 Prefix Cache')
+    expect(exactJobDetail(old, latest).stats![0]).toMatchObject({ value: 'Retired layout', meta: 'Last seen #102057 (unsharded) · replaced in #102399 (3 shards)' })
+    expect(classicDetail(old).strip[0]).toEqual(['LATEST AMD RESULT', 'Retired layout', 'Last seen #102057 (unsharded) - replaced in #102399 (3 shards)'])
   })
 })
 
