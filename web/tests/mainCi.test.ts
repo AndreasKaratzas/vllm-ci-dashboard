@@ -23,6 +23,7 @@ import {
   retryGroups,
   suspectRanges,
   trendPoints,
+  withPulse,
 } from '@/domain/mainCi'
 
 const amd = (passed: number, hard = 0, soft = 0, retried = 0) => ({ passed, soft, hard, unknown: 0, not_run: 0, retried })
@@ -279,6 +280,45 @@ describe('incidents and events', () => {
     expect(incidents.active[0]).toMatchObject({ severity: 'hard', pending: false, good: { build: 96039 }, bad: { build: 96045 }, latestBuild: 96045 })
     expect(incidents.pending[0]).toMatchObject({ severity: 'soft', pending: true, good: { commit: '', build: null } })
     expect(mainIncidents({}).available).toBe(false)
+  })
+
+  it('applies main pulse observations from builds newer than the cohort, leaving older ones to the collection', () => {
+    const published = (group_id: string) => ({ group_id, name: group_id, severity: 'hard', status: 'confirmed', bad_build_number: 90 })
+    const core = {
+      cohort: { observed_to: '2026-11-13T19:16:50.389Z' },
+      summary: { builds: 2096, active_incidents: 2, hard_incidents: 2, pending_soft: 0 },
+      incidents: { available: true, watcher_last_run: '2026-11-13T20:43:02Z', active: [published('kept'), published('fixed')], pending_soft: [] },
+      timeline: [{ event: 'opened', group_id: 'kept', build_number: 90, at: '2026-11-12T10:00:00Z' }],
+    }
+    const watermark = (order_at: string) => ({ build_number: 102603, order_at })
+    const entry = {
+      name: ':amd: (MI355 DPX) Entrypoints Integration (API Server)',
+      hardware: 'mi355',
+      bad_build_number: 102595,
+      build_number: 102603,
+      transition: { status: 'confirmed', severity: 'hard', peak_severity: 'hard' },
+    }
+    const pulse = {
+      schema_version: 1,
+      updated_at: '2026-11-13T21:35:59Z',
+      groups: {
+        new: { status: 'active', watermark: watermark('2026-11-13T20:22:45.526Z'), entry },
+        fixed: { status: 'clear', watermark: watermark('2026-11-13T20:22:45.526Z'), entry: null },
+        kept: { status: 'clear', watermark: watermark('2026-11-13T19:00:00Z'), entry: null },
+      },
+      timeline: [{ event: 'opened', group_id: 'new', build_number: 102595, at: '2026-11-13T20:06:32.819Z', source: 'pulse' }],
+    }
+    const merged = withPulse(core, pulse)
+    const incidents = mainIncidents(merged)
+    expect(incidents.pulseAt).toBe('2026-11-13T21:35:59Z')
+    expect(incidents.active.map((row) => [row.groupId, row.openedAt, row.pulseAt, row.severity, row.latestBuild])).toEqual([
+      ['new', '2026-11-13T20:06:32.819Z', '2026-11-13T21:35:59Z', 'hard', 102603],
+      ['kept', '2026-11-12T10:00:00Z', '', 'hard', null],
+    ])
+    expect(mainCiSummary(merged)).toMatchObject({ buildCount: 2096, activeIncidents: 2, hardIncidents: 2, pendingSoft: 0 })
+    expect(withPulse(core, { ...pulse, groups: { kept: pulse.groups.kept } })).toBe(core)
+    expect(withPulse(core, null)).toBe(core)
+    expect(mainIncidents(core).pulseAt).toBeNull()
   })
 
   it('tones resolutions as passes and openings by severity', () => {

@@ -23,6 +23,7 @@ import { perfModels, perfQuery, perfState } from '@/domain/perf'
 import { DASHBOARD_REPO } from '@/domain/urls'
 import { logicalGroupDetail } from '@/features/amd-groups/details'
 import { useFreshness } from '@/features/freshness/useFreshness'
+import { useMainCi } from '@/features/main-ci/useMainCi'
 import { toneClasses, TONE_LABEL } from '@/lib/palette'
 import { NAV_TABS } from '@/router'
 import { pageViews, subViewQuery } from './navigation'
@@ -63,9 +64,9 @@ onScopeDispose(() => scope.stop())
 const stopLoading = watch(open, (isOpen) => {
   if (!isOpen) return
   scope.run(() => {
-    const main = useOperationSections(['main_ci'])
+    const main = useMainCi()
     const groups = useOperationSections(['amd_test_health'])
-    watch(main.data, (data) => (mainData.value = data), { immediate: true })
+    watch(() => main.ctx.value.record, (record) => (mainData.value = record), { immediate: true })
     const perf = useDataset('perf_eval')
     watch(groups.data, (data) => (groupsData.value = data), { immediate: true })
     watch(perf.data, (data) => (perfData.value = data), { immediate: true })
@@ -74,8 +75,8 @@ const stopLoading = watch(open, (isOpen) => {
 })
 // The newest main builds; older ones stay one click away on the Main CI page.
 const MAIN_BUILD_LIMIT = 50
-const mainBuildRows = computed(() => mainBuilds(mainData.value?.main_ci).slice(0, MAIN_BUILD_LIMIT))
-const mainIncidentRows = computed(() => mainIncidents(mainData.value?.main_ci).active)
+const mainBuildRows = computed(() => mainBuilds(mainData.value).slice(0, MAIN_BUILD_LIMIT))
+const mainIncidentRows = computed(() => mainIncidents(mainData.value).active)
 const testGroups = computed<Rec[]>(() => sortLogicalRows(amdLogicalInventory(groupsData.value?.amd_test_health).rows || []))
 const models = computed<string[]>(() => [...new Set(perfModels(perfData.value).map((model) => String(model.model || '')).filter(Boolean))].sort())
 function openGroup(row: Rec) {
