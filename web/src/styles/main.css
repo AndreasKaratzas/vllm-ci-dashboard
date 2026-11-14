@@ -1,0 +1,285 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Latin subsets only: the dashboard renders English CI data. */
+@font-face {
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist/files/geist-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist/files/geist-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: "Geist Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: "Geist Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("@fontsource-variable/geist-mono/files/geist-mono-latin-ext-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.141 0.005 285.823);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.141 0.005 285.823);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.141 0.005 285.823);
+  --primary: oklch(0.21 0.006 285.885);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+  --accent: oklch(0.967 0.001 286.375);
+  --accent-foreground: oklch(0.21 0.006 285.885);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+  --ring: oklch(0.705 0.015 286.067);
+  /* Status fills mark test and route state only (dots, bars, rings). */
+  --status-pass: #0d8a77;
+  --status-soft: #d99a00;
+  --status-hard: #dc2626;
+  --status-unknown: oklch(0.705 0.015 286);
+  --status-canceled: oklch(0.552 0.016 286);
+  /* Status text: >= 4.5:1 on --card and on a 12% status tint. */
+  --status-pass-fg: oklch(0.45 0.1 175);
+  --status-soft-fg: oklch(0.48 0.11 70);
+  --status-hard-fg: oklch(0.5 0.2 27);
+  /* Non-status series: brand violet plus one CVD-separated contrast hue. */
+  --series-1: #5b4fd6;
+  --series-2: #c7458f;
+  --series-muted: oklch(0.87 0.01 286);
+  /* Hardware generations: one-hue ordinal ramp, newer reads stronger. */
+  --hw-mi250: #a69bf0;
+  --hw-mi300: #8576e6;
+  --hw-mi325: #6150d2;
+  --hw-mi355: #4334a6;
+  --brand: var(--series-1);
+  /* Failure intensity: one sequential red ramp, pale to deep; --heat-0 is a day without failures. */
+  --heat-0: oklch(0.945 0.004 286);
+  --heat-1: oklch(0.89 0.05 25);
+  --heat-2: oklch(0.79 0.1 25);
+  --heat-3: oklch(0.68 0.15 25);
+  --heat-4: oklch(0.58 0.19 26);
+  --heat-5: oklch(0.47 0.19 25);
+  /* AMD red collides with --status-hard, so it is reserved for the logo mark. */
+  --amd: oklch(0.58 0.22 25);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.141 0.005 285.823);
+  --sidebar-primary: oklch(0.21 0.006 285.885);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.967 0.001 286.375);
+  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
+  --sidebar-border: oklch(0.92 0.004 286.32);
+  --sidebar-ring: oklch(0.705 0.015 286.067);
+}
+
+.dark {
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.92 0.004 286.32);
+  --primary-foreground: oklch(0.21 0.006 285.885);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.552 0.016 285.938);
+  /* Pass/soft and soft/hard sit at the CVD floor here: icon + label is mandatory. */
+  --status-pass: #12a08a;
+  --status-soft: #c58501;
+  --status-hard: #e0405a;
+  --status-unknown: oklch(0.552 0.016 286);
+  --status-canceled: oklch(0.442 0.017 286);
+  --status-pass-fg: oklch(0.8 0.12 170);
+  --status-soft-fg: oklch(0.85 0.13 85);
+  --status-hard-fg: oklch(0.78 0.15 20);
+  --series-1: #7b70e6;
+  --series-2: #d0559a;
+  --series-muted: oklch(0.35 0.01 286);
+  --hw-mi250: #5141c4;
+  --hw-mi300: #6f60dc;
+  --hw-mi325: #9184ec;
+  --hw-mi355: #b6acf6;
+  /* Dark ramp: anchored near the card, then brighter and more saturated in one hue (all in sRGB), so the worst cells glow. */
+  --heat-0: oklch(0.255 0.006 286);
+  --heat-1: oklch(0.33 0.07 22);
+  --heat-2: oklch(0.42 0.11 23);
+  --heat-3: oklch(0.5 0.15 24);
+  --heat-4: oklch(0.59 0.19 25);
+  --heat-5: oklch(0.66 0.22 27);
+  --amd: oklch(0.68 0.2 25);
+  --sidebar: oklch(0.21 0.006 285.885);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.552 0.016 285.938);
+}
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+  --color-status-pass: var(--status-pass);
+  --color-status-soft: var(--status-soft);
+  --color-status-hard: var(--status-hard);
+  --color-status-unknown: var(--status-unknown);
+  --color-status-canceled: var(--status-canceled);
+  --color-status-pass-fg: var(--status-pass-fg);
+  --color-status-soft-fg: var(--status-soft-fg);
+  --color-status-hard-fg: var(--status-hard-fg);
+  --color-series-1: var(--series-1);
+  --color-series-2: var(--series-2);
+  --color-series-muted: var(--series-muted);
+  --color-hw-mi250: var(--hw-mi250);
+  --color-hw-mi300: var(--hw-mi300);
+  --color-hw-mi325: var(--hw-mi325);
+  --color-hw-mi355: var(--hw-mi355);
+  --color-brand: var(--brand);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-amd: var(--amd);
+}
+
+/* Unovis injects its light-only defaults on :root at runtime and only knows its
+   own dark selectors, so the theme-aware mapping lives on body, which wins by
+   inheritance. */
+body {
+  --vis-font-family: var(--font-sans);
+  --vis-axis-font-family: var(--font-sans);
+  --vis-axis-tick-label-color: var(--muted-foreground);
+  --vis-axis-label-color: var(--muted-foreground);
+  --vis-axis-tick-color: var(--border);
+  --vis-axis-grid-color: var(--border);
+  --vis-axis-domain-color: transparent;
+  --vis-crosshair-line-stroke-color: var(--border);
+  --vis-plotline-color: var(--muted-foreground);
+  --vis-plotline-label-color: var(--muted-foreground);
+  --vis-donut-background-color: var(--muted);
+  --vis-donut-segment-stroke-color: var(--card);
+  --vis-donut-central-label-text-color: var(--foreground);
+  --vis-donut-central-sub-label-text-color: var(--muted-foreground);
+  --vis-timeline-row-even-fill-color: var(--card);
+  --vis-timeline-row-odd-fill-color: color-mix(in oklch, var(--muted) 50%, var(--card));
+  --vis-timeline-label-color: var(--muted-foreground);
+  --vis-timeline-arrow-color: var(--muted-foreground);
+  --vis-timeline-line-hover-stroke-color: var(--foreground);
+  --vis-timeline-scrollbar-background-color: var(--muted);
+  --vis-timeline-scrollbar-color: var(--muted-foreground);
+}
+
+/* Hovering a clickable bar dims the other categories. Unovis writes an inline
+   opacity on every bar group, so only an important declaration can override it. */
+[data-slot='bar-plot'][data-clickable] [class*='-barGroup'] {
+  transition: opacity 150ms ease-out;
+}
+[data-slot='bar-plot'][data-clickable] svg:has([class*='-barGroup']:hover) [class*='-barGroup']:not(:hover) {
+  opacity: 0.45 !important;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+  /* Tailwind v4 no longer gives buttons a pointer cursor; every clickable
+     control should show one. */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  [role='tab']:not([aria-disabled='true']),
+  [role='menuitem'],
+  [role='menuitemcheckbox'],
+  [role='menuitemradio'],
+  [role='option'],
+  [role='radio'],
+  [role='checkbox'],
+  [role='switch'],
+  [role='combobox'],
+  a[href],
+  summary,
+  select,
+  label[for] {
+    cursor: pointer;
+  }
+  :disabled,
+  [aria-disabled='true'],
+  [data-disabled] {
+    cursor: not-allowed;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}

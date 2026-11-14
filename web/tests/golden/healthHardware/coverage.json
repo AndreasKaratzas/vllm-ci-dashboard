@@ -1,0 +1,112 @@
+{
+  "architectures": [
+    {
+      "architecture": {
+        "group_count": 15,
+        "id": "mi250",
+        "label": "MI250",
+        "nightly_match_count": 15
+      },
+      "incident": 2,
+      "missing": 70,
+      "passed": 4,
+      "rate": {
+        "configured": 6,
+        "label": "66.7%",
+        "passRate": 66.66666666666666,
+        "tone": "soft"
+      },
+      "unknown": 0
+    },
+    {
+      "architecture": {
+        "group_count": 34,
+        "id": "mi300",
+        "label": "MI300",
+        "nightly_match_count": 34
+      },
+      "incident": 3,
+      "missing": 67,
+      "passed": 6,
+      "rate": {
+        "configured": 9,
+        "label": "66.7%",
+        "passRate": 66.66666666666666,
+        "tone": "soft"
+      },
+      "unknown": 0
+    },
+    {
+      "architecture": {
+        "group_count": 182,
+        "id": "mi355",
+        "label": "MI355",
+        "nightly_match_count": 182
+      },
+      "incident": 6,
+      "missing": 15,
+      "passed": 55,
+      "rate": {
+        "configured": 61,
+        "label": "90.2%",
+        "passRate": 90.1639344262295,
+        "tone": "pass"
+      },
+      "unknown": 0
+    }
+  ],
+  "overview": {
+    "browseLabel": "Browse all 76 test groups",
+    "facts": "66 generic best-of-hardware families - 10 explicit MI355-sensitive obligations - no-signal groups remain in the denominator",
+    "meta": "Latest observed matrix build #95663 - one fixed best-hardware policy",
+    "rate": "85.5%",
+    "segments": [
+      {
+        "count": 65,
+        "label": "Passing",
+        "mode": "passing",
+        "tone": "pass"
+      },
+      {
+        "count": 11,
+        "label": "Failing",
+        "mode": "failing",
+        "tone": "hard"
+      }
+    ],
+    "stats": [
+      {
+        "count": "76",
+        "label": "Test groups",
+        "mode": "all"
+      },
+      {
+        "count": "65",
+        "label": "Passing",
+        "mode": "passing"
+      },
+      {
+        "count": "11",
+        "label": "Failing",
+        "mode": "failing"
+      },
+      {
+        "count": "0",
+        "label": "No signal",
+        "mode": "no-signal"
+      }
+    ],
+    "total": 76,
+    "unavailable": false
+  },
+  "preview": [
+    ":amd: (MI250) Batch Invariance",
+    "E2E Scheduling",
+    "E2E Scheduling Accuracy",
+    "Language Models (PPL)",
+    "Pipeline + Context Parallelism",
+    "V1 Engine",
+    ":amd: (MI300) Batch Invariance",
+    ":amd: (MI300) V1 Attention Shard %N"
+  ]
+}

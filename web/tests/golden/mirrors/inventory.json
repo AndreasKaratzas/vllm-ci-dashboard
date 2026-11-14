@@ -1,0 +1,237 @@
+{
+  "areas": [
+    {
+      "area": "lm eval",
+      "count": 33,
+      "devices": [
+        "mi300_1",
+        "mi300_2",
+        "mi355_2",
+        "mi355_4",
+        "mi355_8",
+        "mi355_dpx"
+      ],
+      "optional": 22,
+      "queues": [],
+      "required": 11,
+      "soft_fail": 0,
+      "source_url": "https://github.com/vllm-project/vllm/blob/7651825993d001759107c66cdf6983535900c874/.buildkite/test_areas/lm_eval.yaml",
+      "yaml_file": ".buildkite/test_areas/lm_eval.yaml"
+    },
+    {
+      "area": "kernels",
+      "count": 25,
+      "devices": [
+        "mi250_1",
+        "mi300_1",
+        "mi355_1",
+        "mi355_2",
+        "mi355_dpx"
+      ],
+      "optional": 1,
+      "queues": [],
+      "required": 24,
+      "soft_fail": 0,
+      "source_url": "https://github.com/vllm-project/vllm/blob/7651825993d001759107c66cdf6983535900c874/.buildkite/test_areas/kernels.yaml",
+      "yaml_file": ".buildkite/test_areas/kernels.yaml"
+    },
+    {
+      "area": "misc",
+      "count": 23,
+      "devices": [
+        "mi250_1",
+        "mi300_1",
+        "mi300_2",
+        "mi300_4",
+        "mi355_1",
+        "mi355_2",
+        "mi355_4",
+        "mi355_dpx"
+      ],
+      "optional": 3,
+      "queues": [],
+      "required": 20,
+      "soft_fail": 0,
+      "source_url": "https://github.com/vllm-project/vllm/blob/7651825993d001759107c66cdf6983535900c874/.buildkite/test_areas/misc.yaml",
+      "yaml_file": ".buildkite/test_areas/misc.yaml"
+    },
+    {
+      "area": "spec decode",
+      "count": 18,
+      "devices": [
+        "mi300_1",
+        "mi300_2",
+        "mi355_1",
+        "mi355_dpx"
+      ],
+      "optional": 9,
+      "queues": [],
+      "required": 9,
+      "soft_fail": 0,
+      "source_url": "https://github.com/vllm-project/vllm/blob/7651825993d001759107c66cdf6983535900c874/.buildkite/test_areas/spec_decode.yaml",
+      "yaml_file": ".buildkite/test_areas/spec_decode.yaml"
+    },
+    {
+      "area": "distributed",
+      "count": 16,
+      "devices": [
+        "mi250_4",
+        "mi300_2",
+        "mi355_2",
+        "mi355_4",
+        "mi355_8",
+        "mi355_dpx"
+      ],
+      "optional": 4,
+      "queues": [],
+      "required": 12,
+      "soft_fail": 0,
+      "source_url": "https://github.com/vllm-project/vllm/blob/7651825993d001759107c66cdf6983535900c874/.buildkite/test_areas/distributed.yaml",
+      "yaml_file": ".buildkite/test_areas/distributed.yaml"
+    },
+    {
+      "area": "disaggregated",
+      "count": 13,
+      "devices": [
+        "mi300_2",
+        "mi300_4",
+        "mi355_2",
+        "mi355_4",
+        "mi355_8"
+      ],
+      "optional": 2,
+      "queues": [],
+      "required": 11,
+      "soft_fail": 0,
+      "source_url": "https://github.com/vllm-project/vllm/blob/7651825993d001759107c66cdf6983535900c874/.buildkite/test_areas/disaggregated.yaml",
+      "yaml_file": ".buildkite/test_areas/disaggregated.yaml"
+    },
+    {
+      "area": "entrypoints",
+      "count": 11,
+      "devices": [
+        "mi355_dpx"
+      ],
+      "optional": 0,
+      "queues": [],
+      "required": 11,
+      "soft_fail": 0,
+      "source_url": "https://github.com/vllm-project/vllm/blob/7651825993d001759107c66cdf6983535900c874/.buildkite/test_areas/entrypoints.yaml",
+      "yaml_file": ".buildkite/test_areas/entrypoints.yaml"
+    },
+    {
+      "area": "models basic",
+      "count": 11,
+      "devices": [
+        "mi300_4",
+        "mi355_1",
+        "mi355_4",
+        "mi355_8",
+        "mi355_dpx"
+      ],
+      "optional": 0,
+      "queues": [],
+      "required": 11,
+      "soft_fail": 0,
+      "source_url": "https://github.com/vllm-project/vllm/blob/7651825993d001759107c66cdf6983535900c874/.buildkite/test_areas/models_basic.yaml",
+      "yaml_file": ".buildkite/test_areas/models_basic.yaml"
+    }
+  ],
+  "configuration": {
+    "families": "3",
+    "files": "34",
+    "lowerBound": false,
+    "optional": "60",
+    "required": "177",
+    "softFail": "3",
+    "track": [
+      {
+        "count": 177,
+        "key": "required",
+        "label": "Required",
+        "width": 73.75
+      },
+      {
+        "count": 60,
+        "key": "optional",
+        "label": "Optional",
+        "width": 25
+      },
+      {
+        "count": 3,
+        "key": "soft_fail",
+        "label": "Soft fail",
+        "width": 1.25
+      }
+    ],
+    "trackLabel": "177 required and 60 optional and 3 soft-fail published AMD test groups"
+  },
+  "hero": {
+    "ariaLabel": "240 configured AMD test groups. MI355: 186, MI300: 38, MI250: 16",
+    "breakdownComplete": true,
+    "kinds": "219 GPU mirrors · 2 CPU-only mirrors · 19 native AMD steps",
+    "legend": [
+      {
+        "count": 186,
+        "devices": [
+          "mi355_1",
+          "mi355_2",
+          "mi355_4",
+          "mi355_8",
+          "mi355_dpx"
+        ],
+        "id": "mi355",
+        "label": "MI355"
+      },
+      {
+        "count": 38,
+        "devices": [
+          "mi300_1",
+          "mi300_2",
+          "mi300_4"
+        ],
+        "id": "mi300",
+        "label": "MI300"
+      },
+      {
+        "count": 16,
+        "devices": [
+          "mi250_1",
+          "mi250_2",
+          "mi250_4"
+        ],
+        "id": "mi250",
+        "label": "MI250"
+      }
+    ],
+    "meta": "Each group is one AMD YAML definition on vLLM main: a GPU or CPU-only mirror.amd declaration, or a native AMD step.",
+    "totalDisplay": "240"
+  },
+  "summary": {
+    "ariaLabel": "240 configured AMD test groups. Open the AMD test-group inventory.",
+    "countLabel": "240",
+    "facts": "219 GPU mirrors · 2 CPU-only mirrors · 19 native AMD steps · 177 required · 60 optional · 3 soft fail · 34 files",
+    "meta": "Mirror and native AMD definitions · separate from 231 runtime groups",
+    "track": [
+      {
+        "count": 177,
+        "key": "required",
+        "label": "Required",
+        "width": 73.75
+      },
+      {
+        "count": 60,
+        "key": "optional",
+        "label": "Optional",
+        "width": 25
+      },
+      {
+        "count": 3,
+        "key": "soft_fail",
+        "label": "Soft fail",
+        "width": 1.25
+      }
+    ],
+    "unavailable": false
+  }
+}
