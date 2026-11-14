@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { areaSources, coreFreshness, freshnessOf, freshnessRows, queueFreshness, sourceFreshness, type SourceFreshness } from '@/domain/freshness'
-import { freshnessChip } from '@/features/freshness/freshness'
+import { FRESHNESS_LABEL, freshnessChip } from '@/features/freshness/freshness'
+import { loadClassic } from '../classic'
 
 const CONFIG = JSON.parse(readFileSync(resolve(__dirname, '../../../config/data_freshness_targets.json'), 'utf8'))
 const MANIFEST = JSON.parse(readFileSync(resolve(__dirname, '../fixtures/operations_v2_manifest.json'), 'utf8'))
@@ -175,5 +176,39 @@ describe('page freshness chip', () => {
     const chip = freshnessChip(freshnessOf([row({ timestamp: null, ageMs: null, state: 'stale', warnMinutes: 180, path: null })], ['dns']), NOW)!
     expect(chip.text).toBe('Collected at an unknown time')
     expect(chip.detail).toBe('DNS observations without a timestamp (target 3h).')
+  })
+})
+
+describe('classic sidebar freshness', () => {
+  afterEach(() => vi.useRealTimers())
+
+  function classicLabel(ops: object) {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+    document.body.innerHTML = '<p id="last-updated"></p><span id="ops-mobile-freshness"></span>'
+    loadClassic(['setFreshness']).setFreshness!(ops)
+    return [document.getElementById('last-updated')!, document.getElementById('ops-mobile-freshness')!].map((el) => [el.textContent, el.className])
+  }
+
+  it('dates the core data, not the repackaged manifest, and marks it with the v2 core state', () => {
+    for (const minutes of [10, CONFIG.core.warn_minutes, CONFIG.core.warn_minutes + 1, CONFIG.core.stale_minutes, CONFIG.core.stale_minutes + 1]) {
+      const ops = { ...opsAt(minutes), generated_at: minutesAgo(1), core_generated_at: minutesAgo(minutes) }
+      const state = coreFreshness(sourceFreshness(ops, { generated_at: minutesAgo(minutes) }, NOW))!.state
+      const [sidebar, tone] = classicLabel(ops)[0]!
+      expect(sidebar!.endsWith(` · ${FRESHNESS_LABEL[state]}`), `${minutes}m`).toBe(state !== 'fresh')
+      expect(tone, `${minutes}m`).toBe({ fresh: '', warn: 'is-warning', stale: 'is-danger' }[state])
+    }
+    expect(classicLabel({ generated_at: minutesAgo(12), core_generated_at: minutesAgo(12 * 60) })).toEqual([
+      ['Core data 12h ago · Stale', 'is-danger'],
+      ['12h · Stale', 'is-danger'],
+    ])
+    expect(classicLabel({ generated_at: minutesAgo(12), core_generated_at: null })[0]).toEqual(['Core data age unknown · Stale', 'is-danger'])
+  })
+
+  it('keeps the payload clock for views without a core clock', () => {
+    expect(classicLabel({ generated_at: minutesAgo(12) })).toEqual([
+      ['Updated 12m ago', ''],
+      ['12m ago', ''],
+    ])
   })
 })
