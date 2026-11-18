@@ -22,7 +22,7 @@ functions and the ports on the same real snapshot plus generated variants.
 ## View counter
 
 `config/view_counter.json` turns on a [GoatCounter](https://www.goatcounter.com)
-view count in the header, next to the data freshness chips (wide screens). With an empty `goatcounter_code` nothing is
+view count in the header, next to the data freshness chips (a "—" placeholder when the count cannot be loaded, e.g. when an ad blocker blocks goatcounter.com; just the number on narrow screens). With an empty `goatcounter_code` nothing is
 sent and the policy in `index.html` is unchanged. With a code set, the build adds
 `https://<code>.goatcounter.com` to `connect-src`, and the app counts the first
 load and each route change only on `site_url`: PR previews, local dev, tests and
