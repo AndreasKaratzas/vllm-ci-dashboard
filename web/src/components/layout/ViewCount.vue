@@ -13,13 +13,13 @@ onMounted(async () => {
 </script>
 
 <template>
-  <p
+  <span
     v-if="count"
-    class="flex items-center gap-2 px-2 text-xs text-muted-foreground group-data-[collapsible=icon]:hidden"
+    class="hidden h-8 shrink-0 items-center gap-1.5 rounded-md border bg-background px-2.5 text-sm text-muted-foreground shadow-xs lg:inline-flex dark:border-input dark:bg-input/30"
     data-slot="view-count"
     title="Page views over the last 7 days, counted by GoatCounter (no cookies); refreshed every few hours"
   >
-    <Eye class="size-3.5" aria-hidden="true" />
-    <span class="tabular-nums">{{ count }} views this week</span>
-  </p>
+    <Eye class="size-3.5 shrink-0" aria-hidden="true" />
+    <span><span class="text-foreground tabular-nums">{{ count }}</span> views this week</span>
+  </span>
 </template>

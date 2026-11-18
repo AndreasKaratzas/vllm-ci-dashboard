@@ -14,6 +14,7 @@ import { useFreshness } from '@/features/freshness/useFreshness'
 import { toneClasses } from '@/lib/palette'
 import type { NavTab } from '@/router'
 import { currentSubView } from './navigation'
+import ViewCount from './ViewCount.vue'
 import { SHORTCUT } from './shortcut'
 
 const props = defineProps<{ paletteOpen?: boolean }>()
@@ -78,6 +79,7 @@ const setTip = (key: string, open: boolean) => {
         </ol>
       </nav>
       <div class="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+        <ViewCount />
         <Tooltip v-for="chip in chips" :key="chip.key" :open="tip === chip.key" @update:open="(open: boolean) => setTip(chip.key, open)">
           <TooltipTrigger as-child>
             <Button
