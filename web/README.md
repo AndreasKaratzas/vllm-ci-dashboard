@@ -22,11 +22,11 @@ functions and the ports on the same real snapshot plus generated variants.
 ## View counter
 
 `config/view_counter.json` turns on a [GoatCounter](https://www.goatcounter.com)
-view count in the sidebar footer. With an empty `goatcounter_code` nothing is
+view count in the header, next to the data freshness chips (wide screens). With an empty `goatcounter_code` nothing is
 sent and the policy in `index.html` is unchanged. With a code set, the build adds
 `https://<code>.goatcounter.com` to `connect-src`, and the app counts the first
 load and each route change only on `site_url`: PR previews, local dev, tests and
-browser automation never count. GoatCounter sets no cookies. The sidebar shows views over the last 7 days,
+browser automation never count. GoatCounter sets no cookies. The header shows views over the last 7 days,
 from `/counter/TOTAL.json?start=week` (needs "Allow adding visitor counts on your website"
 in the GoatCounter site settings, cached up to four hours); if the request is
 blocked the count is just not shown.

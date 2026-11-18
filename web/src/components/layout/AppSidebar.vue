@@ -21,7 +21,6 @@ import {
 import { NAV_TABS } from '@/router'
 import { currentSubView, pageViews, subViewQuery } from './navigation'
 import { SHORTCUT } from './shortcut'
-import ViewCount from './ViewCount.vue'
 
 defineEmits<{ search: [] }>()
 
@@ -113,7 +112,6 @@ const ACTIVE =
       </SidebarGroup>
     </SidebarContent>
     <SidebarFooter>
-      <ViewCount />
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton tooltip="Search" variant="outline" class="text-muted-foreground" @click="$emit('search')">
