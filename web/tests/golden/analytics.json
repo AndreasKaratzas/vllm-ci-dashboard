@@ -77,15 +77,33 @@
     "latencyMetric": { "calls": 10, "chunks": ["383e4042a1875c0a"] },
     "latencySideDuration": { "calls": 3, "chunks": ["38505b376fa18cb7"] }
   },
+  "AMD shard layout changes in both renderers > excludes retired variants from current views and rolls step history up": {
+    "browseAllLabel": { "calls": 1, "chunks": ["ce391c37c6ed99ce"] },
+    "buildChartData": { "calls": 1, "chunks": ["6004fe87d32a8965"] },
+    "buildChartLabels": { "calls": 1, "chunks": ["d7c56011c9a3cfec"] },
+    "catalogCaption": { "calls": 3, "chunks": ["41e9a58200459b2b"] },
+    "catalogFilters": { "calls": 7, "chunks": ["f98368364119b758"] },
+    "catalogRows": { "calls": 7, "chunks": ["8c366095257e31c9"] },
+    "clusters": { "calls": 1, "chunks": ["4febab4cbfb3351d"] },
+    "currentAmdHealth": { "calls": 1, "chunks": ["c735dfa50d6b5a11"] },
+    "hardwareChartData": { "calls": 1, "chunks": ["004e809ff2f77b7a"] },
+    "hardwareChartLabels": { "calls": 1, "chunks": ["074c991bcdfb4b0d"] },
+    "priorityCaption": { "calls": 1, "chunks": ["b3ae1eba8c195e83"] },
+    "priorityMeta": { "calls": 1, "chunks": ["a93cd3b2c28b4254"] },
+    "priorityRows": { "calls": 1, "chunks": ["37517e5f3dc66819"] },
+    "retentionNote": { "calls": 1, "chunks": ["bd85bcdb8d4e613a"] },
+    "strip": { "calls": 1, "chunks": ["fb60d985629edac2"] },
+    "stripActions": { "calls": 1, "chunks": ["4130e06d7ed85cf8"] }
+  },
   "AMD test health matches the classic renderer > agrees on generated catalogs, summaries, and retention states": {
     "amdHardwareRows": { "calls": 220, "chunks": ["7141523f660c6465","6a15b7d1c16cb518","433406503d3ecbc3"] },
     "amdHealthPublicationState": { "calls": 220, "chunks": ["e2f48b34b2b84467","fc8eb2866539c93e","185c42916e9f9784"] },
     "browseAllLabel": { "calls": 211, "chunks": ["034015a086a69894","bb0ae3fd059bd421","8281ea841d90a60c"] },
     "buildChartData": { "calls": 211, "chunks": ["2d4cc79771995e28","44893b6bdade23db","58cf44ad4478936b"] },
     "buildChartLabels": { "calls": 211, "chunks": ["ddb6a3e2adb46146","7c057da3a5010ccc","d6ff901da815821d"] },
-    "catalogCaption": { "calls": 137, "chunks": ["b66ab07e0a8cc0ac","d4e7fce9ad942e30"] },
-    "catalogFilters": { "calls": 211, "chunks": ["4dca6bda5f86f706","4dca6bda5f86f706","1a42bb39f78bf743"] },
-    "catalogRows": { "calls": 211, "chunks": ["e367ef48458f9b55","44fa47ffd805e2b1","a5be55cb693f913c"] },
+    "catalogCaption": { "calls": 126, "chunks": ["c705b9852ff56e3f","8d711108bb6e2ca5"] },
+    "catalogFilters": { "calls": 211, "chunks": ["80d8828b97e36c2d","80d8828b97e36c2d","15efb26b9ca687ab"] },
+    "catalogRows": { "calls": 211, "chunks": ["0f255bc4fd649d28","d74fdafa27f4c858","b2eb6315fe7dc067"] },
     "clusters": { "calls": 211, "chunks": ["c95fd4b3a21be80f","21b889d1e969f420","c09b1012edc9284b"] },
     "currentAmdHealth": { "calls": 220, "chunks": ["088a4ab3dc51d79a","49933dab9136b2ce","ae14a24f075e7852"] },
     "hardwareChartData": { "calls": 211, "chunks": ["83d8c2ef95735eea","5534c819d03b921e","0da1f5292c7c0b9e"] },
@@ -101,8 +119,8 @@
   },
   "AMD test health matches the classic renderer > filters and searches the job-variant catalog identically": {
     "catalogCaption": { "calls": 168, "chunks": ["4a774b1e92f79647","a60c212fc420fdd0"] },
-    "catalogFilters": { "calls": 306, "chunks": ["4dca6bda5f86f706","4dca6bda5f86f706","4dca6bda5f86f706","130d6cc350a5a032"] },
-    "catalogRows": { "calls": 306, "chunks": ["00907d8cf194f4ee","576e8583bf227914","3b2bf27fbeaa0a74","9c6243ae5ffd5918"] }
+    "catalogFilters": { "calls": 355, "chunks": ["80d8828b97e36c2d","80d8828b97e36c2d","80d8828b97e36c2d","b3ddebd50b9d62f1"] },
+    "catalogRows": { "calls": 355, "chunks": ["8cdd98400d36b26c","396d8a98bb9d8483","287a4e1555471631","8a8352dd8ae19007"] }
   },
   "AMD test health matches the classic renderer > renders the real snapshot identically": {
     "amdHardwareRows": { "calls": 1, "chunks": ["b54a3b1b6b1e18c7"] },

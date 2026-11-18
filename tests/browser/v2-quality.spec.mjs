@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import { routeDocker } from './support/docker.mjs';
+import { routeMainPulse } from './support/mainPulse.mjs';
 import { collectErrors, expectQuality, setTheme } from './support/quality.mjs';
 
 // Each area adds its routes (every sub-view) once it is on the design system;
@@ -47,6 +48,7 @@ for (const theme of ['light', 'dark']) {
         await setTheme(page, theme);
         await page.setViewportSize(viewport);
         await routeDocker(page);
+        await routeMainPulse(page);
         const errors = collectErrors(page);
         await page.goto(route);
         await page.locator('[data-slot="page-header"]').first().waitFor();
@@ -61,6 +63,7 @@ for (const theme of ['light', 'dark']) {
 test('phone tables show every visible column without sideways scrolling', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await routeDocker(page);
+  await routeMainPulse(page);
   for (const [route, ids] of [
     ['/#/', ['nightly-table']],
     ['/#/main', ['main-builds', 'main-incidents-panel', 'main-flaky-panel']],

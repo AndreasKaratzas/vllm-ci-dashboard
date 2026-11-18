@@ -366,8 +366,10 @@ one validated targeted source reconciliation, bound to its exact state and code
 SHAs. A separate Site Health path can confirm an already credited full
 publication: normalized evidence must show a current healthy publication with
 no fallback or degraded surfaces, at least two healthy probes out of three,
-and at least two probes matching the complete projection for that same state
-and code identity.
+and at least two probes matching the complete projection. The live
+publication must carry the credited state, or the credited core collection
+clock (`core_generated_at`) that queue/DNS refreshes carry forward, under the
+same code SHA.
 
 The legacy manual `ci-collect.yml` workflow is validation-only. It can exercise
 the focused collectors and show the resulting workspace changes, but its token
@@ -559,7 +561,10 @@ truncated page keeps the cursor), and publishes the updated overlay. It needs
 no GitHub token; the overlay's `issue` is always `null`. Data Collection
 exports the overlay with its state commit before `ci_main_failure_watcher.py`
 runs: a group is taken only while the overlay's watermark is newer, so the
-collection stays the authority.
+collection stays the authority. The Main CI pages read the same overlay from
+`main-pulse-data` and apply each group whose watermark build was created after
+the newest build of the published cohort, labeled with the overlay's
+`updated_at`.
 
 Expected latency from a build finishing to its hard failure reaching the overlay
 is the wait for the next admitted run plus about two minutes of job time:

@@ -55,6 +55,7 @@ from vllm.ci.reliability_history import (  # noqa: E402
     collapse_nightly_attempts,
     compare_nightly_failures,
     hydrate_reliability_observations,
+    step_group_id,
     validate_all_main_reliability,
 )
 from vllm.config_parity import (  # noqa: E402
@@ -1776,6 +1777,183 @@ def _latest_logical_amd_test_groups_at_source(
     }
 
 
+def _amd_job_label(job: dict) -> str:
+    return str(job.get("raw_name") or job.get("name") or "")
+
+
+def _amd_shard_layout(jobs: list[dict]) -> dict:
+    totals = [
+        job.get("parallel_group_total") for job in jobs
+        if isinstance(job.get("parallel_group_total"), int)
+        and not isinstance(job.get("parallel_group_total"), bool)
+    ]
+    return {
+        "job_count": len({_amd_job_label(job) for job in jobs}),
+        "parallel_group_total": max(totals, default=None),
+    }
+
+
+AMD_HISTORY_FIELDS = ("build_number", "state", "observed_at", "job_url", "build_url")
+
+
+def _amd_step_outcomes(rows: list[dict], roster: dict[int, list[dict]]) -> dict[int, dict]:
+    """The worst shard of each nightly; a pass needs a result from every shard."""
+    by_build: dict[int, list[dict]] = defaultdict(list)
+    for row in rows:
+        by_build[row["build_number"]].append(row)
+    outcomes = {}
+    for build_number, build_rows in by_build.items():
+        states = {row["state"] for row in build_rows}
+        state = next((state for state in ("hard", "soft", "passed") if state in states), "unknown")
+        expected = {_amd_job_label(job) for job in roster.get(build_number, [])}
+        if state == "passed" and len(build_rows) < len(expected):
+            state = "unknown"
+        evidence = max(
+            [row for row in build_rows if row["state"] == state] or build_rows,
+            key=lambda row: str(row.get("observed_at") or ""),
+        )
+        outcomes[build_number] = {
+            "build_number": build_number,
+            "state": state,
+            "observed_at": evidence["observed_at"],
+            "job_url": evidence["job_url"],
+            "build_url": evidence["build_url"],
+            "scope": "step",
+            "job_variant_count": len(build_rows),
+        }
+    return outcomes
+
+
+def _amd_variant_history(
+    group_id: str,
+    layouts: list[dict],
+    own_rows: list[dict],
+    step_outcomes: dict[int, dict],
+    absent_from: set[int],
+) -> dict:
+    """A variant's own results, preceded by its step's outcome where it did not exist."""
+    own = {row["build_number"]: row for row in own_rows}
+    observations = []
+    for build_number in sorted(own.keys() | absent_from & step_outcomes.keys()):
+        if build_number not in own:
+            observations.append(step_outcomes[build_number])
+            continue
+        row = own[build_number]
+        observations.append({
+            **{field: row[field] for field in AMD_HISTORY_FIELDS},
+            "scope": "job",
+            "job_variant_count": 1,
+        })
+    state_counts = Counter(row["state"] for row in observations)
+    incidents = state_counts["soft"] + state_counts["hard"]
+    streak = 0
+    for row in reversed(observations):
+        if row["state"] != "passed":
+            break
+        streak += 1
+    return {
+        "id": group_id,
+        "layouts": layouts,
+        "runs": len(observations),
+        "passed": state_counts["passed"],
+        "soft_failed": state_counts["soft"],
+        "hard_failed": state_counts["hard"],
+        "unknown": state_counts["unknown"],
+        "pass_rate_pct": _amd_test_pass_rate(state_counts["passed"], incidents),
+        "current_pass_streak": streak,
+        "first_observed_at": observations[0]["observed_at"],
+        "history_truncated": len(observations) > AMD_TEST_HISTORY_LIMIT,
+        "observations": observations[-AMD_TEST_HISTORY_LIMIT:],
+    }
+
+
+def _amd_step_layouts(
+    metadata_by_build: dict[int, dict],
+    observations_by_group: dict[str, list[dict]],
+) -> dict[str, dict]:
+    """Retire variants of a superseded shard layout and carry history across layouts.
+
+    A step on one queue (the reliability group) keeps its identity when its
+    shards are renamed or re-counted. Variants missing from the step's newest
+    retained job set are retired; each current variant's history continues
+    through the nightlies it did not exist in with its step's worst shard.
+    """
+    cohort = sorted({
+        row["build_number"]
+        for observations in observations_by_group.values()
+        for row in observations
+    })
+    group_by_job_id: dict[str, tuple[str, str]] = {}
+    rosters: dict[str, dict[int, list[dict]]] = defaultdict(lambda: defaultdict(list))
+    for build_number in cohort:
+        for job in (metadata_by_build.get(build_number) or {}).get("jobs") or []:
+            if not isinstance(job, dict) or not job.get("job_id"):
+                continue
+            group_id = step_group_id(job, AMD_TEST_PIPELINE)
+            group_by_job_id[str(job["job_id"])] = (group_id, _amd_job_label(job))
+            rosters[group_id][build_number].append(job)
+
+    members: dict[str, list[str]] = defaultdict(list)
+    labels_by_name: dict[str, str] = {}
+    result: dict[str, dict] = {}
+    for exact_job_name, observations in observations_by_group.items():
+        joined = [
+            (row["build_number"], group_by_job_id[str(row["job_id"])])
+            for row in observations
+            if str(row.get("job_id") or "") in group_by_job_id
+        ]
+        if not joined:
+            continue
+        last_seen, (group_id, label) = max(joined, key=lambda item: item[0])
+        members[group_id].append(exact_job_name)
+        labels_by_name[exact_job_name] = label
+        roster = rosters[group_id]
+        result[exact_job_name] = {"logical_group_id": group_id, "retired": None}
+        if label in {_amd_job_label(job) for job in roster[max(roster)]}:
+            continue
+        superseded_by = min(number for number in roster if number > last_seen)
+        result[exact_job_name]["retired"] = {
+            "logical_group_id": group_id,
+            "last_seen_build_number": last_seen,
+            "superseded_by_build_number": superseded_by,
+            "layout": _amd_shard_layout(roster[last_seen]),
+            "superseded_by_layout": _amd_shard_layout(roster[superseded_by]),
+        }
+
+    for group_id, names in members.items():
+        roster = rosters[group_id]
+        layouts: list[dict] = []
+        previous: frozenset[str] | None = None
+        for build_number in sorted(roster):
+            labels = frozenset(_amd_job_label(job) for job in roster[build_number])
+            if labels != previous:
+                layouts.append({
+                    "first_build_number": build_number,
+                    **_amd_shard_layout(roster[build_number]),
+                })
+                previous = labels
+            layouts[-1]["last_build_number"] = build_number
+        if len(layouts) < 2:
+            continue
+        step_outcomes = _amd_step_outcomes(
+            [row for name in names for row in observations_by_group[name]],
+            roster,
+        )
+        for name in names:
+            if result[name]["retired"] is None:
+                result[name]["logical_history"] = _amd_variant_history(
+                    group_id,
+                    layouts,
+                    observations_by_group[name],
+                    step_outcomes,
+                    {
+                        number for number, jobs in roster.items()
+                        if labels_by_name[name] not in {_amd_job_label(job) for job in jobs}
+                    },
+                )
+    return result
+
+
 def _amd_test_health(
     data_dir: Path,
     amd_analytics: Any,
@@ -1793,6 +1971,7 @@ def _amd_test_health(
         observations_by_group[exact_job_name].append(observation)
         observations_by_build[build_number].append(observation)
 
+    step_layouts = _amd_step_layouts(metadata_by_build, observations_by_group)
     catalog = []
     for exact_job_name, source_observations in observations_by_group.items():
         source_observations.sort(key=_amd_test_sort_key)
@@ -1851,6 +2030,7 @@ def _amd_test_health(
             "retained_observation_count": len(observations),
             "history_truncated": runs > len(observations),
             "observations": observations,
+            **step_layouts.get(exact_job_name, {"logical_group_id": None, "retired": None}),
         })
     catalog.sort(
         key=lambda row: (
@@ -1982,6 +2162,7 @@ def _amd_test_health(
         "group_count": len(catalog),
         "union_group_count": len(catalog),
         "retained_job_variant_count": len(catalog),
+        "retired_job_variant_count": sum(bool(row["retired"]) for row in catalog),
         "latest_group_count": int(latest.get("observed") or 0),
         "latest_job_variant_count": int(latest.get("observed") or 0),
         "latest_build_number": latest.get("build_number"),

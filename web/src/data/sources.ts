@@ -9,6 +9,7 @@ const RAW = 'https://raw.githubusercontent.com/AndreasKaratzas/vllm-ci-dashboard
 const QUEUE_LIVE = `${RAW}queue-data/${CI}`
 const DNS_LIVE = `${RAW}dns-health-data/${CI}`
 const DOCKER_LIVE = `${RAW}docker-builds-data/${CI}`
+const MAIN_PULSE_LIVE = `${RAW}main-pulse-data/main_pulse_state.json`
 
 export const OPERATIONS_MANIFEST_PATH = `${CI}operations_v2_manifest.json`
 
@@ -55,6 +56,12 @@ export function isPlainObject(value: unknown): value is Rec {
 function assertManifest(payload: unknown) {
   if (!isPlainObject(payload) || !isPlainObject(payload.shell) || !isPlainObject(payload.sections)) {
     throw new Error('Operations manifest is incomplete')
+  }
+}
+
+function assertMainPulse(payload: unknown) {
+  if (!isPlainObject(payload) || payload.schema_version !== 1 || !isPlainObject(payload.groups) || typeof payload.updated_at !== 'string') {
+    throw new Error('Main pulse overlay is incomplete')
   }
 }
 
@@ -127,6 +134,13 @@ export const DATASETS = {
     publishedAt: generatedAt,
     validate: assertDockerBuilds,
     surface: 'docker_builds',
+  },
+  // The main pulse's newer-than-collection incident observations; no Pages copy exists.
+  main_pulse: {
+    paths: [MAIN_PULSE_LIVE],
+    refresh: { on: 'poll' },
+    publishedAt: (payload) => payload.updated_at,
+    validate: assertMainPulse,
   },
 } as const satisfies Record<string, DatasetSource>
 

@@ -17,6 +17,10 @@ const RECOVERY_IDENTITY_CREDIT_PREFIX =
   '<!-- hourly-ci-recovery-identity:';
 const RECOVERY_IDENTITY_CREDIT_PATTERN =
   /<!-- hourly-ci-recovery-identity:state=([0-9a-f]{40});code=([0-9a-f]{40}) -->/g;
+const RECOVERY_CORE_CREDIT_PREFIX = '<!-- hourly-ci-recovery-core:';
+const RECOVERY_CORE_CREDIT_PATTERN =
+  /<!-- hourly-ci-recovery-core:core=(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z);code=([0-9a-f]{40}) -->/g;
+const CORE_GENERATED_AT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 const RECOVERY_PROGRESS_START = '<!-- hourly-ci-recovery-progress:start -->';
 const RECOVERY_PROGRESS_END = '<!-- hourly-ci-recovery-progress:end -->';
 const RECOVERY_PROGRESS_PATTERN =
@@ -74,6 +78,7 @@ function resetRecoveryStreak(body) {
     .join('')
     .replace(RECOVERY_CREDIT_PATTERN, '')
     .replace(RECOVERY_IDENTITY_CREDIT_PATTERN, '')
+    .replace(RECOVERY_CORE_CREDIT_PATTERN, '')
     .replace(RECOVERY_PROGRESS_PATTERN, '')
     .replace(/^\n+/, '');
   return setRecoveryStreak(activeBody, 0);
@@ -179,6 +184,21 @@ function recoveryIdentityCreditMarker(stateSha, codeSha) {
   return `${RECOVERY_IDENTITY_CREDIT_PREFIX}state=${stateSha};code=${codeSha} -->`;
 }
 
+/**
+ * Refresh-only publications carry a full publication's core collection clock
+ * forward, so Site Health can confirm that core data under a newer state.
+ */
+function recoveryCoreCreditMarker(coreGeneratedAt, codeSha) {
+  if (typeof coreGeneratedAt !== 'string' ||
+      !CORE_GENERATED_AT_PATTERN.test(coreGeneratedAt)) {
+    throw new TypeError('recovery core identity requires a canonical UTC timestamp');
+  }
+  if (typeof codeSha !== 'string' || !/^[0-9a-f]{40}$/.test(codeSha)) {
+    throw new TypeError('recovery core identity requires a full lowercase code SHA');
+  }
+  return `${RECOVERY_CORE_CREDIT_PREFIX}core=${coreGeneratedAt};code=${codeSha} -->`;
+}
+
 function stripRecoveryProgress(body) {
   return bodyText(body).replace(RECOVERY_PROGRESS_PATTERN, '').replace(/^\n+/, '');
 }
@@ -194,9 +214,9 @@ function setRecoveryProgress(body, stateSha, codeSha) {
     RECOVERY_PROGRESS_START,
     '> [!NOTE]',
     '> **Recovery verification in progress.** The latest full dashboard ' +
-      'publication is healthy. This incident remains open only until that exact ' +
-      'publication is independently confirmed by Site Health, or one more ' +
-      'distinct healthy full publication succeeds.',
+      'publication is healthy. This incident remains open only until Site ' +
+      'Health independently confirms a live publication that still serves its ' +
+      'core data and code, or one more distinct healthy full publication succeeds.',
     `> Pending identity: state \`${stateSha}\`, code \`${codeSha}\`.`,
     RECOVERY_PROGRESS_END,
   ].join('\n');
@@ -283,17 +303,23 @@ function isExpiredSiteHealthEvidence(error) {
   return Boolean(error) && error.code === SITE_HEALTH_EVIDENCE_EXPIRED;
 }
 
-function advanceRecoveryStreak(body, stateSha, codeSha = '') {
+function advanceRecoveryStreak(body, stateSha, codeSha = '', coreGeneratedAt = '') {
   const source = bodyText(body);
   const creditMarker = recoveryCreditMarker(stateSha);
   const identityMarker = codeSha
     ? recoveryIdentityCreditMarker(stateSha, codeSha)
     : '';
+  const coreMarker = codeSha && coreGeneratedAt
+    ? recoveryCoreCreditMarker(coreGeneratedAt, codeSha)
+    : '';
   const previousStreak = parseRecoveryStreak(body);
   if (source.split(/\r?\n/).includes(creditMarker)) {
     const identityBound = Boolean(identityMarker) &&
       !source.split(/\r?\n/).includes(identityMarker);
-    const nextBody = identityBound ? `${identityMarker}\n${source}` : source;
+    const missingMarkers = [identityMarker, coreMarker].filter(marker =>
+      marker && !hasExactMarker(source, marker)
+    );
+    const nextBody = [...missingMarkers, source].join('\n');
     return Object.freeze({
       previousStreak,
       streak: previousStreak,
@@ -305,7 +331,7 @@ function advanceRecoveryStreak(body, stateSha, codeSha = '') {
     });
   }
   const streak = previousStreak + 1;
-  const creditedBody = [identityMarker, creditMarker, source]
+  const creditedBody = [identityMarker, coreMarker, creditMarker, source]
     .filter(Boolean)
     .join('\n');
   return Object.freeze({
@@ -501,6 +527,7 @@ async function closeHourlyIncident({
   validationStateSha,
   validationCiUrl = '',
   validationEvidence = null,
+  validationCoreGeneratedAt = '',
 }) {
   const allowedValidationSources = new Set([
     'targeted-dns',
@@ -559,8 +586,13 @@ async function closeHourlyIncident({
       validationStateSha,
       validationCodeSha,
     );
+    const liveCoreGeneratedAt = validationEvidence.coreGeneratedAt;
+    const coreIdentityMarker = CORE_GENERATED_AT_PATTERN.test(liveCoreGeneratedAt || '')
+      ? recoveryCoreCreditMarker(liveCoreGeneratedAt, validationCodeSha)
+      : '';
     if (parseRecoveryStreak(originalBody) < 1 ||
-        !hasExactMarker(originalBody, exactIdentityMarker)) {
+        !(hasExactMarker(originalBody, exactIdentityMarker) ||
+          (coreIdentityMarker && hasExactMarker(originalBody, coreIdentityMarker)))) {
       console.log(
         `Site Health identity ${validationStateSha}/${validationCodeSha} has no ` +
         `pending full-publication credit on issue #${currentIssue.number}.`,
@@ -571,7 +603,7 @@ async function closeHourlyIncident({
       });
     }
     // The independent monitor may be the first caller after repository setup.
-    // Do not mutate labels until its exact pending publication identity is proven.
+    // Do not mutate labels until its pending publication identity is proven.
     await ensureOwnerLabel({github, context, beforeMutation});
   }
   if (!issueHasLabel(currentIssue, HOURLY_OWNER_LABEL)) {
@@ -681,6 +713,12 @@ async function closeHourlyIncident({
   }
 
   const requiredRecoveryRuns = targetedDnsRecovery || targetedQueueRecovery ? 1 : 2;
+  const fullPublication = validationSource === 'hourly-tests' ||
+    validationSource === 'separate-ci';
+  const coreGeneratedAt = fullPublication &&
+    CORE_GENERATED_AT_PATTERN.test(validationCoreGeneratedAt || '')
+    ? validationCoreGeneratedAt
+    : '';
   const transition = siteHealthRecovery
     ? Object.freeze({
       previousStreak: parseRecoveryStreak(currentBody),
@@ -693,6 +731,7 @@ async function closeHourlyIncident({
       currentBody,
       validationStateSha,
       validationCodeSha,
+      coreGeneratedAt,
     );
   const recoverySatisfied = siteHealthRecovery
     ? transition.streak >= 1
@@ -799,7 +838,7 @@ async function closeHourlyIncident({
         : `This publication's deterministic suite validated \`${validationCodeSha}\`.`;
   const recoverySummary = siteHealthRecovery
     ? 'One eligible healthy full publication was independently confirmed by ' +
-      'Site Health against the exact pending state and code identity.'
+      'Site Health against its pending state or core-data and code identity.'
     : `The active hourly publication incident was absent in ` +
       `${requiredRecoveryRuns} distinct eligible healthy publication states.`;
   const validationRunLabel = siteHealthRecovery
@@ -837,6 +876,7 @@ module.exports = Object.freeze({
   QUEUE_ONLY_INCIDENT_MARKER,
   RECOVERED_MARKER,
   RECOVERY_CREDIT_PATTERN,
+  RECOVERY_CORE_CREDIT_PREFIX,
   RECOVERY_CREDIT_PREFIX,
   RECOVERY_IDENTITY_CREDIT_PATTERN,
   RECOVERY_IDENTITY_CREDIT_PREFIX,
@@ -856,6 +896,7 @@ module.exports = Object.freeze({
   isStrictLegacySurfaceOnlyIncident,
   issueHasLabel,
   parseRecoveryStreak,
+  recoveryCoreCreditMarker,
   recoveryCreditMarker,
   recoveryIdentityCreditMarker,
   recoveryMarker,

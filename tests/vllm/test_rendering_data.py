@@ -100,7 +100,8 @@ class TestVLLMCIData:
         assert path.exists(), "shard_bases.json missing (YAML shard detection not run)"
         bases = json.loads(path.read_text())
         assert isinstance(bases, list), "shard_bases.json should be a list"
-        assert len(bases) >= 3, f"Expected at least 3 shard bases, got {len(bases)}"
+        catalog = json.loads((path.parent / "shard_base_catalog.json").read_text())
+        assert bases == catalog["normalization_bases"]
 
 
 class TestJSRenderingSafety:

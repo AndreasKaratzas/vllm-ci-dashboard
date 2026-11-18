@@ -2665,6 +2665,10 @@ class TestHourlyMasterWorkflow:
         assert "closeHourlyIncident" in close["with"]["script"]
         assert "scripts/vllm/hourly_incident_recovery.js" in close["with"]["script"]
         assert "HOURLY_RECOVERY_STATE_SHA" in close["env"]
+        assert (
+            "validationCoreGeneratedAt: operations.shell?.core_generated_at"
+            in close["with"]["script"]
+        )
         assert "body: recoveredBody" in helper_script
         assert "for (let attempt = 1; attempt <= 2; attempt += 1)" in helper_script
         assert "github.rest.issues.get({" in helper_script

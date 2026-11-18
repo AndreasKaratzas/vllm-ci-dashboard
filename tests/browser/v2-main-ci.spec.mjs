@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import { expect, test } from '@playwright/test';
 
+import { routeMainPulse } from './support/mainPulse.mjs';
 import { collectErrors } from './support/quality.mjs';
 
 // Fixture facts (tests/browser/build_fixture_site.py): 33 main builds, the newest #31027 passed;
@@ -27,6 +28,8 @@ async function routeMainCi(page, { shell, section }) {
 }
 
 test.describe('Main CI', () => {
+  test.beforeEach(({ page }) => routeMainPulse(page));
+
   test('leads with the latest main builds and opens a build with its failing groups', async ({ page }) => {
     const errors = collectErrors(page);
     await page.goto('/#/main');
@@ -97,6 +100,30 @@ test.describe('Main CI', () => {
     await expect(sheet.getByRole('link', { name: 'Compare commits' })).toHaveAttribute('href', /^https:\/\/github\.com\/vllm-project\/vllm\/compare\//);
     await expect(sheet).toContainText('git bisect start');
     await expect(page).toHaveURL(/view=incidents/);
+  });
+
+  test('surfaces a main pulse incident from a build newer than the section, labeled with its own age', async ({ page }) => {
+    const section = await (await page.request.get('/data/vllm/ci/operations_v2/main_ci.json')).json();
+    const after = new Date(Date.parse(section.main_ci.cohort.observed_to) + 3_600_000).toISOString();
+    const transition = { status: 'confirmed', severity: 'hard', peak_severity: 'hard' };
+    const entry = { name: ':amd: (MI355 DPX) Pulse Group', hardware: 'mi355', queue: 'amd_mi355_dpx', bad_build_number: 31030, build_number: 31030, observed_at: after, transition };
+    await routeMainPulse(page, {
+      updatedAt: new Date(Date.now() - 2 * 3_600_000).toISOString(),
+      groups: { pulsegroup: { status: 'active', watermark: { build_number: 31030, order_at: after }, entry } },
+      timeline: [{ event: 'opened', group_id: 'pulsegroup', name: entry.name, build_number: 31030, at: after, severity: 'hard', source: 'pulse' }],
+    });
+    await page.goto('/#/main');
+    await expect(page.getByTestId('kpi-main-incidents').locator('[data-slot=kpi-value]')).toHaveText(/^3\s*groups$/);
+    await page.goto('/#/main?view=incidents');
+    await expect(page.getByTestId('main-incident-summary')).toContainText('main pulse updated 2h ago');
+    const row = page.getByTestId('main-incidents').locator('tbody tr').filter({ hasText: 'Pulse Group' });
+    await expect(row).toContainText('main pulse 2h ago');
+    await row.getByRole('cell').first().click();
+    await expect(page.getByRole('dialog')).toContainText('The main pulse reported this 2h ago');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Control+k');
+    await page.getByPlaceholder(/Search views/).fill('Pulse Group');
+    await expect(page.getByRole('group', { name: 'Main incidents' }).getByRole('option')).toHaveCount(1);
   });
 
   test('dates incidents, marks new ones and rolls up a shared first bad commit', async ({ page }) => {

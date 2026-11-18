@@ -1870,7 +1870,7 @@ class DashboardAudit:
                     required_keys = PUBLICATION_SURFACE_REQUIRED_KEYS.get(relative)
                     if relative == "data/vllm/ci/shard_bases.json" and (
                         not isinstance(payload, list)
-                        or not payload
+                        or (not payload and not self.shard_catalog_declares_no_bases())
                         or any(
                             not isinstance(base, str) or not base.strip()
                             for base in payload
@@ -1878,7 +1878,10 @@ class DashboardAudit:
                     ):
                         self.error(
                             "publication-source-shape",
-                            "shard_bases.json must be a non-empty list of labels",
+                            (
+                                "shard_bases.json must be a list of labels, empty only "
+                                "when shard_base_catalog.json declares no bases"
+                            ),
                             relative,
                         )
                     if required_keys:
@@ -2003,6 +2006,13 @@ class DashboardAudit:
             )
             return None, None
         return evidence, "complete"
+
+    def shard_catalog_declares_no_bases(self) -> bool:
+        relpath = "data/vllm/ci/shard_base_catalog.json"
+        if not (self.root / relpath).is_file():
+            return False
+        catalog = self.load_json(relpath, {})
+        return isinstance(catalog, dict) and catalog.get("normalization_bases") == []
 
     def audit_shard_bases(self) -> None:
         """Keep AMD-owned shard normalization aligned with AMD evidence."""

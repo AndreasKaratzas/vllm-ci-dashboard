@@ -952,7 +952,12 @@ def _target_queue_scope(queues: dict[str, dict], stored: object = None) -> dict:
         ],
         "monitoring_scope": "annotation_only_general_queue_monitoring_is_retained",
     }
-    for field in ("registry", "cluster_absent_queue_ids", "unregistered_active_queue_ids"):
+    for field in (
+        "registry",
+        "cluster_absent_queue_ids",
+        "unregistered_active_queue_ids",
+        "unobserved_queue_ids",
+    ):
         if field in stored:
             scope[field] = stored[field]
     return scope
@@ -2116,23 +2121,29 @@ def fetch_active_cluster_jobs(
 ) -> list[dict]:
     """Fetch active command jobs in one organization-wide GraphQL scan.
 
-    ``queue_ids_by_key`` is now a local selection map, not a request fan-out
-    instruction. Buildkite can return every clustered active command job for
-    the organization in one paginated connection, including each job's queue
-    key. Filtering that result locally avoids one GraphQL request per active
-    queue while preserving the exact same selected population.
-
-    The map values remain accepted for compatibility and for the explicit
-    per-queue fallback in :func:`_fetch_active_cluster_jobs_by_queue`.
+    ``queue_ids_by_key`` selects queues by key, not a request fan-out. When
+    every selected queue has a cluster queue ID the connection is filtered
+    server-side, so its page count follows AMD activity rather than the whole
+    organization's; otherwise every clustered active job is read and filtered
+    locally by queue key.
     """
+    variables: dict = {
+        "org": BK_ORG,
+        "states": list(GRAPHQL_ACTIVE_STATES),
+        "first": GRAPHQL_PAGE_SIZE,
+    }
+    selected_ids = [
+        queue_id for queue, queue_id in (queue_ids_by_key or {}).items() if amd_gpu_hardware(queue)
+    ]
+    if selected_ids and all(selected_ids):
+        query = GRAPHQL_QUEUE_JOBS_Q
+        variables["queue"] = sorted(set(selected_ids))
+    else:
+        query = GRAPHQL_ACTIVE_JOBS_Q
     jobs = _fetch_graphql_jobs(
         token,
-        query=GRAPHQL_ACTIVE_JOBS_Q,
-        variables={
-            "org": BK_ORG,
-            "states": list(GRAPHQL_ACTIVE_STATES),
-            "first": GRAPHQL_PAGE_SIZE,
-        },
+        query=query,
+        variables=variables,
         max_pages=max_pages,
         request_telemetry=request_telemetry,
     )
@@ -2622,10 +2633,9 @@ def collect_snapshot(
 
     # One organization-wide active-job connection replaces the old N+1 path
     # (one request per active queue plus another org request for missing queue
-    # metrics). Select every configured queue locally, including queues whose
+    # metrics). Select every configured queue, including queues whose
     # earlier metrics read was zero: a job can become runnable between the two
     # observations. Active dynamically discovered queues remain in scope too.
-    # Queue IDs are retained solely for the compatibility fallback.
     requested_job_queues = {
         queue: str((metrics_by_key.get(queue.casefold()) or {}).get("graphql_id") or "")
         for queue in registry_queues
@@ -2635,7 +2645,17 @@ def collect_snapshot(
         requested_job_queues.setdefault(queue, queue_id)
     # If queue metrics are wholly unavailable, keep the org scan unfiltered so
     # active untracked queues remain visible just as they were historically.
-    local_queue_filter = requested_job_queues if metrics_by_queue else None
+    # Otherwise only cluster queues can hold jobs; a registry queue absent from
+    # the cluster stays unsampled instead of being published as an idle row.
+    local_queue_filter = (
+        {
+            queue: queue_id
+            for queue, queue_id in requested_job_queues.items()
+            if queue.casefold() in metrics_by_key
+        }
+        if metrics_by_queue
+        else None
+    )
 
     if not refresh_details:
         active_jobs = []
@@ -2668,21 +2688,21 @@ def collect_snapshot(
                     "the last complete overlay: %s",
                     org_exc,
                 )
-            # A scoped GraphQL fallback is complete only when queue metrics
-            # covered every configured queue and supplied every required ID.
-            elif requested_job_queues and all(requested_job_queues.values()):
+            # A scoped GraphQL fallback is complete only when every selected
+            # cluster queue has an ID.
+            elif local_queue_filter and all(local_queue_filter.values()):
                 try:
                     log.warning(
                         "Buildkite organization active-job scan unavailable; "
                         "falling back to %d queue-scoped GraphQL scans: %s",
-                        len(requested_job_queues),
+                        len(local_queue_filter),
                         org_exc,
                     )
                     active_jobs = _fetch_active_cluster_jobs_by_queue(
-                        token, requested_job_queues
+                        token, local_queue_filter
                     )
                     active_jobs_source = "cluster_queue_graphql_fallback"
-                    sampled_queues = set(requested_job_queues)
+                    sampled_queues = set(local_queue_filter)
                 except Exception as scoped_exc:
                     log.warning(
                         "Buildkite queue-scoped GraphQL fallback unavailable, "
@@ -2739,6 +2759,7 @@ def collect_snapshot(
             details_status = "retained_due_to_error"
 
     queues = {}
+    unobserved_queues = []
     has_official_wait = False
     has_sample_wait = False
     has_agent_metrics = False
@@ -2748,10 +2769,13 @@ def collect_snapshot(
             continue
         if queue not in registry_queues and not stats["waiting"] and not stats["running"]:
             continue
+        sample_available = sampled_queues is None or queue in sampled_queues
+        if not sample_available and queue.casefold() not in metrics_by_key:
+            unobserved_queues.append(queue)
+            continue
         row = {k: v for k, v in stats.items() if k not in {"wait_times", "official_wait"}}
         official_wait = stats.get("official_wait") or _empty_official_wait()
         sample_summary = _wait_summary(stats["wait_times"])
-        sample_available = sampled_queues is None or queue in sampled_queues
         if details_complete and sample_available:
             row.setdefault("waiting_by_workload", {"vllm": 0, "omni": 0})
             row.setdefault("running_by_workload", {"vllm": 0, "omni": 0})
@@ -2802,6 +2826,7 @@ def collect_snapshot(
             if metrics_by_queue
             else None,
             "unregistered_active_queue_ids": sorted(set(queues) - registry_queues),
+            "unobserved_queue_ids": unobserved_queues,
         },
         "total_waiting": sum(int(s.get("waiting") or 0) for s in queues.values()),
         "total_running": sum(int(s.get("running") or 0) for s in queues.values()),

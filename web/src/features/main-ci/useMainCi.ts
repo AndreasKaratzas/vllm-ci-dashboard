@@ -1,6 +1,7 @@
 import { computed } from 'vue'
+import { useDataset } from '@/composables/useDataset'
 import { useOperationSections, useOperations } from '@/composables/useOperations'
-import { mainBuilds, mainCiRecord, mainCiSummary, mainIncidents } from '@/domain/mainCi'
+import { mainBuilds, mainCiRecord, mainCiSummary, mainIncidents, withPulse } from '@/domain/mainCi'
 import type { MainCiContext } from './details'
 
 /**
@@ -10,14 +11,16 @@ import type { MainCiContext } from './details'
 export function useMainCi() {
   const { ops, error: shellError, retry: shellRetry } = useOperations()
   const section = useOperationSections(['main_ci'])
+  const pulse = useDataset('main_pulse')
   const published = computed(() => !!ops.value && !!mainCiRecord(ops.value))
-  const record = computed(() => mainCiRecord(section.data.value) ?? mainCiRecord(ops.value))
+  const full = computed(() => withPulse(mainCiRecord(section.data.value), pulse.data.value))
+  const record = computed(() => full.value ?? mainCiRecord(ops.value))
   const summary = computed(() => mainCiSummary(record.value))
-  const builds = computed(() => mainBuilds(section.data.value?.main_ci))
-  const incidents = computed(() => mainIncidents(section.data.value?.main_ci))
-  const ctx = computed<MainCiContext>(() => ({ record: section.data.value?.main_ci ?? null, builds: builds.value }))
+  const builds = computed(() => mainBuilds(full.value))
+  const incidents = computed(() => mainIncidents(full.value))
+  const ctx = computed<MainCiContext>(() => ({ record: full.value, builds: builds.value }))
   /** The full section (series, builds, incidents) has loaded; until then only the headline is known. */
-  const loaded = computed(() => !!section.data.value?.main_ci)
+  const loaded = computed(() => !!full.value)
   const error = computed(() => (published.value ? section.error.value : null))
   return { ops, shellError, shellRetry, published, record, summary, builds, incidents, ctx, loaded, loading: section.loading, error, retry: section.retry }
 }

@@ -1,7 +1,12 @@
+import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
-import { OMNI_EMPTY_TABLE_TEXT, type DetailTable, type OmniDetail } from '@/domain/omni'
+import AreaChart from '@/components/charts/AreaChart.vue'
+import type { Rec } from '@/domain/format'
+import { OMNI_EMPTY_TABLE_TEXT, omniView, type DetailTable, type OmniDetail, type OmniView } from '@/domain/omni'
 import { SERIES } from '@/lib/palette'
+import OmniLive from '@/views/omni/OmniLive.vue'
 import { collectionGap, firstSentence, kpiValue, rowDetail, sentenceCase, toColumns, toDelta, toDetail, WITHHELD_HINT } from '@/views/omni/present'
+import { readFixture } from './support/fixtures'
 
 type Row = Record<string, unknown>
 
@@ -145,5 +150,21 @@ describe('Omni presentation helpers', () => {
     const hour = 3_600_000
     expect(collectionGap([0, hour, 2 * hour, 9 * hour], 1.5)).toBe(1.5 * hour)
     expect(collectionGap([5], 3)).toBeUndefined()
+  })
+})
+
+describe('OmniLive occupancy chart', () => {
+  it('shades every missed hourly detail refresh as a gap', () => {
+    const minute = 60_000
+    const steps = [60, 140, 69, 60, 60, 60, 60, 60, 141, 71, 70, 68, 70, 60, 70, 130, 60, 60, 70, 60]
+    const times = steps.reduce((acc, step) => [...acc, acc.at(-1)! + step * minute], [Date.parse('2026-11-12T20:44:13Z')])
+    const amd = { waiting_supported: true, running_supported: true, waiting_observed: 0, running_observed: 1 }
+    const ops = readFixture<Rec>('omni_sections.json')
+    ops.omni.history.points = times.map((time) => ({ ts: new Date(time).toISOString(), amd }))
+    const view = omniView(ops, '7d', '24h') as OmniView
+    const wrapper = mount(OmniLive, { props: { view }, global: { stubs: { AreaChart: true } } })
+    const maxGap = (wrapper.findComponent(AreaChart).props() as { maxGap: number }).maxGap
+    expect(steps.filter((step) => step * minute > maxGap)).toEqual([140, 141, 130])
+    wrapper.unmount()
   })
 })

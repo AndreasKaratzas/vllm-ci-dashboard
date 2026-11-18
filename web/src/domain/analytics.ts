@@ -7,6 +7,7 @@ import {
   amdHealthGroups,
   amdLatestState,
   amdLogicalInventory,
+  amdRowHistory,
   logicalTestGroupPresentation,
 } from './ciHealth'
 import { duration, integer, percent, shortDate, toneForState, value, type Rec, type Tone } from './format'
@@ -68,10 +69,11 @@ export interface HardwareCluster {
 export function amdHardwareRows(groups: Rec[], latestBuild: unknown): HardwareCluster[] {
   const byHardware = new Map<string, HardwareCluster>()
   groups.forEach((group) => {
+    const latest = amdLatestState(group, latestBuild)
+    if (latest === 'retired') return
     const id = value(group.hardware_variant || group.hardware, 'unknown')
     if (!byHardware.has(id)) byHardware.set(id, { id, label: hardwareDisplayLabel(id), rows: [], passed: 0, soft: 0, hard: 0, missing: 0 })
     const cluster = byHardware.get(id)!
-    const latest = amdLatestState(group, latestBuild)
     cluster.rows.push(group)
     if (latest === 'passed') cluster.passed += 1
     else if (latest === 'soft') cluster.soft += 1
@@ -89,7 +91,7 @@ export function hardwareValueSummary(row: HardwareCluster): string {
   )
 }
 
-export type AmdCatalogFilter = 'all' | 'attention' | 'passing' | 'incident' | 'missing' | 'mixed'
+export type AmdCatalogFilter = 'all' | 'attention' | 'passing' | 'incident' | 'missing' | 'retired' | 'mixed'
 
 export const AMD_CATALOG_FILTERS: [AmdCatalogFilter, string][] = [
   ['all', 'All retained variants'],
@@ -97,11 +99,13 @@ export const AMD_CATALOG_FILTERS: [AmdCatalogFilter, string][] = [
   ['passing', 'Passing now'],
   ['incident', 'Failures now'],
   ['missing', 'Historical only'],
+  ['retired', 'Retired layouts'],
   ['mixed', 'Mixed history'],
 ]
 
 export function isMixedHistory(row: Rec): boolean {
-  return Number(row.passed || 0) > 0 && Number(row.soft_failed || 0) + Number(row.hard_failed || 0) > 0
+  const history = amdRowHistory(row)
+  return !row.retired && Number(history.passed || 0) > 0 && Number(history.soft_failed || 0) + Number(history.hard_failed || 0) > 0
 }
 
 /** The search and result filter of classic openAmdCatalog. */
@@ -113,6 +117,7 @@ export function amdCatalogRows(rows: Rec[], latestBuild: unknown, mode: string, 
     if (mode === 'passing' && latest !== 'passed') return false
     if (mode === 'incident' && !['soft', 'hard'].includes(latest)) return false
     if (mode === 'missing' && latest !== 'missing') return false
+    if (mode === 'retired' && latest !== 'retired') return false
     if (mode === 'mixed' && !isMixedHistory(row)) return false
     if (!query) return true
     return [row.display_name, row.name, row.job_name, row.hardware_variant, row.hardware, row.queue].some((part) =>
@@ -242,7 +247,8 @@ export function amdHealthModel(amdHealth: Rec): AmdHealthModel {
       summary.group_count ||
       groups.length,
   )
-  const notLatest = Math.max(0, retainedCount - latestVariantCount)
+  const retired = Number(summary.retired_job_variant_count || 0) || groups.filter((row) => row.retired).length
+  const notLatest = Math.max(0, retainedCount - latestVariantCount - retired)
   const mixed = groups.filter(isMixedHistory)
   const currentIncidents = groups.filter((row) => ['soft', 'hard'].includes(amdLatestState(row, latestBuild)))
   const currentPassing = groups.filter((row) => amdLatestState(row, latestBuild) === 'passed')
@@ -300,7 +306,8 @@ export function amdHealthModel(amdHealth: Rec): AmdHealthModel {
         ' passing - ' +
         integer(nonPassing) +
         ' non-passing exact jobs' +
-        (notLatest ? '; ' + integer(notLatest) + ' older variants retained only for history' : ''),
+        (notLatest ? '; ' + integer(notLatest) + ' older variants retained only for history' : '') +
+        (retired ? '; ' + integer(retired) + ' variants retired by shard layout changes' : ''),
       tone: hard ? 'hard' : nonPassing ? 'soft' : 'pass',
     },
     {
@@ -359,7 +366,7 @@ export function amdHealthModel(amdHealth: Rec): AmdHealthModel {
       count: missing.length,
       renderedCount: rendered(missing.length),
       description: 'Older job names not present in the latest nightly',
-      meta: 'Not classified as current failures',
+      meta: 'Not classified as current failures' + (retired ? '; excludes ' + integer(retired) + ' retired layout variants' : ''),
       tone: 'neutral',
       catalog: {
         title: 'Historical AMD job variants',

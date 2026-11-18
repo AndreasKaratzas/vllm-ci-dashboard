@@ -40,8 +40,10 @@ const cohort = computed(() => mainCohort(ctx.value.record))
 const sourceChip = useFreshness().chip(['main_ci'], 'Collected')
 const freshness = computed<Freshness | undefined>(() => {
   const chip = sourceChip.value
-  const watcher = incidents.value.watcherLastRun
-  return chip && watcher ? { ...chip, detail: `${chip.detail} The main-failure watcher last ran ${age(watcher, now.value)}.` } : chip
+  const { watcherLastRun: watcher, pulseAt } = incidents.value
+  if (!chip || !watcher) return chip
+  const pulse = pulseAt ? ` The main pulse checked newer builds ${age(pulseAt, now.value)}.` : ''
+  return { ...chip, detail: `${chip.detail} The main-failure watcher last ran ${age(watcher, now.value)}.${pulse}` }
 })
 
 // ?build=<number> and ?incident=<group id> (from the command palette or a shared link) open their sheet.

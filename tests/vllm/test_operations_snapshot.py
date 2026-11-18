@@ -6,6 +6,7 @@ from __future__ import annotations
 import gzip
 import hashlib
 import json
+from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -880,6 +881,7 @@ def test_amd_test_health_uses_authoritative_job_states_and_preserves_evidence(tm
         "group_count": 5,
         "union_group_count": 5,
         "retained_job_variant_count": 5,
+        "retired_job_variant_count": 0,
         "latest_group_count": 3,
         "latest_job_variant_count": 3,
         "latest_build_number": 301,
@@ -1145,6 +1147,123 @@ def test_amd_test_health_preserves_named_pool_with_current_ci_metadata(
     assert group["hardware"] == "mi355"
     assert group["hardware_variant"] == "mi355_dpx"
     assert group["queue"] == "amd_mi355_dpx"
+
+
+def _write_shard_layout_history(tmp_path: Path, layouts: dict[int, dict[str, dict]]) -> None:
+    """Write nightlies whose steps declare the given per-build shard layouts."""
+    builds, results = [], defaultdict(list)
+    for number, steps in layouts.items():
+        date = f"2026-05-{number - 400:02d}"
+        jobs = []
+        for step_key, layout in steps.items():
+            total = layout["shards"]
+            names = (
+                [f"{layout['label']} Shard {index}/{total}" for index in range(1, total + 1)]
+                if total > 1 else [layout["label"]]
+            )
+            for index, name in enumerate(names):
+                job_id = f"{number}-{step_key}-{index}"
+                state = layout.get("states", {}).get(index, "passed")
+                jobs.append({
+                    "raw_name": f":amd: (MI355) {name}", "name": name, "q": "amd_mi355_1",
+                    "step_key": step_key, "job_id": job_id, "state": state,
+                    "parallel_group_total": total if total > 1 else None,
+                    "finished_at": f"{date}T08:00:00Z",
+                })
+                if index in layout.get("without_results", ()):
+                    continue
+                results[date].append({
+                    "name": "__passed__ (3)", "status": "passed", "job_id": job_id,
+                    "job_name": f"amd_mi355_1: :amd: (MI355) {name}",
+                    "build_number": number, "pipeline": "ci", "date": date,
+                })
+        builds.append({"number": number, "date": date, "created_at": f"{date}T07:00:00Z", "jobs": jobs})
+    _write_json(tmp_path / "analytics.json", {"ci": {"builds": builds}})
+    for date, rows in results.items():
+        _write_jsonl(tmp_path / "test_results" / f"{date}_amd.jsonl", rows, trailing="\n")
+
+
+def test_amd_test_health_retires_superseded_shard_layouts_and_rolls_up_history(tmp_path):
+    alpha = {"label": "Alpha", "shards": 4}
+    beta = {"label": "Beta", "shards": 2}
+    gamma = {"label": "Gamma", "shards": 2}
+    _write_shard_layout_history(tmp_path, {
+        401: {"alpha": {**alpha, "without_results": {3}}, "beta": beta, "gamma": gamma,
+              "delta": {"label": "Delta", "shards": 1}},
+        402: {"alpha": {**alpha, "states": {1: "failed"}}, "beta": beta, "gamma": gamma},
+        403: {"alpha": {**alpha, "shards": 6}, "beta": beta, "gamma": gamma},
+        404: {"alpha": {**alpha, "shards": 6, "states": {2: "failed"}}, "beta": {**beta, "shards": 1},
+              "gamma": {**gamma, "without_results": {1}}},
+    })
+
+    health = ops.build_snapshot(tmp_path, generated_at=GENERATED_AT)["amd_test_health"]
+    rows = {row["display_name"].split(") ", 1)[1]: row for row in health["group_catalog"]}
+
+    retired = {name for name, row in rows.items() if row["retired"]}
+    assert retired == {f"Alpha Shard {index}/4" for index in range(1, 5)} | {"Beta Shard 1/2", "Beta Shard 2/2"}
+    assert health["summary"]["retired_job_variant_count"] == 6
+    assert rows["Alpha Shard 2/4"]["retired"] == {
+        "logical_group_id": rows["Alpha Shard 1/6"]["logical_group_id"],
+        "last_seen_build_number": 402,
+        "superseded_by_build_number": 403,
+        "layout": {"job_count": 4, "parallel_group_total": 4},
+        "superseded_by_layout": {"job_count": 6, "parallel_group_total": 6},
+    }
+    assert rows["Beta Shard 1/2"]["retired"]["superseded_by_layout"] == {"job_count": 1, "parallel_group_total": None}
+    assert (rows["Alpha Shard 2/4"]["runs"], rows["Alpha Shard 2/4"]["hard_failed"]) == (2, 1)
+
+    # Before its layout a variant inherits the step's worst shard; a shard without a result
+    # leaves that nightly unknown, and a sibling's failure in the same layout stays the sibling's.
+    history = rows["Alpha Shard 1/6"]["logical_history"]
+    assert [(layout["first_build_number"], layout["last_build_number"], layout["job_count"])
+            for layout in history["layouts"]] == [(401, 402, 4), (403, 404, 6)]
+    assert [(row["state"], row["scope"]) for row in history["observations"]] == [
+        ("unknown", "step"), ("hard", "step"), ("passed", "job"), ("passed", "job")]
+    assert (history["runs"], history["passed"], history["hard_failed"], history["unknown"],
+            history["current_pass_streak"], history["pass_rate_pct"]) == (4, 2, 1, 1, 2, 66.7)
+    sibling = rows["Alpha Shard 3/6"]["logical_history"]
+    assert [row["state"] for row in sibling["observations"]] == ["unknown", "hard", "passed", "hard"]
+    assert (rows["Alpha Shard 1/6"]["runs"], rows["Alpha Shard 1/6"]["current_pass_streak"]) == (2, 2)
+    assert rows["Beta"]["logical_history"]["runs"] == 4
+
+    # A stable layout, a shard without parsed results, and a dropped step are not retirements.
+    assert rows["Gamma Shard 2/2"]["latest_build_number"] == 403
+    assert not any(rows[name]["retired"] or "logical_history" in rows[name]
+                   for name in ("Gamma Shard 1/2", "Gamma Shard 2/2", "Delta"))
+    assert len({rows[name]["logical_group_id"] for name in rows if name.startswith("Alpha")}) == 1
+
+
+def test_amd_test_health_merges_real_shard_layout_changes():
+    """Nightlies #100488-#102399, trimmed to the four steps re-sharded in that window."""
+    data_dir = Path(__file__).parent / "fixtures" / "amd_shard_layouts"
+    analytics_payload = json.loads((data_dir / "analytics.json").read_text())
+    health = ops._amd_test_health(data_dir, ops._scoped_ci_analytics(analytics_payload["ci"]))
+    steps = defaultdict(list)
+    for row in health["group_catalog"]:
+        steps[row["logical_group_id"]].append(row)
+
+    def step(fragment):
+        (rows,) = [rows for rows in steps.values() if fragment in rows[0]["display_name"]]
+        current = [row for row in rows if not row["retired"]]
+        history = current[0]["logical_history"]
+        assert all(row["logical_history"]["layouts"] == history["layouts"] for row in current)
+        assert all(row["retired"]["superseded_by_build_number"] > row["retired"]["last_seen_build_number"]
+                   for row in rows if row["retired"])
+        return (
+            sorted(row["display_name"].rsplit(" Shard ", 1)[-1] for row in current),
+            len(rows) - len(current),
+            [layout["job_count"] for layout in history["layouts"]],
+            (history["runs"], history["current_pass_streak"], history["pass_rate_pct"]),
+        )
+
+    assert step("MoRIIO WRITE P/D Dummy-Weight E2E") == (["1/4", "2/4", "3/4", "4/4"], 6, [6, 4], (7, 7, 100.0))
+    assert step("Multimodal Models (Extended Generation 2)") == (["1/3", "2/3", "3/3"], 6, [2, 4, 3], (8, 8, 100.0))
+    assert step("Kimi K3 Prefix Cache") == (["1/3", "2/3", "3/3"], 1, [1, 3], (7, 7, 100.0))
+    assert step("Hybrid SSM NixlConnector PD accuracy") == (["1/2", "2/2"], 1, [1, 2], (7, 7, 100.0))
+    moriio = next(row for row in health["group_catalog"] if row["display_name"].endswith("E2E Shard 3"))
+    assert (moriio["runs"], moriio["current_pass_streak"]) == (6, 6)
+    assert moriio["logical_group_id"] == "71a92fd486b77e603515"  # reliability.json's step group
+    assert health["summary"]["retired_job_variant_count"] == 14
 
 
 def test_amd_test_health_requires_same_build_for_logical_group_counts(tmp_path):
