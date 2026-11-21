@@ -1,0 +1,348 @@
+{
+ "main_ci": {
+  "slowdowns": {
+   "available": true,
+   "watcher_last_run": "2026-10-20T17:00:00Z",
+   "issue": {
+    "number": 553,
+    "url": "https://github.com/AndreasKaratzas/vllm-ci-dashboard/issues/553"
+   },
+   "suppressed": false,
+   "rules": {
+    "min_segment_runs": 5,
+    "min_baseline_runs": 8,
+    "min_recent_runs": 8,
+    "min_level_hours": 24,
+    "min_slowdown_hours": 48,
+    "segment_min_mins": 0.5,
+    "segment_min_fraction": 0.03,
+    "sigmas": 5.0,
+    "noise_floor_fraction": 0.03,
+    "alert_min_mins": 2.0,
+    "alert_min_fraction": 0.2,
+    "alert_large_mins": 15.0,
+    "consistency": 0.8,
+    "resolve_scale": 0.5,
+    "settle_after_days": 14,
+    "stale_after_hours": 72
+   },
+   "rows": [
+    {
+     "signal_id": "ca37cb048d89f0e782bf",
+     "name": ":amd: (MI300) V1 Attention",
+     "step_key": "amd-v1-attention-h100-mi300",
+     "hardware": "mi300",
+     "queue": "amd_mi300_1",
+     "jobs": 2,
+     "status": "active",
+     "baseline_mins": 40.2,
+     "baseline_runs": 108,
+     "recent_mins": 56.0,
+     "recent_runs": 89,
+     "increase_mins": 15.8,
+     "increase_pct": 39.3,
+     "noise_mins": 2.41,
+     "onset": {
+      "build_number": 94243,
+      "build_url": "https://buildkite.com/vllm/ci/builds/94243",
+      "commit": "50b21a2667b6903d2e0d651aab9f449832e5e1e9",
+      "created_at": "2026-10-12T15:50:32.494000Z"
+     },
+     "last_good": {
+      "build_number": 94145,
+      "build_url": "https://buildkite.com/vllm/ci/builds/94145",
+      "commit": "e3bbaf23695f7f30f144a288057b0419ab2b6a8d",
+      "created_at": "2026-10-12T07:53:19.402000Z"
+     },
+     "likely_cause": "vllm_change",
+     "compare_url": "https://github.com/vllm-project/vllm/compare/e3bbaf23695f7f30f144a288057b0419ab2b6a8d...50b21a2667b6903d2e0d651aab9f449832e5e1e9",
+     "last_rise": {
+      "build_number": 94775,
+      "build_url": "https://buildkite.com/vllm/ci/builds/94775",
+      "commit": "81503550f379b5a83bc091073bc2a2f2ebe67ff5",
+      "created_at": "2026-10-14T10:46:05.725000Z"
+     },
+     "latest": {
+      "build_number": 96139,
+      "build_url": "https://buildkite.com/vllm/ci/builds/96139",
+      "commit": "cc8a41f328422e76697431e47993ee839489f572",
+      "created_at": "2026-10-20T12:00:03.384000Z"
+     },
+     "first_detected_at": "2026-10-20T17:00:00Z",
+     "samples": [
+      [
+       94081,
+       "2026-10-11T15:39:14.973000Z",
+       40.7
+      ],
+      [
+       94096,
+       "2026-10-11T21:00:07.771000Z",
+       42.3
+      ],
+      [
+       94109,
+       "2026-10-12T02:25:35.340000Z",
+       43.8
+      ],
+      [
+       94125,
+       "2026-10-12T06:00:04.168000Z",
+       39.3
+      ],
+      [
+       94136,
+       "2026-10-12T07:09:14.150000Z",
+       41.2
+      ],
+      [
+       94145,
+       "2026-10-12T07:53:19.402000Z",
+       41.8
+      ],
+      [
+       94243,
+       "2026-10-12T15:50:32.494000Z",
+       53.0
+      ],
+      [
+       94269,
+       "2026-10-12T17:41:11.779000Z",
+       51.6
+      ],
+      [
+       94315,
+       "2026-10-12T21:00:08.128000Z",
+       55.4
+      ],
+      [
+       94353,
+       "2026-10-13T02:16:53.315000Z",
+       50.8
+      ],
+      [
+       94385,
+       "2026-10-13T05:26:00.335000Z",
+       52.6
+      ],
+      [
+       94413,
+       "2026-10-13T07:59:03.059000Z",
+       54.0
+      ]
+     ]
+    },
+    {
+     "signal_id": "3dc0070d15f5a11506a1",
+     "name": ":amd: (MI300) Distributed Compile",
+     "step_key": "amd-distributed-compile-unit-tests-2xh100",
+     "hardware": "mi300",
+     "queue": "amd_mi300_2",
+     "jobs": 1,
+     "status": "active",
+     "baseline_mins": 7.6,
+     "baseline_runs": 43,
+     "recent_mins": 11.0,
+     "recent_runs": 30,
+     "increase_mins": 3.4,
+     "increase_pct": 44.7,
+     "noise_mins": 0.31,
+     "onset": {
+      "build_number": 94303,
+      "build_url": "https://buildkite.com/vllm/ci/builds/94303",
+      "commit": "abad32a718d2f9e3af7b18818eb474322eaadfc4",
+      "created_at": "2026-10-12T19:53:12.613000Z"
+     },
+     "last_good": {
+      "build_number": 94275,
+      "build_url": "https://buildkite.com/vllm/ci/builds/94275",
+      "commit": "8055293353e4bc2aee2775bc0b077dd77b946b8c",
+      "created_at": "2026-10-12T18:11:24.080000Z"
+     },
+     "likely_cause": "vllm_change",
+     "compare_url": "https://github.com/vllm-project/vllm/compare/8055293353e4bc2aee2775bc0b077dd77b946b8c...abad32a718d2f9e3af7b18818eb474322eaadfc4",
+     "last_rise": {
+      "build_number": 94303,
+      "build_url": "https://buildkite.com/vllm/ci/builds/94303",
+      "commit": "abad32a718d2f9e3af7b18818eb474322eaadfc4",
+      "created_at": "2026-10-12T19:53:12.613000Z"
+     },
+     "latest": {
+      "build_number": 96139,
+      "build_url": "https://buildkite.com/vllm/ci/builds/96139",
+      "commit": "cc8a41f328422e76697431e47993ee839489f572",
+      "created_at": "2026-10-20T12:00:03.384000Z"
+     },
+     "first_detected_at": "2026-10-20T17:00:00Z",
+     "samples": [
+      [
+       94223,
+       "2026-10-12T14:03:00.458000Z",
+       7.5
+      ],
+      [
+       94226,
+       "2026-10-12T14:05:13.083000Z",
+       7.7
+      ],
+      [
+       94245,
+       "2026-10-12T15:53:30.294000Z",
+       7.3
+      ],
+      [
+       94255,
+       "2026-10-12T16:46:25.816000Z",
+       7.7
+      ],
+      [
+       94261,
+       "2026-10-12T17:10:01.430000Z",
+       7.8
+      ],
+      [
+       94275,
+       "2026-10-12T18:11:24.080000Z",
+       7.9
+      ],
+      [
+       94303,
+       "2026-10-12T19:53:12.613000Z",
+       12.5
+      ],
+      [
+       94337,
+       "2026-10-12T23:18:47.474000Z",
+       12.3
+      ],
+      [
+       94397,
+       "2026-10-13T06:24:46.873000Z",
+       13.0
+      ],
+      [
+       94452,
+       "2026-10-13T10:09:21.334000Z",
+       12.5
+      ],
+      [
+       94481,
+       "2026-10-13T13:37:13.714000Z",
+       12.7
+      ],
+      [
+       94518,
+       "2026-10-13T15:54:28.095000Z",
+       13.4
+      ]
+     ]
+    },
+    {
+     "signal_id": "3232ce2ac1a0b83300e2",
+     "name": ":amd: (MI355) LM Eval Qwen3.5 Models",
+     "step_key": "amd-lm-eval-qwen3-5-models-2xb200",
+     "hardware": "mi355",
+     "queue": "amd_mi355_2",
+     "jobs": 1,
+     "status": "settled",
+     "baseline_mins": 16.0,
+     "baseline_runs": 15,
+     "recent_mins": 37.4,
+     "recent_runs": 51,
+     "increase_mins": 21.4,
+     "increase_pct": 133.8,
+     "noise_mins": 3.88,
+     "onset": {
+      "build_number": 91928,
+      "build_url": "https://buildkite.com/vllm/ci/builds/91928",
+      "commit": "467d81d9a098c5f6695c67832a372a7ad8cd835a",
+      "created_at": "2026-09-29T18:07:35.359000Z"
+     },
+     "last_good": {
+      "build_number": 91759,
+      "build_url": "https://buildkite.com/vllm/ci/builds/91759",
+      "commit": "35d6fb3187d0a5a70c43ee5b0c3e923a7cb96226",
+      "created_at": "2026-09-29T06:00:06.160000Z"
+     },
+     "likely_cause": "vllm_change",
+     "compare_url": "https://github.com/vllm-project/vllm/compare/35d6fb3187d0a5a70c43ee5b0c3e923a7cb96226...467d81d9a098c5f6695c67832a372a7ad8cd835a",
+     "last_rise": {
+      "build_number": 91928,
+      "build_url": "https://buildkite.com/vllm/ci/builds/91928",
+      "commit": "467d81d9a098c5f6695c67832a372a7ad8cd835a",
+      "created_at": "2026-09-29T18:07:35.359000Z"
+     },
+     "latest": {
+      "build_number": 96139,
+      "build_url": "https://buildkite.com/vllm/ci/builds/96139",
+      "commit": "cc8a41f328422e76697431e47993ee839489f572",
+      "created_at": "2026-10-20T12:00:03.384000Z"
+     },
+     "first_detected_at": "2026-10-20T17:00:00Z",
+     "samples": [
+      [
+       91445,
+       "2026-09-27T06:00:03.732000Z",
+       16.0
+      ],
+      [
+       91486,
+       "2026-09-27T21:00:03.046000Z",
+       15.3
+      ],
+      [
+       91494,
+       "2026-09-28T00:05:01.705000Z",
+       16.1
+      ],
+      [
+       91540,
+       "2026-09-28T06:00:01.981000Z",
+       15.7
+      ],
+      [
+       91672,
+       "2026-09-28T21:00:01.737000Z",
+       20.5
+      ],
+      [
+       91759,
+       "2026-09-29T06:00:06.160000Z",
+       19.9
+      ],
+      [
+       91928,
+       "2026-09-29T18:07:35.359000Z",
+       45.4
+      ],
+      [
+       91957,
+       "2026-09-29T21:00:04.115000Z",
+       41.7
+      ],
+      [
+       92059,
+       "2026-09-30T06:00:05.258000Z",
+       36.8
+      ],
+      [
+       92249,
+       "2026-09-30T21:00:03.954000Z",
+       50.9
+      ],
+      [
+       92490,
+       "2026-10-01T21:00:05.356000Z",
+       40.2
+      ],
+      [
+       92561,
+       "2026-10-02T06:00:04.328000Z",
+       45.5
+      ]
+     ]
+    }
+   ]
+  }
+ }
+}
