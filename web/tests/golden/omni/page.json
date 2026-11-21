@@ -1,0 +1,71 @@
+{
+  "header": {
+    "actionLabel": "Open AMD mapping aggregate",
+    "actionUrl": "data/vllm/ci/workload_mapping.json",
+    "description": "Incoming vllm-project/vllm-omni workload and its impact on the AMD queues shared with vllm-project/vllm.",
+    "observedAt": "2026-10-19T07:44:44Z",
+    "title": "Omni CI"
+  },
+  "kpis": [
+    {
+      "id": "omni-mapped-jobs",
+      "label": "OBSERVED OMNI MAPPINGS",
+      "meta": "≥3,476 started · source-window count · job-created range non-exhaustive",
+      "tone": "soft",
+      "value": "≥3,476"
+    },
+    {
+      "id": "omni-gpu-demand",
+      "label": "GPU-SLOT REQUESTS",
+      "meta": "summed job widths · not concurrency · 680.8 completed GPU-hours",
+      "tone": "",
+      "value": "4,286"
+    },
+    {
+      "id": "omni-mapped-share",
+      "label": "SHARE OF OBSERVED VLLM TRAFFIC",
+      "meta": "≥3,476 of ≥17,367 published source-window mappings",
+      "tone": "",
+      "value": "Unavailable"
+    },
+    {
+      "id": "omni-retiring-share",
+      "label": "MI325 RETIREMENT EXPOSURE",
+      "meta": "≥0 Omni · ≥0 vllm-project/vllm",
+      "tone": "pass",
+      "value": "Unavailable"
+    }
+  ],
+  "live": [
+    {
+      "label": "EXACT ACTIVE JOBS",
+      "meta": "0 waiting · 12 running",
+      "tone": "",
+      "value": "12"
+    },
+    {
+      "label": "OBSERVED QUEUED",
+      "meta": "Oct 18, 03:29 PM",
+      "tone": "",
+      "value": "0"
+    },
+    {
+      "label": "QUEUED PEAK",
+      "meta": "1 waiting-attributed snapshots · 1 day",
+      "tone": "",
+      "value": "0"
+    },
+    {
+      "label": "ATTRIBUTED SNAPSHOTS",
+      "meta": "1 waiting · 17 running",
+      "tone": "soft",
+      "value": "17"
+    }
+  ],
+  "scopeNote": {
+    "excluded": null,
+    "heading": "Selected API/UUID bucket coverage is incomplete. All job-created mappings are not provably exhaustive. ",
+    "text": "Only 48 of 168 selected UTC-hour buckets are retained. The current UTC hour is open through Oct 19, 07:44 AM. Rates, shares, and deltas are unavailable for incomplete selected coverage. UUID-deduplicated counts are exact only inside the 3-day parent-build lookback; they are not provably exhaustive for every job created in the selected interval. Jobs added to a parent build more than the configured lookback after that build was created are outside the REST source window and can be absent from these aggregates.",
+    "tone": "soft"
+  }
+}

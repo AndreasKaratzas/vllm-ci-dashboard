@@ -1,0 +1,81 @@
+name: Runtime Source Verification
+
+# Immutable Git definitions have no runtime freshness. This manual migration
+# helper resumes bounded source acquisition without reserving Buildkite calls
+# or publishing partially verified dashboard data.
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: runtime-source-index-warmup
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      PYTHONPATH: ${{ github.workspace }}/scripts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+          cache: pip
+          cache-dependency-path: |
+            constraints.txt
+            pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -c constraints.txt requests pyyaml
+
+      - name: Restore authenticated private build metadata
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/vllm/ci/.cache/analytics-builds-v1
+          key: analytics-builds-v1-${{ runner.os }}-source-warmup-${{ github.run_id }}
+          restore-keys: analytics-builds-v1-${{ runner.os }}-
+
+      - name: Restore immutable source verification checkpoint
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/vllm/ci/.cache/runtime-source-indexes-v1
+          key: runtime-source-indexes-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: runtime-source-indexes-v1-${{ runner.os }}-
+
+      - name: Verify exact historical source pins
+        id: prewarm
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python scripts/vllm/collect_analytics.py \
+            --prewarm-source-indexes --output data/vllm/ci/ \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Save proved immutable source indexes
+        if: always() && steps.prewarm.outputs.runtime_source_cache_save == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/vllm/ci/.cache/runtime-source-indexes-v1
+          key: runtime-source-indexes-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Report source verification completeness
+        if: always()
+        env:
+          SOURCE_COMPLETE: ${{ steps.prewarm.outputs.runtime_source_indexes_complete }}
+        run: |
+          set -euo pipefail
+          if [ "$SOURCE_COMPLETE" != true ]; then
+            echo "::error::Source verification is incomplete. Proved pins are saved; rerun this bounded helper before a full refresh."
+            exit 1
+          fi
