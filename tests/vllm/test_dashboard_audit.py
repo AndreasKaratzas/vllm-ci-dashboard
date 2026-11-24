@@ -4982,8 +4982,9 @@ def _pinned_current_latency_fixture():
     from vllm.main_ci_definitions import MainCISnapshot
 
     steps = [
+        # Same title, other GPU count (the pool's): another configuration.
         {"key": "mi300-lm", "label": ":amd: (MI300) LM Eval Small Models",
-         "device": "mi300_1", "commands": ["pytest tests/lm_eval.py"]},
+         "device": "mi300_2", "commands": ["pytest tests/lm_eval.py"]},
         {"key": "dpx-lm", "label": ":amd: (MI355 DPX) LM Eval Small Models",
          "device": "mi355_dpx", "num_devices": 1,
          "commands": ["pytest tests/lm_eval.py"]},
@@ -5001,7 +5002,7 @@ def _pinned_current_latency_fixture():
         url = f"https://buildkite.com/vllm/ci/builds/{number}"
         jobs = []
         for index, (step, queue, duration) in enumerate(zip(
-            steps, ("amd_mi300_1", "amd_mi355_1"), (16 + offset, 12 + offset)
+            steps, ("amd_mi300_2", "amd_mi355_1"), (16 + offset, 12 + offset)
         )):
             job_id = str(UUID(int=number * 10 + index))
             started = created + timedelta(minutes=5)
@@ -5040,7 +5041,7 @@ def test_current_latency_audit_binds_distinct_families_to_original_physical_atte
     assert not audit.report.errors
     assert builds[:5] == original
     assert {row["id"] for row in latency["rows"]} == {
-        "lm eval small models", "lm eval small models (1 gpus)"
+        "lm eval small models (2 gpus)", "lm eval small models (1 gpus)"
     }
     dpx = next(row for row in latency["rows"] if row["id"].endswith("(1 gpus)"))
     assert dpx["amd"]["median_duration_mins"] == 14

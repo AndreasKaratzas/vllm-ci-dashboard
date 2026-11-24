@@ -213,11 +213,13 @@ def definition_fingerprint(step: dict[str, Any]) -> str:
             for cmd in (step.get("commands") or [])
             if _normalize_fingerprint_value(cmd)
         ],
-        "source_file_dependencies": [
+        # A set: the order of a step's entries carries no meaning (a
+        # `devices:` step lists the shared ones before a device's own).
+        "source_file_dependencies": sorted({
             _normalize_fingerprint_value(dep)
             for dep in (step.get("source_file_dependencies") or [])
             if _normalize_fingerprint_value(dep)
-        ],
+        }),
     }
     return json.dumps(payload, sort_keys=True)
 

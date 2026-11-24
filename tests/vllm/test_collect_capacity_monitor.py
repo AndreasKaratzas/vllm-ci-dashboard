@@ -116,9 +116,11 @@ def test_parse_amd_mirror_groups_counts_only_mirror_amd(tmp_path: Path) -> None:
     assert groups[0]["amd_label"] == "AMD base mirrored"
     assert groups[0]["optional"] is False
     assert groups[1]["queue"] == "amd_mi250_1"
-    assert groups[1]["source_file_dependencies"] == ["vllm/rocm.py", "tests/models/"]
-    assert groups[1]["dependency_file_count"] == 3
-    assert groups[1]["dependency_lines"] == 5
+    # The generator's AMD job: its own dependencies plus its step's, as a set.
+    assert groups[1]["source_file_dependencies"] == [
+        "tests/models/", "tests/unused.py", "vllm/rocm.py"]
+    assert groups[1]["dependency_file_count"] == 4
+    assert groups[1]["dependency_lines"] == 6
     assert groups[1]["parallelism"] == 3
 
 

@@ -83,8 +83,8 @@ def _commands(step: dict[str, Any]) -> list[str]:
 
 
 INVENTORY_KINDS = {
-    "gpu_mirror": "Inline mirror.amd declaration that runs on an AMD GPU",
-    "cpu_mirror": "Inline mirror.amd declaration that runs CPU-only (no_gpu) on an AMD agent",
+    "gpu_mirror": "AMD job paired with a CUDA job of the same step (an AMD device under devices:, or an inline mirror.amd) that runs on an AMD GPU",
+    "cpu_mirror": "AMD job paired with a CUDA job of the same step that runs CPU-only (no_gpu) on an AMD agent",
     "native": "Native AMD step (device mi*/amd_mi*) with no upstream CUDA definition",
 }
 
@@ -289,7 +289,7 @@ def build_payload(
         "mirror_inventory": {
             "source": source,
             "scope": {
-                "count_basis": "Every AMD test group in current main ci: one row per YAML definition (inline mirror.amd declaration or native AMD step); parallelism and shards count once.",
+                "count_basis": "Every AMD test group in current main ci: one row per AMD job definition (an AMD job paired with a CUDA job, or a native AMD step); parallelism and shards count once.",
                 "kinds": dict(INVENTORY_KINDS),
                 "coverage_note": "Only GPU mirrors feed CUDA-to-AMD coverage; CPU-only mirrors and native AMD steps are inventory only.",
             },

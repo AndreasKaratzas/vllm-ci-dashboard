@@ -21,13 +21,14 @@ def no_provider_requests(monkeypatch):
     monkeypatch.setattr("requests.sessions.Session.request", lambda *_args, **_kwargs: pytest.fail("Offline family tests cannot request providers"))
 
 
-def snapshot(pin=PIN, *, dpx_devices=1, parallelism=None):
+def snapshot(pin=PIN, *, mi300_device="mi300_2", dpx_device="mi355_dpx", parallelism=None):
+    # An AMD job runs on its pool's GPU count, so the same title on mi300_2
+    # (two GPUs) and mi355_dpx (one) is two configurations.
     steps = [
         {"key": "mi300-lm", "label": ":amd: (MI300) LM Eval Small Models",
-         "device": "mi300_1", "commands": ["pytest tests/lm_eval.py"]},
+         "device": mi300_device, "commands": ["pytest tests/lm_eval.py"]},
         {"key": "dpx-lm", "label": ":amd: (MI355 DPX) LM Eval Small Models",
-         "device": "mi355_dpx", "num_devices": dpx_devices,
-         "commands": ["pytest tests/lm_eval.py"]},
+         "device": dpx_device, "commands": ["pytest tests/lm_eval.py"]},
     ]
     if parallelism:
         steps[1].update(label=steps[1]["label"] + " %N", parallelism=parallelism)
@@ -35,11 +36,11 @@ def snapshot(pin=PIN, *, dpx_devices=1, parallelism=None):
                                 ".buildkite/test_areas/lm_eval.yaml": {"steps": steps}}, "", TREE)
 
 
-def job(index, platform="dpx", *, key=None, minutes=12, shard=None):
+def job(index, platform="dpx", *, key=None, minutes=12, shard=None, queue=None):
     name = ":amd: (MI355 DPX) LM Eval Small Models" if platform == "dpx" else ":amd: (MI300) LM Eval Small Models"
     result = {"id": str(UUID(int=index)), "type": "script", "name": name,
               "step": {"id": str(UUID(int=100 + index))}, "state": "passed",
-              "q": "amd_mi355_1" if platform == "dpx" else "amd_mi300_1",
+              "q": queue or ("amd_mi355_1" if platform == "dpx" else "amd_mi300_2"),
               "started_at": "2026-10-09T06:00:00Z",
               "finished_at": f"2026-10-09T06:{minutes:02d}:00Z"}
     if key is not None:
@@ -69,8 +70,8 @@ def test_pinned_configuration_splits_same_title_without_changing_observed_eviden
     latency = build_current_nightly_latency(normalized, generated_at=CLOCK, source_available=True,
                                             source_identity_basis=rf.IDENTITY_BASIS)
     rows = {row["id"]: row["amd"] for row in latency["rows"]}
-    assert set(rows) == {"lm eval small models", "lm eval small models (1 gpus)"}
-    assert rows["lm eval small models"]["median_duration_mins"] == 16
+    assert set(rows) == {"lm eval small models (2 gpus)", "lm eval small models (1 gpus)"}
+    assert rows["lm eval small models (2 gpus)"]["median_duration_mins"] == 16
     assert rows["lm eval small models (1 gpus)"]["median_duration_mins"] == 12
     assert rows["lm eval small models (1 gpus)"]["samples"][0]["jobs"][0]["queue"] == "amd_mi355_1"
     assert latency["source_identity_basis"] == rf.IDENTITY_BASIS
@@ -147,7 +148,8 @@ def test_family_source_labels_and_keys_ignore_unrelated_global_shards(monkeypatc
     assert actual == expected
     assert rf.validate_family_catalog(expected, expected_commit=PIN, expected_tree=TREE) == expected
     literal = next(row for row in actual["definitions"] if row["step_key"] == "mi300-lm")
-    assert literal["label"] == literal["family_key"] == "gpu audit 0"
+    assert literal["label"] == "gpu audit 0"
+    assert literal["family_key"] == "gpu audit 0 (2 gpus)"
 
 
 @pytest.mark.parametrize("change", ["commit", "tree", "family", "declaration", "step", "key", "null_key", "duplicate"])
@@ -205,8 +207,9 @@ def test_cached_claims_are_rederived_and_cannot_authorize_a_different_family():
 def test_each_nightly_uses_its_own_source_commit_configuration():
     first = rf.annotate_build_source_families(build([job(1)], number=93775), rf.family_catalog_from_snapshot(snapshot()))
     second_pin = "c" * 40
-    second = rf.annotate_build_source_families(build([job(2)], pin=second_pin, number=93774),
-                                              rf.family_catalog_from_snapshot(snapshot(second_pin, dpx_devices=2)))
+    # The second commit moved the job to a two-GPU pool: another configuration.
+    second = rf.annotate_build_source_families(build([job(2, queue="amd_mi355_2")], pin=second_pin, number=93774),
+                                              rf.family_catalog_from_snapshot(snapshot(second_pin, dpx_device="mi355_2")))
     latency = build_current_nightly_latency(summarize_pipeline_builds("ci", [first, second]),
                                             generated_at=CLOCK, source_available=True,
                                             source_identity_basis=rf.IDENTITY_BASIS)

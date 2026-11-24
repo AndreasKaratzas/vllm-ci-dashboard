@@ -1,7 +1,7 @@
 // CI Health "AMD test groups" view (view id 'mirrors') and the Overview summary:
 // ports of docs/assets/js/amd-mirror-inventory.js with the classic UI helpers
 // inlined. The inventory lists every AMD test group on vLLM main: GPU and
-// CPU-only mirror.amd declarations plus native AMD steps.
+// CPU-only AMD jobs paired with a CUDA job plus native AMD steps.
 import { integer, value, type Rec, type Tone } from './format'
 import { hardwareDisplayLabel } from './health'
 import { compareText } from './healthHardware'
@@ -274,8 +274,8 @@ export function amdMirrorDetail(row: Rec, inventory: Rec | null | undefined) {
 export function amdTestGroupSubtitle(row: Rec | null | undefined): string {
   const kind = amdTestGroupKind(row)
   if (kind === 'native') return 'Native AMD step on vLLM main'
-  if (kind === 'cpu_mirror') return 'CPU-only mirror.amd declaration on vLLM main'
-  return 'Physical mirror.amd declaration on vLLM main'
+  if (kind === 'cpu_mirror') return 'CPU-only AMD job paired with a CUDA job on vLLM main'
+  return 'AMD GPU job paired with a CUDA job on vLLM main'
 }
 
 export function mirrorAreaSearchText(row: Rec): string {
@@ -391,7 +391,7 @@ export function amdMirrorInventoryView(inventory: Rec | null | undefined) {
               ? 'The total is exact; the hardware breakdown is unavailable because published detail is incomplete.'
               : !state.kindsPublished
                 ? 'Each group is one GPU mirror.amd declaration on vLLM main.'
-                : 'Each group is one AMD YAML definition on vLLM main: a GPU or CPU-only mirror.amd declaration, or a native AMD step.'),
+                : 'Each group is one AMD job definition on vLLM main: a GPU or CPU-only AMD job paired with a CUDA job, or a native AMD step.'),
       legend: breakdownComplete && hardwareRows.length ? hardwareRows : [],
     },
     configuration: {
@@ -429,7 +429,7 @@ export function amdMirrorInventoryView(inventory: Rec | null | undefined) {
       subtitle:
         state.total === null
           ? integer(groups.length) + ' published groups; exact aggregate unavailable'
-          : integer(groups.length) + ' of ' + integer(state.total) + ' AMD test-group definitions (mirror.amd and native)',
+          : integer(groups.length) + ' of ' + integer(state.total) + ' AMD test-group definitions (paired and native)',
       rows: groups.slice(0, 6),
       browseLabel: groups.length
         ? state.detailComplete
