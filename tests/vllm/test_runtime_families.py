@@ -78,6 +78,27 @@ def test_pinned_configuration_splits_same_title_without_changing_observed_eviden
     assert all(row["source_step_key"] == "" for row in proved["jobs"])
 
 
+def test_same_title_and_gpu_count_on_two_architectures_is_one_family():
+    # vLLM main e66bede56b: (MI300 DPX) and (MI355 DPX) LM Eval Small Models.
+    # Both run on one GPU (the pool's count; only the MI355 job also wrote
+    # `num_devices: 1`), so they share an identity and, being on different
+    # architectures, join one family like V1 Attention or Qwen4 Exp do. Their
+    # nightly-latency row therefore takes samples from both pools.
+    catalog = rf.family_catalog_from_snapshot(snapshot(mi300_device="mi300_1"))
+    families = {row["step_key"]: row["family_key"] for row in catalog["definitions"]}
+    assert families == {"mi300-lm": "lm eval small models (1 gpus)",
+                        "dpx-lm": "lm eval small models (1 gpus)"}
+    proved = rf.annotate_build_source_families(
+        build([job(1, minutes=12), job(2, "mi300", minutes=16, queue="amd_mi300_1")]), catalog)
+    latency = build_current_nightly_latency(summarize_pipeline_builds("ci", [proved]), generated_at=CLOCK,
+                                            source_available=True, source_identity_basis=rf.IDENTITY_BASIS)
+    assert [row["id"] for row in latency["rows"]] == ["lm eval small models (1 gpus)"]
+    amd = latency["rows"][0]["amd"]
+    assert amd["median_duration_mins"] == 16
+    assert sorted(job["queue"] for sample in amd["samples"] for job in sample["jobs"]) == [
+        "amd_mi300_1", "amd_mi355_1"]
+
+
 def test_shards_use_their_own_pinned_bases_without_global_analyzer_state():
     catalog = rf.family_catalog_from_snapshot(snapshot(parallelism=2))
     original = build([job(1, minutes=12, shard=0), job(2, minutes=20, shard=1)])

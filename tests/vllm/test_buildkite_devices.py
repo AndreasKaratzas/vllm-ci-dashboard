@@ -431,3 +431,34 @@ def test_legacy_steps_are_returned_unchanged_and_documents_are_not_modified():
     assert amd["commands"] == ["pytest -v -s v1/spec_decode"]
     assert amd["timeout_in_minutes"] == 50
     assert amd["source_file_dependencies"] == ["vllm/v1/spec_decode"]
+
+
+def test_matrix_rows_follow_each_amd_jobs_trigger_dependencies():
+    # vLLM main e66bede56b: (MI300) V1 Attention mirrors the H100 step and
+    # (MI355 DPX) V1 Attention the B200 step. Their mirror blocks match, but a
+    # mirror also triggers on its step's dependencies and only the H100 step
+    # lists flashmla_sparse.py, so the generator runs them on different
+    # changes: two matrix rows, not one row with two hardware cells.
+    from vllm import collect_amd_test_matrix as matrix
+
+    def step(key, device, amd_device, extra):
+        return (
+            f"- label: ':nvidia: ({device.upper()}) V1 Attention'\n  key: {key}\n  device: {device}\n"
+            "  source_file_dependencies:\n    - vllm/v1/attention\n" + extra
+            + "  commands:\n    - pytest -v -s v1/attention\n"
+            f"  mirror:\n    amd:\n      label: ':amd: V1 Attention'\n      device: {amd_device}\n"
+            "      source_file_dependencies:\n        - vllm/platforms/rocm.py\n"
+        )
+
+    def rows(extra):
+        text = "steps:\n" + step("v1-attention-h100", "h100", "mi300_1", extra) + step(
+            "v1-attention-b200", "b200", "mi355_dpx", "")
+        steps, arches = matrix.parse_main_ci_steps(_snapshot(text))
+        built = matrix.build_matrix(steps=steps, architectures=arches, latest_job_index={},
+                                    latest_build=None, parity_exact_index={}, parity_norm_index={},
+                                    shard_bases=[], yaml_url="local")
+        return sorted(tuple(sorted(arch for arch, cell in row["cells"].items() if cell["exists"]))
+                      for row in built["rows"])
+
+    assert rows("") == [("mi300", "mi355")]
+    assert rows("    - vllm/models/hy_v4/nvidia/flashmla_sparse.py\n") == [("mi300",), ("mi355",)]
