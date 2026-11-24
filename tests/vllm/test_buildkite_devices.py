@@ -377,6 +377,18 @@ def test_extra_devices_and_variants_are_their_own_definitions():
     kinds = {row["definition_id"].rsplit("#", 1)[1]: row["kind"] for row in rows}
     assert kinds["spec-decode"] == "gpu_mirror"
     assert kinds["amd-spec-decode-mi355"] == "native"
+    # An AMD job other than the paired amd-<key> one is `native` (never
+    # coverage), but its step's CUDA job is still named.
+    by_id = {row["definition_id"].rsplit("#", 1)[1]: row for row in rows}
+    cuda = next(row for row in source.source_steps(snapshot) if row["key"] == "spec-decode")
+    extra = by_id["amd-spec-decode-mi355"]
+    assert extra["upstream_label"] is None and extra["nvidia_definition_id"] is None
+    assert (extra["step_cuda_definition_id"], extra["step_cuda_label"]) == (
+        cuda["definition_id"], cuda["label"])
+    assert by_id["spec-decode"]["step_cuda_label"] == cuda["label"]
+    assert by_id["amd-only-amd"]["kind"] == "native"
+    assert by_id["amd-only-amd"]["step_cuda_definition_id"] is None
+    assert "no upstream CUDA definition" not in parity.INVENTORY_KINDS["native"]
 
 
 def test_config_parity_reads_the_same_amd_jobs_in_both_forms():

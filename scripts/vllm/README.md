@@ -446,7 +446,10 @@ required blocking gates are distinct counts, with optional and soft-fail routes
 shown separately. The AMD test-group inventory (`mirror_inventory`) lists every
 AMD job definition on that commit, one row per definition with a `kind` of
 `gpu_mirror` (an AMD job paired with a CUDA job of the same step),
-`cpu_mirror` (a paired AMD job with `no_gpu`), or `native` (native AMD step);
+`cpu_mirror` (a paired AMD job with `no_gpu`), or `native` (an AMD job not
+paired with a CUDA job: an AMD-only step, or another AMD device, `same_as`
+copy or variant of a `devices:` step; `step_cuda_label` names that step's
+CUDA job when it has one);
 only GPU mirrors feed coverage. Steps are read in both forms: the
 `devices:` form (one job per device, compiled with the rules vendored from
 ci-infra in `buildkite_devices.py`) and the legacy `device` + `mirror.amd`

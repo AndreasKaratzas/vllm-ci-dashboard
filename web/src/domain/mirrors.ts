@@ -1,7 +1,8 @@
 // CI Health "AMD test groups" view (view id 'mirrors') and the Overview summary:
 // ports of docs/assets/js/amd-mirror-inventory.js with the classic UI helpers
 // inlined. The inventory lists every AMD test group on vLLM main: GPU and
-// CPU-only AMD jobs paired with a CUDA job plus native AMD steps.
+// CPU-only AMD jobs paired with a CUDA job plus native AMD jobs (not paired
+// with one: AMD-only steps and further AMD jobs of a devices: step).
 import { integer, value, type Rec, type Tone } from './format'
 import { hardwareDisplayLabel } from './health'
 import { compareText } from './healthHardware'
@@ -273,7 +274,7 @@ export function amdMirrorDetail(row: Rec, inventory: Rec | null | undefined) {
 
 export function amdTestGroupSubtitle(row: Rec | null | undefined): string {
   const kind = amdTestGroupKind(row)
-  if (kind === 'native') return 'Native AMD step on vLLM main'
+  if (kind === 'native') return 'AMD job not paired with a CUDA job on vLLM main'
   if (kind === 'cpu_mirror') return 'CPU-only AMD job paired with a CUDA job on vLLM main'
   return 'AMD GPU job paired with a CUDA job on vLLM main'
 }
@@ -391,7 +392,7 @@ export function amdMirrorInventoryView(inventory: Rec | null | undefined) {
               ? 'The total is exact; the hardware breakdown is unavailable because published detail is incomplete.'
               : !state.kindsPublished
                 ? 'Each group is one GPU mirror.amd declaration on vLLM main.'
-                : 'Each group is one AMD job definition on vLLM main: a GPU or CPU-only AMD job paired with a CUDA job, or a native AMD step.'),
+                : 'Each group is one AMD job definition on vLLM main: a GPU or CPU-only AMD job paired with a CUDA job, or an AMD job not paired with one.'),
       legend: breakdownComplete && hardwareRows.length ? hardwareRows : [],
     },
     configuration: {

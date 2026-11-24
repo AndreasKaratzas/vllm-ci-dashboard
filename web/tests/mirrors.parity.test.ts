@@ -413,7 +413,7 @@ describe('AMD mirror helpers on hand-written inputs', () => {
       'gpu_mirror',
     ])
     expect([{ kind: 'native' }, { kind: 'cpu_mirror' }, {}].map((row) => v2.amdTestGroupSubtitle(row))).toEqual([
-      'Native AMD step on vLLM main',
+      'AMD job not paired with a CUDA job on vLLM main',
       'CPU-only AMD job paired with a CUDA job on vLLM main',
       'AMD GPU job paired with a CUDA job on vLLM main',
     ])

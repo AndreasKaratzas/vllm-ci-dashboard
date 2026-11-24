@@ -1,7 +1,7 @@
 /**
  * Lazy AMD test-group inventory renderer for the CI Health mirrors view: every
  * AMD test group on vLLM main (GPU and CPU-only AMD jobs paired with a CUDA job plus
- * native AMD steps).
+ * native AMD jobs not paired with one).
  */
 (function (global) {
   'use strict';
@@ -71,7 +71,7 @@
 
   function amdTestGroupSubtitle(row) {
     const kind = amdTestGroupKind(row);
-    if (kind === 'native') return 'Native AMD step on vLLM main';
+    if (kind === 'native') return 'AMD job not paired with a CUDA job on vLLM main';
     if (kind === 'cpu_mirror') return 'CPU-only AMD job paired with a CUDA job on vLLM main';
     return 'AMD GPU job paired with a CUDA job on vLLM main';
   }
@@ -376,7 +376,7 @@
             ? 'The total is exact; the hardware breakdown is unavailable because published detail is incomplete.'
             : !inventoryState.kindsPublished
               ? 'Each group is one GPU mirror.amd declaration on vLLM main.'
-              : 'Each group is one AMD job definition on vLLM main: a GPU or CPU-only AMD job paired with a CUDA job, or a native AMD step.')
+              : 'Each group is one AMD job definition on vLLM main: a GPU or CPU-only AMD job paired with a CUDA job, or an AMD job not paired with one.')
     ));
     if (inventoryState.kindsExact || inventoryState.rows.length) {
       copy.append(ui.n('p', 'ops-mirror-kind-breakdown', amdTestGroupKindText(inventoryState, ui)));
@@ -653,7 +653,7 @@
 
     host.append(ui.methodDisclosure('How this live count is built', [
       ui.n('span', '', 'The dashboard pins vLLM main to one commit and scans every .buildkite/test_areas/*.yaml file.'),
-      ui.n('span', '', 'Every AMD test group counts once: each AMD job paired with a CUDA job of the same step (an AMD device under devices:, or a legacy mirror.amd mapping; GPU or CPU-only) and each native AMD step (device mi*/amd_mi*). Optional and soft-fail groups are included; parallelism and shard templates do not multiply the total.'),
+      ui.n('span', '', 'Every AMD test group counts once: each AMD job paired with a CUDA job of the same step (an AMD device under devices:, or a legacy mirror.amd mapping; GPU or CPU-only) and each native AMD job: an AMD job not paired with a CUDA job (an AMD-only step on device mi*/amd_mi*, or another AMD device, same_as copy or variant of a devices: step). Optional and soft-fail groups are included; parallelism and shard templates do not multiply the total.'),
       ui.n('span', '', 'Only GPU mirrors feed CUDA-to-AMD upstream coverage; CPU-only mirrors and native AMD steps are inventory only.'),
       ui.n('span', '', 'This physical configuration count is separate from runtime logical groups and current upstream logical route coverage.'),
       source.current_definition_commit_sha || source.main_commit ? ui.externalLink('Open scanned commit ' + String(source.current_definition_commit_sha || source.main_commit || '').slice(0, 12) + ' ↗', 'https://github.com/vllm-project/vllm/commit/' + (source.current_definition_commit_sha || source.main_commit)) : null,
