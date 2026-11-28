@@ -1008,6 +1008,78 @@ def test_legacy_mapping_aggregates_cannot_extend_new_mi_scope_history():
     assert not any(row["workloads"]["main"]["mapped_jobs"] == 999 for row in payload["daily"])
 
 
+def _collect_over_retained_day(monkeypatch, by_queue: dict) -> tuple[dict, dict]:
+    catalog = {
+        lane: {"id": lane, "gpus_per_job": width}
+        for lane, width in (
+            ("amd_mi300_dpx_1", 1), ("amd_mi300_dpx_2", 2), ("amd_mi300_dpx_4", 4),
+        )
+    }
+    monkeypatch.setattr(cwm, "monitored_queues", lambda config: catalog)
+    stats = [cwm._empty_stats() | value for value in by_queue.values()]
+    main = {
+        field: sum(row[field] for row in stats) for field in (*cwm.STAT_FIELDS, "gpu_hours")
+    }
+    main |= {"by_queue": by_queue, "by_pipeline": {"ci": dict(main)}}
+    old_day = cwm._empty_day("2026-07-20")
+    old_day["workloads"]["main"] = main
+    payload = cwm.collect_workload_mapping(
+        "token", _config(),
+        existing={
+            "schema_version": 2, "hardware_scope": "amd_mi_gpu",
+            "execution_scope_contract": cwm.EXECUTION_SCOPE_CONTRACT, "daily": [old_day],
+        },
+        now=NOW, force_days=1, page_fetcher=_slice_aware_fetcher({}),
+    )
+    row = next(row for row in payload["daily"] if row["date"] == "2026-07-20")
+    return payload, row["workloads"]["main"]
+
+
+def test_retained_pre_split_queue_folds_into_its_gpu_size_lane(monkeypatch):
+    """ci-infra#952 split amd_mi300_dpx into width lanes; history must follow."""
+    payload, main = _collect_over_retained_day(monkeypatch, {
+        "amd_mi300_dpx": {"mapped_jobs": 3, "finished_jobs": 3, "mapped_gpu_slots": 3,
+                          "gpu_hours": 1.25},
+        "amd_mi300_dpx_1": {"mapped_jobs": 1, "mapped_gpu_slots": 1, "gpu_hours": 0.5},
+        "amd_mi300_dpx_4": {"mapped_jobs": 1, "mapped_gpu_slots": 4, "gpu_hours": 2.0},
+    })
+
+    assert payload["scope"]["queues"] == ["amd_mi300_dpx_1", "amd_mi300_dpx_2", "amd_mi300_dpx_4"]
+    assert main["by_queue"]["amd_mi300_dpx_1"] == {
+        "mapped_jobs": 4, "started_jobs": 0, "finished_jobs": 3,
+        "mapped_gpu_slots": 4, "gpu_hours": 1.75,
+    }
+    assert set(main["by_queue"]) == {"amd_mi300_dpx_1", "amd_mi300_dpx_4"}
+    assert main["mapped_jobs"] == 5 and main["mapped_gpu_slots"] == 8
+
+
+def test_retained_queue_without_a_current_lane_stays_declared_in_scope(monkeypatch):
+    """Dropping it would break totals == sum(by_queue) == sum(by_pipeline)."""
+    payload, main = _collect_over_retained_day(monkeypatch, {
+        "amd_mi325_8": {"mapped_jobs": 2, "mapped_gpu_slots": 16, "gpu_hours": 4.0},
+        "amd_mi300_dpx": {"mapped_jobs": 2, "mapped_gpu_slots": 3, "gpu_hours": 1.0},
+    })
+
+    assert set(main["by_queue"]) == {"amd_mi325_8", "amd_mi300_dpx"}
+    assert set(main["by_queue"]) <= set(payload["scope"]["queues"])
+    assert main["mapped_jobs"] == sum(row["mapped_jobs"] for row in main["by_queue"].values())
+
+
+def test_new_job_on_a_split_dpx_queue_maps_to_its_gpu_size_lane(monkeypatch):
+    """Post-#952 DPX jobs route as queue=amd_mi300_dpx plus a gpu_size tag."""
+    monkeypatch.setattr(cwm, "monitored_queues", lambda config: {
+        "amd_mi300_dpx_2": {"id": "amd_mi300_dpx_2", "gpus_per_job": 2},
+    })
+    job = _job("dpx", "amd_mi300_dpx")
+    job["agent_query_rules"].append("gpu_size=2")
+
+    payload = cwm.collect_workload_mapping(
+        "token", _config(), now=NOW, force_days=1,
+        page_fetcher=_slice_aware_fetcher({"ci": [_build("ci", [job])]}),
+    )
+
+    assert payload["totals"]["main"]["by_queue"]["amd_mi300_dpx_2"]["mapped_gpu_slots"] == 2
+
 def _mi_cpu_index(commit=SOURCE_COMMIT):
     return {"version": 2, "commit_sha": commit, "definition_tree_sha": "b" * 40,
             "cpu_routes": [{"key": "torch-abi", "label": "Torch ABI", "agent_pool": "mi250_1"}]}

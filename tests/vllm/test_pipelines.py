@@ -52,6 +52,8 @@ def test_both_current_populations_have_the_same_authority_and_nightly_filter():
     ({"agent_queue": "amd_mi250", "agent_query_rules": ["queue=amd_mi250", "gpu_size=8"]}, "amd_mi250", "amd_mi250_8"),
     ({"agent_query_rules": ["queue=amd_mi250"]}, "amd_mi250", "amd_mi250"),
     ({"agent_query_rules": ["queue=amd_mi300_1", "gpu_size=4"]}, "amd_mi300_1", "amd_mi300_1"),
+    ({"agent_query_rules": ["queue=amd_mi300_dpx", "gpu_size=2"]}, "amd_mi300_dpx", "amd_mi300_dpx_2"),
+    ({"agent_query_rules": ["queue=amd_mi355_dpx"]}, "amd_mi355_dpx", "amd_mi355_dpx"),
 ])
 def test_shared_mi_queue_folds_gpu_size_into_its_logical_pool(job, physical, logical):
     assert _physical_job_queue(job) == physical

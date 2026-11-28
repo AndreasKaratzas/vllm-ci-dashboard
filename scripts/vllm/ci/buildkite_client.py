@@ -19,7 +19,7 @@ import requests
 from . import config as cfg
 from ..buildkite_request_guard import BuildkiteRequestGuardError
 from ..private_ci_cache_budget import PRIVATE_CI_CACHE_BUDGET
-from ..pipelines import _SHARED_MI_QUEUE_RE, _job_queue
+from ..pipelines import _UNFOLDED_MI_QUEUE_RE, _job_queue
 
 log = logging.getLogger(__name__)
 
@@ -358,7 +358,7 @@ def _decode_nightly_roster_payload(payload: object) -> dict | None:
     ):
         return None
     # Shards projected before gpu_size folding lost the per-width pool; refetch.
-    if any(_SHARED_MI_QUEUE_RE.fullmatch(job.get("agent_queue") or "") for job in raw_build["jobs"]):
+    if any(_UNFOLDED_MI_QUEUE_RE.fullmatch(job.get("agent_queue") or "") for job in raw_build["jobs"]):
         return None
     return projected
 

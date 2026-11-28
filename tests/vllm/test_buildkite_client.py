@@ -791,6 +791,10 @@ class TestFetchNightlyBuilds:
         assert bk._decode_nightly_roster_payload(payload) is None
         job["agent_queue"] = "amd_mi250_1"
         assert bk._decode_nightly_roster_payload(payload) == payload["build"]
+        job["agent_queue"] = "amd_mi300_dpx"
+        assert bk._decode_nightly_roster_payload(payload) is None
+        job["agent_queue"] = "amd_mi355_dpx"
+        assert bk._decode_nightly_roster_payload(payload) == payload["build"]
 
     def test_sharded_cache_prunes_builds_older_than_retention(self, tmp_path):
         old = {
