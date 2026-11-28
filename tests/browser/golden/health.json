@@ -516,7 +516,7 @@
   },
   "mirrors": {
     "total": "10",
-    "meta": "Each group is one AMD YAML definition on vLLM main: a GPU or CPU-only mirror.amd declaration, or a native AMD step.",
+    "meta": "Each group is one AMD job definition on vLLM main: a GPU or CPU-only AMD job paired with a CUDA job, or an AMD job not paired with one.",
     "legend": [
       [
         "8",
@@ -546,7 +546,7 @@
         "https://github.com/vllm-project/vllm/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/.buildkite/test_areas/browser_fixture.yaml"
       ]
     ],
-    "inventorySubtitle": "10 of 10 AMD test-group definitions (mirror.amd and native)",
+    "inventorySubtitle": "10 of 10 AMD test-group definitions (paired and native)",
     "preview": [
       [
         ":amd: (MI300) Attention Kernels Shard 1",

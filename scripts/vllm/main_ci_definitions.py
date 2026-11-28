@@ -25,6 +25,7 @@ from typing import Any
 import requests
 import yaml
 
+from vllm.buildkite_devices import DeviceStepError, amd_job_fields, expand_steps_indexed
 from vllm.reviewed_definition_labels import definition_title
 
 
@@ -97,7 +98,13 @@ def source_steps(
             continue
         if not isinstance(document, dict) or not isinstance(document.get("steps", []), list):
             raise ValueError(f"main CI definition file is malformed: {path}")
-        for index, step in enumerate(document.get("steps", [])):
+        # A `devices:` step stands for several jobs; each compiled step keeps
+        # the index of the step written in the file.
+        try:
+            expanded = expand_steps_indexed(document)
+        except DeviceStepError as exc:
+            raise ValueError(f"main CI definition does not compile: {path}: {exc}") from exc
+        for index, step in expanded:
             if not isinstance(step, dict):
                 raise ValueError(f"main CI definition step is malformed: {path}#{index}")
             key = step.get("key", "")
@@ -157,16 +164,19 @@ def is_amd_definition(step: dict[str, Any]) -> bool:
 def amd_source_steps(
     snapshot: MainCISnapshot, *, include_cpu: bool = False, require_keys: bool = True
 ) -> list[dict[str, Any]]:
-    """Expand exact MI GPU routes; CPU declarations are opt-in for proof joins."""
+    """Expand exact MI GPU routes; CPU declarations are opt-in for proof joins.
+
+    An ``inline_mirror`` route is the AMD job paired with a CUDA step: its
+    ``mirror.amd`` block, written (legacy form) or compiled from a
+    ``devices:`` step (see buildkite_devices), resolved as the generator
+    resolves it. Any other AMD job is ``native_amd``."""
     routes = []
     for step in source_steps(snapshot, require_keys=require_keys):
         mirror = step.get("mirror")
         amd = mirror.get("amd") if isinstance(mirror, dict) else None
         if isinstance(amd, dict) and amd:
-            inherited = {key: value for key, value in step.items() if key != "mirror"}
             route = {
-                **inherited,
-                **amd,
+                **amd_job_fields(step, amd),
                 "definition_id": step["definition_id"],
                 "upstream_definition_id": step["definition_id"],
                 "source_kind": "inline_mirror",

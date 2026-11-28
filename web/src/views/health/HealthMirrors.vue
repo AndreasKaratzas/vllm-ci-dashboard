@@ -61,8 +61,8 @@ const share = (n: number) => (total.value ? `${((n / total.value) * 100).toFixed
 
 // What each kind of AMD test group is, and whether it feeds upstream coverage.
 const KIND_HINTS: Record<TestGroupKind, string> = {
-  gpu_mirror: 'mirror.amd on a GPU; counts toward upstream coverage',
-  cpu_mirror: 'mirror.amd with no_gpu; inventory only',
+  gpu_mirror: 'AMD GPU job paired with a CUDA job; counts toward upstream coverage',
+  cpu_mirror: 'paired AMD job with no_gpu; inventory only',
   native: 'AMD-only steps on MI devices; inventory only',
 }
 const kindFootnote = (kind: { key: TestGroupKind; count: number; display: string }) =>

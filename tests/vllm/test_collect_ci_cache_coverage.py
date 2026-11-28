@@ -885,8 +885,10 @@ def test_shared_label_and_queue_keep_distinct_source_families(monkeypatch):
     report, build = _shared_route_lm_eval_report(monkeypatch)
     commit, definitions = _amd_source_definition_catalog(report)
     assert catalog_definitions_from_report(report) == (commit, definitions)
+    # Both AMD jobs run on mi355_dpx, a one-GPU pool, so both carry its GPU
+    # count (the generator's) and share an identity; the families stay apart.
     assert {family for _label, _pool, family, _source in definitions.values()} == {
-        "lm eval small models", "lm eval small models (1 gpus)"}
+        "lm eval small models (1 gpus)::1", "lm eval small models (1 gpus)::2"}
     rows = _current_scope_results([TestResult(**_record(job["name"], build_num=95663, job_id=job["id"]))
                                    for job in build["jobs"]], "amd", build)
     attested = _attest_amd_source_results(rows, build, commit, definitions)

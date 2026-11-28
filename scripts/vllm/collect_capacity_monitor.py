@@ -5,9 +5,10 @@ The dashboard's live queue snapshot answers "what is running right now?".
 This collector answers the slower-moving companion question: "how much work
 could our AMD mirror test surface create relative to the queues we own?"
 
-It scans upstream ``.buildkite/test_areas/*.yaml`` files for ``mirror.amd``
-definitions, counts their dependency scope, and writes a compact JSON payload
-for the Queue Monitor's Capacity Monitor subview.
+It scans upstream ``.buildkite/test_areas/*.yaml`` files for AMD jobs paired
+with a CUDA job (an AMD device of a ``devices:`` step, or a legacy
+``mirror.amd`` block), counts their dependency scope, and writes a compact
+JSON payload for the Queue Monitor's Capacity Monitor subview.
 """
 
 from __future__ import annotations
@@ -34,6 +35,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vllm.amd_queue_registry import lanes, load_registry, registry_provenance  # noqa: E402
 from vllm.bounded_json import pretty_json_bytes, write_pretty_json_lkg  # noqa: E402
+from vllm.buildkite_devices import (  # noqa: E402
+    DeviceStepError,
+    amd_job_fields,
+    expand_steps_indexed,
+)
 from vllm.dashboard_storage_budget import writer_max_bytes  # noqa: E402
 
 
@@ -390,7 +396,9 @@ def normalize_dependency_list(raw: Any) -> list[str]:
         if not dep or "$" in dep:
             continue
         deps.append(dep.lstrip("./"))
-    return deps
+    # A dependency list is a set (an exclusion applies to every entry), and a
+    # `devices:` step lists the shared entries before a device's own.
+    return sorted(set(deps))
 
 
 def _path_within(root: Path, path: Path) -> bool:
@@ -486,7 +494,13 @@ def parse_amd_mirror_groups(repo_root: Path) -> list[dict[str, Any]]:
         steps = parsed.get("steps", [])
         if not isinstance(steps, list):
             raise ValueError(f"{yaml_path} must contain a steps list")
-        for idx, step in enumerate(steps):
+        try:
+            # A `devices:` step compiles to its CUDA step, whose `mirror.amd`
+            # is the paired AMD job, plus a step per other job.
+            expanded = expand_steps_indexed(parsed)
+        except DeviceStepError as exc:
+            raise ValueError(f"{yaml_path} does not compile: {exc}") from exc
+        for idx, step in expanded:
             if not isinstance(step, dict):
                 raise ValueError(f"{yaml_path} steps[{idx}] must be a mapping")
             mirror = step.get("mirror")
@@ -499,14 +513,14 @@ def parse_amd_mirror_groups(repo_root: Path) -> list[dict[str, Any]]:
                 clean_text(step.get("label")) or clean_text(step.get("key")) or f"{area} #{idx + 1}"
             )
             key = clean_text(step.get("key")) or slugify(label)
-            device = clean_text(amd.get("device") or step.get("device"))
+            # The AMD job as the generator runs it, in either form.
+            job = amd_job_fields(step, amd)
+            device = clean_text(job.get("device"))
             queue = queue_from_device(device)
-            dependencies = normalize_dependency_list(
-                amd.get("source_file_dependencies") or step.get("source_file_dependencies")
-            )
+            dependencies = normalize_dependency_list(job.get("source_file_dependencies"))
             scope = dependency_scope(repo_root, dependencies)
-            parallelism = max(1, _safe_int(amd.get("parallelism") or step.get("parallelism"), 1))
-            timeout = _safe_int(amd.get("timeout_in_minutes") or step.get("timeout_in_minutes"), 0)
+            parallelism = max(1, _safe_int(job.get("parallelism"), 1))
+            timeout = _safe_int(job.get("timeout_in_minutes"), 0)
             groups.append(
                 {
                     "key": key,
@@ -520,7 +534,7 @@ def parse_amd_mirror_groups(repo_root: Path) -> list[dict[str, Any]]:
                     "in_capacity_scope": queue in CAPACITY_BY_QUEUE,
                     "parallelism": parallelism,
                     "timeout_in_minutes": timeout,
-                    "optional": bool(amd.get("optional", step.get("optional"))),
+                    "optional": bool(job.get("optional")),
                     "source_file_dependencies": dependencies,
                     "dependency_file_count": scope["file_count"],
                     "dependency_lines": scope["line_count"],
@@ -881,7 +895,7 @@ def build_capacity_payload(
                 "capacity because it is retiring."
             ),
             "projection_model": (
-                "Linear sensitivity scaling of current mirror.amd group count, "
+                "Linear sensitivity scaling of current paired AMD job count, "
                 "configured parallelism, GPU demand, and source dependency scope. "
                 "It is a planning scenario, not a forecast of simultaneous demand."
             ),

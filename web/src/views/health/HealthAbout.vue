@@ -35,7 +35,7 @@ const commit = computed(() => mirrorCommit((props.ops?.test_group_parity || {}).
   <template v-else>
     <p>The dashboard pins vLLM main to one commit and scans every .buildkite/test_areas/*.yaml file.</p>
     <p>
-      Every AMD test group counts once: each top-level YAML step with a non-empty mirror.amd mapping (GPU or CPU-only) and each native AMD step (device mi* or amd_mi*).
+      Every AMD test group counts once: each AMD job paired with a CUDA job of the same step (an AMD device under devices:, or a legacy mirror.amd mapping; GPU or CPU-only) and each native AMD job: an AMD job not paired with a CUDA job (an AMD-only step on device mi* or amd_mi*, or another AMD device, same_as copy or variant of a devices: step).
       Optional and soft-fail groups are included; parallelism and shard templates do not multiply the total.
     </p>
     <p>Only GPU mirrors feed upstream route coverage; CPU-only mirrors and native AMD steps are inventory only. This physical configuration count is separate from runtime logical groups.</p>

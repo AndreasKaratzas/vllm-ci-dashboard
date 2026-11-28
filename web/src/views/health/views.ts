@@ -25,7 +25,7 @@ const INFO: Record<HealthViewId, HealthViewInfo> = {
     sources: ['amd_test_matrix', 'ci_health'],
   },
   mirrors: {
-    description: 'Every AMD test group on vLLM main: GPU and CPU-only mirror.amd declarations plus native AMD steps, parsed from every .buildkite/test_areas YAML file.',
+    description: 'Every AMD test group on vLLM main: GPU and CPU-only AMD jobs paired with a CUDA job plus native AMD steps, parsed from every .buildkite/test_areas YAML file.',
     sources: ['test_group_parity'],
   },
 }

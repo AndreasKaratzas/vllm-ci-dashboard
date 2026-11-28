@@ -444,9 +444,16 @@ Parity and AMD mirrors are derived from an immutable upstream `main` commit;
 classification policy, rather than a frozen coverage inventory. Coverage and
 required blocking gates are distinct counts, with optional and soft-fail routes
 shown separately. The AMD test-group inventory (`mirror_inventory`) lists every
-AMD YAML definition on that commit, one row per definition with a `kind` of
-`gpu_mirror`, `cpu_mirror` (mirror.amd with `no_gpu`), or `native` (native AMD
-step); only GPU mirrors feed coverage. Runtime definitions remain pinned to the observed nightly.
+AMD job definition on that commit, one row per definition with a `kind` of
+`gpu_mirror` (an AMD job paired with a CUDA job of the same step),
+`cpu_mirror` (a paired AMD job with `no_gpu`), or `native` (an AMD job not
+paired with a CUDA job: an AMD-only step, or another AMD device, `same_as`
+copy or variant of a `devices:` step; `step_cuda_label` names that step's
+CUDA job when it has one);
+only GPU mirrors feed coverage. Steps are read in both forms: the
+`devices:` form (one job per device, compiled with the rules vendored from
+ci-infra in `buildkite_devices.py`) and the legacy `device` + `mirror.amd`
+form. Runtime definitions remain pinned to the observed nightly.
 An MI queue is physical routing evidence; it cannot override an exact source
 step marked `no_gpu`. Compact private execution indexes bind these exclusions
 to each full runtime commit and its verified Git definition tree. The manual

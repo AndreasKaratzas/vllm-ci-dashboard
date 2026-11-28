@@ -83,9 +83,13 @@ def _commands(step: dict[str, Any]) -> list[str]:
 
 
 INVENTORY_KINDS = {
-    "gpu_mirror": "Inline mirror.amd declaration that runs on an AMD GPU",
-    "cpu_mirror": "Inline mirror.amd declaration that runs CPU-only (no_gpu) on an AMD agent",
-    "native": "Native AMD step (device mi*/amd_mi*) with no upstream CUDA definition",
+    "gpu_mirror": "AMD job paired with a CUDA job of the same step (an AMD device under devices:, or an inline mirror.amd) that runs on an AMD GPU",
+    "cpu_mirror": "AMD job paired with a CUDA job of the same step that runs CPU-only (no_gpu) on an AMD agent",
+    "native": (
+        "AMD job not paired with a CUDA job: an AMD-only step (device mi*/amd_mi*), or an AMD job"
+        " of a devices: step other than its paired amd-<key> job (another AMD device, a same_as"
+        " copy, a variant); step_cuda_label names the step's CUDA job when it has one"
+    ),
 }
 
 
@@ -99,11 +103,22 @@ def test_group_inventory_rows(
     snapshot: MainCISnapshot, steps: list[dict[str, Any]] | None = None
 ) -> list[dict[str, Any]]:
     """One row per AMD YAML definition on main: GPU mirrors, CPU-only mirrors, native steps."""
-    step_index = {row["definition_id"]: row for row in steps or source_steps(snapshot)}
+    steps = steps or source_steps(snapshot)
+    step_index = {row["definition_id"]: row for row in steps}
+    # The CUDA job of each written step (a `devices:` step compiles to several
+    # jobs, all with its yaml index): the paired one if any, else the first.
+    step_cuda: dict[tuple[str, int], dict[str, Any]] = {}
+    for row in steps:
+        if is_cuda_definition(row):
+            written = (row["source_file"], row["yaml_index"])
+            if written not in step_cuda or (row.get("mirror") and not step_cuda[written].get("mirror")):
+                step_cuda[written] = row
     rows = []
     for route in amd_source_steps(snapshot, include_cpu=True):
         kind = inventory_kind(route)
         upstream = step_index.get(route["upstream_definition_id"]) if kind != "native" else None
+        written = upstream or route
+        cuda_job = step_cuda.get((written.get("source_file"), written.get("yaml_index")))
         required = route_is_required(route)
         rows.append(
             {
@@ -113,6 +128,10 @@ def test_group_inventory_rows(
                 "source_file": route["source_file"],
                 "upstream_label": upstream["label"] if upstream else None,
                 "nvidia_label": upstream["label"] if upstream else None,
+                # The step's CUDA job, also for an AMD job that is not paired
+                # with it (inventory only; never coverage).
+                "step_cuda_definition_id": cuda_job["definition_id"] if cuda_job else None,
+                "step_cuda_label": cuda_job["label"] if cuda_job else None,
                 "amd_label": route.get("label"),
                 "amd_key": route.get("key") or None,
                 "device": route.get("device"),
@@ -289,7 +308,7 @@ def build_payload(
         "mirror_inventory": {
             "source": source,
             "scope": {
-                "count_basis": "Every AMD test group in current main ci: one row per YAML definition (inline mirror.amd declaration or native AMD step); parallelism and shards count once.",
+                "count_basis": "Every AMD test group in current main ci: one row per AMD job definition (an AMD job paired with a CUDA job, or a native AMD step); parallelism and shards count once.",
                 "kinds": dict(INVENTORY_KINDS),
                 "coverage_note": "Only GPU mirrors feed CUDA-to-AMD coverage; CPU-only mirrors and native AMD steps are inventory only.",
             },

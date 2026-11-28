@@ -1,7 +1,9 @@
 """YAML config parity analysis for vLLM CI pipelines.
 
 Compares test step definitions between:
-- AMD: inline mirrors and native AMD routes in .buildkite/test_areas/*.yaml
+- AMD: inline mirrors (the AMD job paired with a CUDA job of the same step:
+  a legacy ``mirror.amd`` block or an AMD device of a ``devices:`` step) and
+  native AMD routes in .buildkite/test_areas/*.yaml
 - NVIDIA: .buildkite/test_areas/*.yaml
 
 Fetches files directly from the upstream vLLM GitHub repo (main branch)
@@ -33,6 +35,7 @@ import requests
 import yaml
 
 from vllm.bounded_json import pretty_json_bytes
+from vllm.buildkite_devices import amd_job_fields, expand_steps_indexed
 from vllm.ci.analyzer import (
     _amd_declared_label_signature,
     _normalize_job_name,
@@ -469,8 +472,8 @@ def _parse_nvidia_data(
             continue
         group_name = data.get('group', Path(filename).stem)
 
-        for yaml_index, item in enumerate(data.get('steps', [])):
-            if not is_cuda_definition(item):
+        for yaml_index, item in expand_steps_indexed(data):
+            if not isinstance(item, dict) or not is_cuda_definition(item):
                 continue
             step = _parse_step(item, filename, group_name, yaml_index)
             nvidia_steps.append(step)
@@ -484,15 +487,17 @@ def _parse_nvidia_data(
                 )
                 if not amd_cfg:
                     continue
-                if is_cpu_only_definition({**item, **amd_cfg}):
+                if is_cpu_only_definition(amd_job_fields(item, amd_cfg)):
                     continue
+                # The AMD job's commands override the CUDA ones only when they
+                # differ: a `devices:` step writes shared commands once, at the
+                # step level, and its AMD job (an exact block) carries them.
                 amd_cmds_raw = amd_cfg.get('commands')
-                commands_overridden = amd_cmds_raw is not None
-
-                if commands_overridden:
+                if amd_cmds_raw is not None:
                     amd_cmds = _flatten_commands(amd_cmds_raw)
                 else:
                     amd_cmds = list(step.commands)
+                commands_overridden = amd_cmds != list(step.commands)
 
                 mirrors.append({
                     "nvidia_label": step.label,
