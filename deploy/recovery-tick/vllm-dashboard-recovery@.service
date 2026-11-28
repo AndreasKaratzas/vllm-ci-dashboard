@@ -1,0 +1,19 @@
+[Unit]
+Description=Wake the guarded vLLM dashboard %i workflow
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+StateDirectory=vllm-dashboard-recovery-%i
+StateDirectoryMode=0700
+EnvironmentFile=/etc/vllm-dashboard-recovery.env
+ExecStart=/usr/bin/python3 /opt/vllm-dashboard-recovery/external_recovery_tick.py --workflow %i.yml --state-directory /var/lib/vllm-dashboard-recovery-%i/dispatch
+TimeoutStartSec=60
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=

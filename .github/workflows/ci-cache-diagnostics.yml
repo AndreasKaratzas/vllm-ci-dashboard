@@ -1,0 +1,104 @@
+name: CI Cache Diagnostics
+# cspell:ignore PYTHONDONTWRITEBYTECODE
+
+on:
+  workflow_dispatch:
+    inputs:
+      cache_key:
+        description: Exact existing analytics cache key
+        required: true
+        type: string
+      build_number:
+        description: One CI main build number
+        required: true
+        type: string
+      full_commit:
+        description: Expected full immutable build commit
+        required: true
+        type: string
+      checkpoint_cache_key:
+        description: Optional exact parsed checkpoint key from the same collection attempt
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  evidence:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: ${{ github.workspace }}/scripts
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: '3.12.13'
+
+      - name: Validate exact diagnostic inputs
+        id: request
+        env:
+          CACHE_KEY: ${{ inputs.cache_key }}
+          BUILD_NUMBER: ${{ inputs.build_number }}
+          FULL_COMMIT: ${{ inputs.full_commit }}
+          CHECKPOINT_CACHE_KEY: ${{ inputs.checkpoint_cache_key }}
+        run: python scripts/vllm/export_ci_cache_evidence.py --validate-inputs
+
+      - name: Install validation dependencies
+        run: pip install -c constraints.txt requests pyyaml
+
+      - name: Restore only the exact existing analytics cache
+        id: restored
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          # Keep the producer path: it contributes to Actions cache versioning.
+          path: data/vllm/ci/.cache/analytics-builds-v1
+          key: ${{ steps.request.outputs.cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Restore only the exact optional parsed checkpoint
+        id: checkpoint
+        if: steps.request.outputs.checkpoint_cache_key != ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: data/vllm/ci/.cache/ci-backfill-v1
+          key: ${{ steps.request.outputs.checkpoint_cache_key }}
+          fail-on-cache-miss: true
+
+      - name: Export one validated AMD MI CI build
+        id: export
+        env:
+          CACHE_KEY: ${{ steps.request.outputs.cache_key }}
+          BUILD_NUMBER: ${{ steps.request.outputs.build_number }}
+          FULL_COMMIT: ${{ steps.request.outputs.full_commit }}
+          CACHE_HIT: ${{ steps.restored.outputs.cache-hit }}
+          CACHE_MATCHED_KEY: ${{ steps.restored.outputs.cache-matched-key }}
+          CACHE_DIRECTORY: ${{ github.workspace }}/data/vllm/ci/.cache/analytics-builds-v1
+          CHECKPOINT_CACHE_KEY: ${{ steps.request.outputs.checkpoint_cache_key }}
+          CHECKPOINT_CACHE_HIT: ${{ steps.checkpoint.outputs.cache-hit }}
+          CHECKPOINT_CACHE_MATCHED_KEY: ${{ steps.checkpoint.outputs.cache-matched-key }}
+          CHECKPOINT_DIRECTORY: ${{ github.workspace }}/data/vllm/ci/.cache/ci-backfill-v1
+          EVIDENCE_DIRECTORY: ${{ runner.temp }}/ci-cache-evidence
+        run: python scripts/vllm/export_ci_cache_evidence.py
+
+      - name: Upload only the bounded single-build evidence
+        if: steps.export.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ci-cache-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/ci-cache-evidence/build.json
+            ${{ runner.temp }}/ci-cache-evidence/receipt.json
+            ${{ runner.temp }}/ci-cache-evidence/parsed-results.jsonl
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 9

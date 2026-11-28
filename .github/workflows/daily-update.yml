@@ -1,0 +1,36 @@
+name: Hourly Update
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_full:
+        description: 'Compatibility input; canonical Data Collection always owns publication'
+        required: false
+        default: 'false'
+
+concurrency:
+  # Preserve the historical publication lock while this compatibility shim
+  # hands off to the sole collector/state publisher.
+  group: gh-pages-deploy
+  queue: max
+  cancel-in-progress: false
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  handoff:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch canonical Data Collection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          jq -n '{ref: "main"}' | gh api --method POST \
+            -H "Accept: application/vnd.github+json" \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/hourly-master.yml/dispatches" \
+            --input -
+          echo "Requested canonical Data Collection; this workflow never writes generated data to main."

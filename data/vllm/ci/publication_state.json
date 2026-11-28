@@ -1,0 +1,386 @@
+{
+  "schema_version": 2,
+  "surface_contract_version": 9,
+  "generated_at": "2026-11-28T14:34:12Z",
+  "baseline_ref": "c04c382503b3e1af05cfe338f742f5e3cf3e6f99",
+  "mode": "mixed",
+  "degraded_surfaces": [
+    "agent_health",
+    "ci_analytics",
+    "ci_core",
+    "docker_builds",
+    "queue_capacity",
+    "queue_omni",
+    "queue_workload"
+  ],
+  "fresh_degraded_surfaces": [
+    "docker_builds"
+  ],
+  "fallback_surfaces": [
+    "agent_health",
+    "ci_analytics",
+    "ci_core",
+    "queue_capacity",
+    "queue_omni",
+    "queue_workload"
+  ],
+  "degraded_since": {
+    "agent_health": "2026-11-26T02:18:35Z",
+    "ci_analytics": "2026-11-26T02:18:35Z",
+    "ci_core": "2026-11-26T02:18:35Z",
+    "docker_builds": "2026-11-28T13:22:37Z",
+    "queue_capacity": "2026-11-28T14:34:12Z",
+    "queue_omni": "2026-11-28T14:34:12Z",
+    "queue_workload": "2026-11-28T14:34:12Z"
+  },
+  "fallback_since": {
+    "agent_health": "2026-11-26T02:18:35Z",
+    "ci_analytics": "2026-11-26T02:18:35Z",
+    "ci_core": "2026-11-26T02:18:35Z",
+    "queue_capacity": "2026-11-28T14:34:12Z",
+    "queue_omni": "2026-11-28T14:34:12Z",
+    "queue_workload": "2026-11-28T14:34:12Z"
+  },
+  "fallback_max_age_hours": 36,
+  "collector_failures": [
+    {
+      "schema_version": 1,
+      "surface": "ci_core",
+      "collector": "collect_ci.py",
+      "step": "CI data",
+      "reason_class": "dependency-unavailable",
+      "exit_code": 1,
+      "details": {
+        "summary": "08:29:30 WARNING Ignoring unavailable private nightly roster cache for amd (NightlyRosterCacheError) | 08:30:07 INFO Job :amd: (MI355) Distributed failed but log shows only passes \u2014 adding job-level failure (retry log may have overwritten original) | raise self._exception"
+      },
+      "persistence_runs": 1,
+      "alertable": true
+    },
+    {
+      "schema_version": 1,
+      "surface": "ci_analytics",
+      "collector": "collect_analytics.py",
+      "step": "CI analytics",
+      "reason_class": "command-error",
+      "exit_code": 1,
+      "details": {
+        "summary": "File \"/home/runner/work/vllm-ci-dashboard/vllm-ci-dashboard/scripts/vllm/buildkite_request_guard.py\", line 271, in consume | raise BuildkiteRequestAllowanceExhausted( | vllm.buildkite_request_guard.BuildkiteRequestAllowanceExhausted: Buildkite request-start allowance exhausted at 800; request was blocked before transport"
+      },
+      "persistence_runs": 1,
+      "alertable": true
+    },
+    {
+      "schema_version": 1,
+      "surface": "agent_health",
+      "collector": "collect_agent_health.py",
+      "step": "AMD agent health",
+      "reason_class": "timeout",
+      "exit_code": 1,
+      "details": {
+        "summary": "raise self._exception | resp = requests.get(url, headers=headers, params=params, timeout=30)"
+      },
+      "persistence_runs": 1,
+      "alertable": false
+    }
+  ],
+  "collector_failure_streaks": {
+    "4d4fea18f12c2294850e": 1,
+    "dc9f3dde412af03877ee": 1,
+    "bbe10dde8de59267c1cf": 1
+  },
+  "collector_incident_policy": {
+    "alert": true,
+    "reason": "deterministic-or-unclassified-collector-failure",
+    "transient_persistence_runs_required": 2,
+    "max_observed_streak": 1
+  },
+  "incident_policy": {
+    "alert": true,
+    "reason": "deterministic-or-unclassified-collector-failure",
+    "transient_persistence_runs_required": 2,
+    "max_observed_streak": 1
+  },
+  "upstream_retry_observations": [],
+  "upstream_retry_streaks": {},
+  "restored_paths": {
+    "agent_health": [
+      "data/vllm/ci/agent_health.json",
+      "data/vllm/ci/agent_health/infra_failures.jsonl",
+      "data/vllm/ci/agent_health/node_days.jsonl"
+    ],
+    "ci_analytics": [
+      "data/vllm/ci/analytics.json"
+    ],
+    "ci_core": [
+      "data/vllm/ci/amd_test_matrix.json",
+      "data/vllm/ci/ci_health.json",
+      "data/vllm/ci/config_parity.json",
+      "data/vllm/ci/failure_trends.json",
+      "data/vllm/ci/flaky_tests.json",
+      "data/vllm/ci/quarantine.json",
+      "data/vllm/ci/shard_base_catalog.json",
+      "data/vllm/ci/shard_bases.json",
+      "data/vllm/ci/test_group_parity.json",
+      "data/vllm/ci/test_results/2026-11-18_amd.jsonl",
+      "data/vllm/ci/test_results/2026-11-19_amd.jsonl",
+      "data/vllm/ci/test_results/2026-11-20_amd.jsonl",
+      "data/vllm/ci/test_results/2026-11-21_amd.jsonl",
+      "data/vllm/ci/test_results/2026-11-22_amd.jsonl",
+      "data/vllm/ci/test_results/2026-11-23_amd.jsonl",
+      "data/vllm/ci/test_results/2026-11-24_amd.jsonl",
+      "data/vllm/ci/test_results/2026-11-25_amd.jsonl",
+      "data/vllm/ci/test_results/retention.json",
+      "data/vllm/test_results.json"
+    ],
+    "queue_capacity": [
+      "data/vllm/ci/capacity_monitor.json"
+    ],
+    "queue_omni": [
+      "data/vllm/ci/omni_surge_heuristic.json"
+    ],
+    "queue_workload": [
+      "data/vllm/ci/workload_mapping.json"
+    ]
+  },
+  "restored_manifest": {
+    "agent_health": {
+      "data/vllm/ci/agent_health.json": {
+        "bytes": 2142879,
+        "sha256": "f082fd82c3041eca0307be5619d46108424a70112401c281a27c4c373b5c9dff"
+      },
+      "data/vllm/ci/agent_health/infra_failures.jsonl": {
+        "bytes": 1036044,
+        "sha256": "2e14cccafaa8a928cacf334d99557d1e783a188d6e15d947f297aa0a9e3c5926"
+      },
+      "data/vllm/ci/agent_health/node_days.jsonl": {
+        "bytes": 917703,
+        "sha256": "cba4deaecd839bd450dc5213531fa786c5c2605338260a3610098f65d47bad19"
+      }
+    },
+    "ci_analytics": {
+      "data/vllm/ci/analytics.json": {
+        "bytes": 29143328,
+        "sha256": "f8798b18a48d7d5df1b65d8db6c1ef08012b09dc0b573facd549e4eb75f47347"
+      }
+    },
+    "ci_core": {
+      "data/vllm/ci/amd_test_matrix.json": {
+        "bytes": 1856238,
+        "sha256": "b33e6ba257be39a8d49f4dcb2b9ccf9d26095cfd5d94fb2f0a6dddb4562c484d"
+      },
+      "data/vllm/ci/ci_health.json": {
+        "bytes": 31121,
+        "sha256": "4f6b93a2ab9390cf37d0b9ac957ddaeffec2edf35999959a3c9c86c13efdbd0e"
+      },
+      "data/vllm/ci/config_parity.json": {
+        "bytes": 1023520,
+        "sha256": "3aeede59a97eca9a7f59f75c507724f0e17f767e6bb7c07392b97aa530a7247f"
+      },
+      "data/vllm/ci/failure_trends.json": {
+        "bytes": 2155,
+        "sha256": "9676a80f3e640eec516cb46a4a4343b2a6e29e09863324722ac012fde2300f76"
+      },
+      "data/vllm/ci/flaky_tests.json": {
+        "bytes": 404,
+        "sha256": "0b1e570031c2586358e4db90ad7c2ad77d32680923813bcdc9f84bf92b7f61b2"
+      },
+      "data/vllm/ci/quarantine.json": {
+        "bytes": 639,
+        "sha256": "25ffe184fd046f9d815627fd0d706dad37a2bec3c6c3ddf2e80432c170378e38"
+      },
+      "data/vllm/ci/shard_base_catalog.json": {
+        "bytes": 26242,
+        "sha256": "63c0bb29ba83d5f39c7d36b675c066636cac1eb13a34ae22c999d2b1de661633"
+      },
+      "data/vllm/ci/shard_bases.json": {
+        "bytes": 3,
+        "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+      },
+      "data/vllm/ci/test_group_parity.json": {
+        "bytes": 511859,
+        "sha256": "d88aa51de58cbed84f34c0697cf4de01c8e14f9a5f26e9577004abebd570886a"
+      },
+      "data/vllm/ci/test_results/2026-11-18_amd.jsonl": {
+        "bytes": 424020,
+        "sha256": "8110a5695fcbc2414e1ce898fd95af2e219ccee67bc6c701c92eb7c1824bc027"
+      },
+      "data/vllm/ci/test_results/2026-11-19_amd.jsonl": {
+        "bytes": 420048,
+        "sha256": "eb5f3efb9b1fbec95538a0e1598cef2a68a0f6cd6327d6f9a24ea9fe1c5e97d7"
+      },
+      "data/vllm/ci/test_results/2026-11-20_amd.jsonl": {
+        "bytes": 418887,
+        "sha256": "1eeb44503c7dd493f3e32dc5860131e3bde69692fcf2c25596edc506e97a8bb3"
+      },
+      "data/vllm/ci/test_results/2026-11-21_amd.jsonl": {
+        "bytes": 413376,
+        "sha256": "9f82bd967f8006ec94a0a6844c71a35216e7edd561fe2bd9d45964fc007398e9"
+      },
+      "data/vllm/ci/test_results/2026-11-22_amd.jsonl": {
+        "bytes": 416598,
+        "sha256": "aebdc557cea14c886f5789d4649f08d5671bddd3fa64752aa6de16b52e413401"
+      },
+      "data/vllm/ci/test_results/2026-11-23_amd.jsonl": {
+        "bytes": 415975,
+        "sha256": "5126ebfeb7808e69367d5836c726cf009db736fc6ac99e4a917c51023463aa17"
+      },
+      "data/vllm/ci/test_results/2026-11-24_amd.jsonl": {
+        "bytes": 420104,
+        "sha256": "8600ba946dbaee7be9f821971616865cbaf8391ff9f0d14076ed3fc6c186b95f"
+      },
+      "data/vllm/ci/test_results/2026-11-25_amd.jsonl": {
+        "bytes": 423422,
+        "sha256": "f72069ac32132ade67e1677e889ee71ebf70f771ff2367123ed6153bd3a5f39d"
+      },
+      "data/vllm/ci/test_results/retention.json": {
+        "bytes": 315,
+        "sha256": "09572d073f7d27d54fedab980f429bc1172fdf7398879d06e20144281cac133c"
+      },
+      "data/vllm/test_results.json": {
+        "bytes": 760,
+        "sha256": "e117e0dcacf7caf7ba0c97e88da8cc474cdce573cec36a944a9508d659f2fd2d"
+      }
+    },
+    "queue_capacity": {
+      "data/vllm/ci/capacity_monitor.json": {
+        "bytes": 277588,
+        "sha256": "a6aeeca89c5ad9e1b05aa94c927cd4081b1bc44f35ee790882c8c9d0eed80b43"
+      }
+    },
+    "queue_omni": {
+      "data/vllm/ci/omni_surge_heuristic.json": {
+        "bytes": 960,
+        "sha256": "feb45813a7ec0c758608a4dbd0c0196d81455c697f525ea37f5c1a405b290d2b"
+      }
+    },
+    "queue_workload": {
+      "data/vllm/ci/workload_mapping.json": {
+        "bytes": 944799,
+        "sha256": "4fe03108282867c3e71a19b69b5b0a162053a7967a23e6b06b72a5600f968093"
+      }
+    }
+  },
+  "unavailable_surfaces": [
+    "agent_health",
+    "ci_analytics",
+    "ci_core"
+  ],
+  "unavailable_since": {
+    "agent_health": "2026-11-28T08:31:13Z",
+    "ci_analytics": "2026-11-28T08:31:13Z",
+    "ci_core": "2026-11-28T08:31:13Z"
+  },
+  "unavailable_reasons": {
+    "agent_health": {
+      "reason": "last-known-good-expired",
+      "codes": [
+        "publication-fallback-expired"
+      ]
+    },
+    "ci_analytics": {
+      "reason": "last-known-good-expired",
+      "codes": [
+        "publication-fallback-expired"
+      ]
+    },
+    "ci_core": {
+      "reason": "last-known-good-expired",
+      "codes": [
+        "publication-fallback-expired"
+      ]
+    }
+  },
+  "final_errors": [],
+  "candidate_errors": [
+    {
+      "severity": "error",
+      "code": "operations-stale-source",
+      "message": "operations source capacity_monitor is 6.2h older than the snapshot; maximum is 6h",
+      "path": "data/vllm/ci/operations_v2.json",
+      "context": {
+        "source": "capacity_monitor"
+      },
+      "surfaces": [
+        "queue_capacity"
+      ]
+    },
+    {
+      "severity": "error",
+      "code": "operations-stale-source",
+      "message": "operations source omni_heuristic is 6.1h older than the snapshot; maximum is 6h",
+      "path": "data/vllm/ci/operations_v2.json",
+      "context": {
+        "source": "omni_heuristic"
+      },
+      "surfaces": [
+        "queue_omni"
+      ]
+    },
+    {
+      "severity": "error",
+      "code": "operations-stale-source",
+      "message": "operations source workload_mapping is 6.2h older than the snapshot; maximum is 6h",
+      "path": "data/vllm/ci/operations_v2.json",
+      "context": {
+        "source": "workload_mapping"
+      },
+      "surfaces": [
+        "queue_workload"
+      ]
+    }
+  ],
+  "final_degradations": [
+    {
+      "severity": "degradation",
+      "code": "docker-builds-stale",
+      "message": "Docker builds source is 7.3h old; maximum is 6h",
+      "path": "data/vllm/ci/docker_builds.json",
+      "surfaces": [
+        "docker_builds"
+      ]
+    }
+  ],
+  "candidate_degradations": [
+    {
+      "severity": "degradation",
+      "code": "docker-builds-stale",
+      "message": "Docker builds source is 7.3h old; maximum is 6h",
+      "path": "data/vllm/ci/docker_builds.json",
+      "surfaces": [
+        "docker_builds"
+      ]
+    }
+  ],
+  "publication_retention": {
+    "policy": "exact_recovery_controls_then_priority_diagnostic_rows_v1",
+    "max_bytes": 65536,
+    "complete_relative_to_source": true,
+    "recovery_controls_complete": true,
+    "diagnostic_findings": {
+      "final_errors": {
+        "source": 0,
+        "published": 0,
+        "omitted": 0,
+        "complete": true
+      },
+      "candidate_errors": {
+        "source": 3,
+        "published": 3,
+        "omitted": 0,
+        "complete": true
+      },
+      "final_degradations": {
+        "source": 1,
+        "published": 1,
+        "omitted": 0,
+        "complete": true
+      },
+      "candidate_degradations": {
+        "source": 1,
+        "published": 1,
+        "omitted": 0,
+        "complete": true
+      }
+    }
+  }
+}
