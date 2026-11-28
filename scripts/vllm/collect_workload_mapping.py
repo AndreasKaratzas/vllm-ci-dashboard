@@ -872,7 +872,24 @@ def _finalize_intervals(
     return rows
 
 
-def _normalize_existing_workload(raw: Any) -> dict:
+def _catalog_lane(queue: str, stats: dict, queue_catalog: dict[str, dict] | None) -> str:
+    """Fold a retained pre-split queue key onto its current gpu_size lane.
+
+    Assumes the pre-split queue ran a single width (slots per job).
+    """
+    if queue_catalog is None or queue in queue_catalog:
+        return queue
+    jobs, slots = stats["mapped_jobs"], stats["mapped_gpu_slots"]
+    if jobs and slots % jobs:
+        return queue
+    width = slots // jobs if jobs else 1
+    lane = f"{queue}_{width}"
+    return lane if (queue_catalog.get(lane) or {}).get("gpus_per_job") == width else queue
+
+
+def _normalize_existing_workload(
+    raw: Any, *, queue_catalog: dict[str, dict] | None = None
+) -> dict:
     result = _empty_workload()
     if not isinstance(raw, dict):
         return result
@@ -894,7 +911,13 @@ def _normalize_existing_workload(raw: Any) -> dict:
                     normalized[field] = round(float(stats.get(field) or 0), 2)
                 else:
                     normalized[field] = int(stats.get(field) or 0)
-            result[dimension][str(name)] = normalized
+            name = str(name)
+            if dimension == "by_queue":
+                name = _catalog_lane(name, normalized, queue_catalog)
+            target = result[dimension].setdefault(name, _empty_stats())
+            for field in STAT_FIELDS:
+                target[field] += normalized[field]
+            target["gpu_hours"] = round(target["gpu_hours"] + normalized["gpu_hours"], 2)
     return result
 
 
@@ -903,6 +926,7 @@ def _normalize_existing_row(
     *,
     key: str,
     now: datetime,
+    queue_catalog: dict[str, dict] | None = None,
 ) -> dict | None:
     raw_key = str(raw.get(key) or "")
     start = parse_iso(raw_key) if key == "hour" else parse_iso(f"{raw_key}T00:00:00Z")
@@ -927,7 +951,9 @@ def _normalize_existing_row(
         key: _utc_iso(start) if key == "hour" else start.date().isoformat(),
         "collection_complete_by_workload": complete_by_workload,
         "workloads": {
-            workload: _normalize_existing_workload((raw.get("workloads") or {}).get(workload))
+            workload: _normalize_existing_workload(
+                (raw.get("workloads") or {}).get(workload), queue_catalog=queue_catalog
+            )
             for workload in ("omni", "main")
         },
     }
@@ -944,12 +970,13 @@ def _merge_buckets(
     cutoff: str,
     ceiling: str,
     now: datetime,
+    queue_catalog: dict[str, dict] | None = None,
 ) -> list[dict]:
     merged: dict[str, dict] = {}
     for raw in existing.get(collection) or []:
         if not isinstance(raw, dict):
             continue
-        row = _normalize_existing_row(raw, key=key, now=now)
+        row = _normalize_existing_row(raw, key=key, now=now, queue_catalog=queue_catalog)
         if row is not None:
             merged[row[key]] = row
     merged.update({row[key]: row for row in replacements})
@@ -1376,6 +1403,7 @@ def collect_workload_mapping(
         cutoff=daily_retention_start.isoformat(),
         ceiling=now.date().isoformat(),
         now=now,
+        queue_catalog=queue_catalog,
     )
     hourly = _merge_buckets(
         existing,
@@ -1385,6 +1413,7 @@ def collect_workload_mapping(
         cutoff=_utc_iso(hourly_retention_start),
         ceiling=_utc_iso(current_hour),
         now=now,
+        queue_catalog=queue_catalog,
     )
 
     window_start = now.date() - timedelta(days=max(1, window_days) - 1)
@@ -1393,6 +1422,11 @@ def collect_workload_mapping(
         row["collection_complete"] for row in window_rows
     )
     collection_start = daily[0]["date"] if daily else now.date().isoformat()
+    # Retained history may name queues that left the catalog with no lane to fold
+    # into; declare them so by_queue still sums to the workload totals.
+    scope_queues = set(queue_catalog).union(
+        *(bucket["by_queue"] for row in (*daily, *hourly) for bucket in row["workloads"].values())
+    )
     repositories = {
         workload: {
             "label": REPOSITORY_LABELS[workload],
@@ -1450,7 +1484,7 @@ def collect_workload_mapping(
             "lower_bound": not window_collection_complete,
         },
         "scope": {
-            "queues": sorted(queue_catalog),
+            "queues": sorted(scope_queues),
             "excluded_queue_classes": list(
                 (config.get("scope") or {}).get("excluded_queue_classes") or []
             ),

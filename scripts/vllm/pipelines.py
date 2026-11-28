@@ -62,7 +62,9 @@ PIPELINES = {
 }
 
 
-_SHARED_MI_QUEUE_RE = re.compile(r"amd_mi\d+", re.I)
+_SHARED_MI_QUEUE_RE = re.compile(r"amd_mi\d+(?:_dpx)?", re.I)
+# Shared queues that always carry a gpu_size tag; a bare name means an unfolded job.
+_UNFOLDED_MI_QUEUE_RE = re.compile(r"amd_mi(?:\d+|300_dpx)", re.I)
 
 
 def _agent_tags(values: object) -> dict[str, str]:
@@ -95,8 +97,8 @@ def _physical_job_queue(job: dict) -> str:
 def _job_queue(job: dict) -> str:
     """Prefer observed agent routing over the display label and request rules.
 
-    Shared MI queues (``amd_mi250``) split GPU widths by a ``gpu_size`` tag;
-    fold it back so jobs keep their per-width ``amd_mi250_N`` pool identity.
+    Shared MI queues (``amd_mi250``, ``amd_mi300_dpx``) split GPU widths by a
+    ``gpu_size`` tag; fold it back so jobs keep their per-width ``amd_mi250_N`` pool identity.
     """
     queue = _physical_job_queue(job)
     if not _SHARED_MI_QUEUE_RE.fullmatch(queue):
